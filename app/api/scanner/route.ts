@@ -91,16 +91,27 @@ export async function POST(req: NextRequest) {
     if (service.mode === 'demo') {
       // The client DemoService persists to browser localStorage (a no-op on
       // the server), so demo scans are stored server-side so nothing is lost.
-      await mkdir(path.dirname(DEMO_SCANS_FILE), { recursive: true });
-      let scans: unknown[] = [];
+      // Serverless platforms (e.g. Vercel) mount a read-only filesystem, so the
+      // file write is best-effort: if it fails, the scan is still accepted and
+      // validated, just not persisted (real persistence arrives with Firestore).
       try {
-        scans = JSON.parse(await readFile(DEMO_SCANS_FILE, 'utf8'));
-      } catch {
-        // first scan
+        await mkdir(path.dirname(DEMO_SCANS_FILE), { recursive: true });
+        let scans: unknown[] = [];
+        try {
+          scans = JSON.parse(await readFile(DEMO_SCANS_FILE, 'utf8'));
+        } catch {
+          // first scan
+        }
+        scans = [...scans.filter((s) => (s as { id?: string }).id !== repository.id), repository];
+        await writeFile(DEMO_SCANS_FILE, JSON.stringify(scans, null, 2));
+        return NextResponse.json({ ok: true, repositoryId: repository.id, stored: 'server-file' }, { status: 202 });
+      } catch (persistErr) {
+        console.warn('demo scan persistence skipped (read-only server fs):', persistErr);
+        return NextResponse.json(
+          { ok: true, repositoryId: repository.id, stored: 'ephemeral', note: 'Demo mode: scan accepted but not persisted (read-only server filesystem).' },
+          { status: 202 },
+        );
       }
-      scans = [...scans.filter((s) => (s as { id?: string }).id !== repository.id), repository];
-      await writeFile(DEMO_SCANS_FILE, JSON.stringify(scans, null, 2));
-      return NextResponse.json({ ok: true, repositoryId: repository.id, stored: 'server-file' }, { status: 202 });
     }
 
     await service.saveRepository(repository);

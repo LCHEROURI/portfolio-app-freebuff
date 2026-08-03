@@ -1,0 +1,11 @@
+# Local Freebuff data (never deploy)
+.freebuff/
+desktop-v2.db*
+
+# Local scanner artifacts
+data/
+
+# Build/deps (already gitignored, explicit for safety)
+node_modules/
+.next/
+out/
