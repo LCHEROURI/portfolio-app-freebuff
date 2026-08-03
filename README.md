@@ -5,6 +5,7 @@
 **One dashboard to run every AI-built version of your app idea.**
 
 [![Live demo](https://img.shields.io/badge/Live%20demo-Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://portfolio-app-freebuff.vercel.app)
+[![CI](https://img.shields.io/github/actions/workflow/status/LCHEROURI/portfolio-app-freebuff/ci.yml?style=for-the-badge&logo=githubactions&logoColor=white&label=CI)](https://github.com/LCHEROURI/portfolio-app-freebuff/actions/workflows/ci.yml)
 [![Next.js](https://img.shields.io/badge/Next.js%2014-black?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Firebase](https://img.shields.io/badge/Firebase-FFCA28?style=for-the-badge&logo=firebase&logoColor=black)](https://firebase.google.com)
