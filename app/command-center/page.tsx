@@ -1,0 +1,201 @@
+'use client';
+
+import Link from 'next/link';
+import {
+  FolderKanban, AlertTriangle, CalendarClock, GitBranch, ArrowUpFromLine, Rocket,
+  HeartPulse, Clock4, ShieldAlert, ArrowRight, ListChecks, TrendingUp,
+} from 'lucide-react';
+
+import { PageHeader } from '@/components/ui/PageHeader';
+import { StatCard, Card, CardHeader } from '@/components/ui/Card';
+import { StatusBadge, PriorityBadge } from '@/components/ui/Badge';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { useStore } from '@/lib/store';
+import {
+  computeMetrics, buildPriorityQueue, buildTopThree, runAutomationRules, timeAgo,
+} from '@/lib/engine';
+import { QUEUE_RULE_LABELS } from '@/lib/labels';
+
+export default function CommandCenterPage() {
+  const store = useStore();
+  const metrics = computeMetrics(store);
+  const queue = buildPriorityQueue(store);
+  const topThree = buildTopThree(store);
+  const alerts = runAutomationRules(store);
+
+  const queueTone = (severity: string) =>
+    severity === 'critical'
+      ? 'border-l-paprika-500 bg-paprika-50 dark:bg-paprika-950/40'
+      : severity === 'high'
+        ? 'border-l-tomato-500 bg-tomato-50 dark:bg-tomato-950/30'
+        : severity === 'medium'
+          ? 'border-l-turmeric-500 bg-turmeric-50 dark:bg-turmeric-950/30'
+          : 'border-l-pepper-400 bg-butter-50 dark:bg-pepper-800';
+
+  return (
+    <div>
+      <PageHeader
+        title="Command Center"
+        description={`${store.projects.filter((p) => !p.archived).length} active implementations tracked across ${new Set(store.versions.map((v) => v.model)).size} models.`}
+        action={
+          <Link href="/projects" className="btn-primary">
+            <FolderKanban size={16} aria-hidden="true" /> New Project
+          </Link>
+        }
+      />
+
+      {/* Summary metrics */}
+      <section aria-label="Summary metrics" className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+        <StatCard label="Active projects" value={metrics.activeProjects} icon={<FolderKanban size={20} aria-hidden="true" />} tone="basil" hint={`${metrics.needingAttention} need attention`} />
+        <StatCard label="Needing attention" value={metrics.needingAttention} icon={<AlertTriangle size={20} aria-hidden="true" />} tone={metrics.needingAttention > 0 ? 'paprika' : 'basil'} />
+        <StatCard label="Overdue tasks" value={metrics.overdueTasks} icon={<CalendarClock size={20} aria-hidden="true" />} tone={metrics.overdueTasks > 0 ? 'tomato' : 'basil'} />
+        <StatCard label="Tasks due today" value={metrics.tasksDueToday} icon={<ListChecks size={20} aria-hidden="true" />} tone="turmeric" />
+        <StatCard label="Uncommitted repos" value={metrics.uncommittedRepos} icon={<GitBranch size={20} aria-hidden="true" />} tone={metrics.uncommittedRepos > 0 ? 'tomato' : 'basil'} />
+        <StatCard label="Unpushed commits" value={metrics.unpushedCommits} icon={<ArrowUpFromLine size={20} aria-hidden="true" />} tone={metrics.unpushedCommits > 0 ? 'tomato' : 'basil'} />
+        <StatCard label="Failed deployments" value={metrics.failedDeployments} icon={<Rocket size={20} aria-hidden="true" />} tone={metrics.failedDeployments > 0 ? 'paprika' : 'basil'} />
+        <StatCard label="Healthy deployments" value={metrics.healthyDeployments} icon={<HeartPulse size={20} aria-hidden="true" />} tone="basil" />
+      </section>
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-3">
+        {/* Priority queue */}
+        <section className="lg:col-span-2" aria-label="Priority queue">
+          <Card>
+            <CardHeader
+              title="Priority Queue"
+              subtitle="Ranked feed — production failures first, stale projects last."
+              action={
+                <Link href="/reports" className="btn-ghost text-sm">
+                  Run report <ArrowRight size={14} aria-hidden="true" />
+                </Link>
+              }
+            />
+            {queue.length === 0 ? (
+              <EmptyState
+                icon={<ShieldAlert size={32} aria-hidden="true" />}
+                title="Queue is clear"
+                description="No projects currently need attention. Nice work."
+              />
+            ) : (
+              <ul className="space-y-2.5">
+                {queue.map((item) => (
+                  <li key={`${item.project.id}-${item.rule}`} className={`rounded-xl2 border border-butter-200 border-l-4 p-4 ${queueTone(item.severity)}`}>
+                    <Link href={`/projects/${item.project.id}`} className="block group">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-semibold uppercase tracking-wide text-pepper-400">
+                            Rule {item.ruleNumber} · {QUEUE_RULE_LABELS[item.rule]}
+                          </p>
+                          <h3 className="mt-0.5 truncate font-semibold text-pepper-900 group-hover:text-tomato-600 dark:text-flour-50 dark:group-hover:text-tomato-300">
+                            {item.title}
+                          </h3>
+                          <p className="mt-0.5 text-sm text-pepper-500 dark:text-pepper-300">{item.description}</p>
+                        </div>
+                        <div className="flex shrink-0 flex-col items-end gap-1.5">
+                          <StatusBadge status={item.project.overallStatus} />
+                          <PriorityBadge priority={item.project.priority} />
+                        </div>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between text-xs text-pepper-400">
+                        <span className="font-medium text-pepper-600 dark:text-pepper-200">{item.project.name}</span>
+                        <span>activity {timeAgo(item.project.lastActivityAt)}</span>
+                      </div>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </section>
+
+        {/* Right column */}
+        <div className="space-y-6">
+          {/* Today's Top Three */}
+          <section aria-label="Today's top three">
+            <Card>
+              <CardHeader
+                title="Today's Top Three"
+                subtitle="Highest-impact actions computed automatically."
+                action={<TrendingUp size={18} className="text-tomato-500" aria-hidden="true" />}
+              />
+              {topThree.length === 0 ? (
+                <p className="text-sm text-pepper-500 dark:text-pepper-300">Nothing urgent. Revisit comparisons and roadmap instead.</p>
+              ) : (
+                <ol className="space-y-3">
+                  {topThree.map((action, i) => (
+                    <li key={i} className="flex gap-3">
+                      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white ${i === 0 ? 'bg-paprika-500' : i === 1 ? 'bg-tomato-500' : 'bg-turmeric-500'}`}>
+                        {i + 1}
+                      </span>
+                      <div>
+                        <p className="text-sm font-semibold leading-snug text-pepper-900 dark:text-flour-50">{action.title}</p>
+                        <p className="mt-0.5 text-xs text-pepper-500 dark:text-pepper-300">{action.description}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </Card>
+          </section>
+
+          {/* Automation alerts */}
+          <section aria-label="Automation alerts">
+            <Card>
+              <CardHeader
+                title="Automation Alerts"
+                subtitle={`${alerts.length} of 14 rules triggered.`}
+                action={
+                  <Link href="/activity" className="btn-ghost text-sm">
+                    Log <ArrowRight size={14} aria-hidden="true" />
+                  </Link>
+                }
+              />
+              {alerts.length === 0 ? (
+                <p className="text-sm text-pepper-500 dark:text-pepper-300">All rules green. 🎉</p>
+              ) : (
+                <ul className="max-h-72 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
+                  {alerts.slice(0, 8).map((a) => (
+                    <li key={`${a.ruleNumber}-${a.title}`} className="flex items-start gap-2 text-sm">
+                      <Clock4 size={15} className="mt-0.5 shrink-0 text-pepper-400" aria-hidden="true" />
+                      <div>
+                        <p className="font-medium text-pepper-800 dark:text-flour-100">
+                          <span className="mr-1 text-xs text-pepper-400">R{a.ruleNumber}</span>
+                          {a.title}
+                        </p>
+                        <p className="text-xs text-pepper-500 dark:text-pepper-300">{a.description}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+          </section>
+
+          {/* Stale watch */}
+          <section aria-label="Stale projects">
+            <Card>
+              <CardHeader title="Stale Watch" subtitle={`No activity for ${store.profile.defaultStaleDays}+ days.`} />
+              {metrics.staleProjects === 0 ? (
+                <p className="text-sm text-pepper-500 dark:text-pepper-300">No stale projects. 🎉</p>
+              ) : (
+                <ul className="space-y-2">
+                  {store.projects
+                    .filter((p) => !p.archived)
+                    .map((p) => ({ p, days: Math.floor((Date.now() - new Date(p.lastActivityAt).getTime()) / 86_400_000) }))
+                    .filter(({ days }) => days >= store.profile.defaultStaleDays)
+                    .sort((a, b) => b.days - a.days)
+                    .slice(0, 5)
+                    .map(({ p, days }) => (
+                      <li key={p.id} className="flex items-center justify-between text-sm">
+                        <Link href={`/projects/${p.id}`} className="font-medium hover:text-tomato-600">{p.name}</Link>
+                        <span className="text-xs text-pepper-400">{days}d idle</span>
+                      </li>
+                    ))}
+                </ul>
+              )}
+            </Card>
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}

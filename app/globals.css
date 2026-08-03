@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  .dark {
+    color-scheme: dark;
+  }
+
+  html {
+    -webkit-tap-highlight-color: transparent;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-flour-50 text-pepper-700 antialiased dark:bg-pepper-900 dark:text-flour-50 transition-colors duration-200;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'tnum';
+  }
+
+  h1, h2, h3, h4 {
+    @apply font-display tracking-tight text-pepper-900 dark:text-flour-50;
+  }
+
+  *:focus-visible {
+    outline: 2px solid theme('colors.basil.500');
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all duration-150
+      disabled:opacity-50 disabled:cursor-not-allowed
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-basil-500
+      focus-visible:ring-offset-2 focus-visible:ring-offset-flour-50 dark:focus-visible:ring-offset-pepper-900;
+  }
+  .btn-primary {
+    @apply btn bg-tomato-500 text-white shadow-warm hover:bg-tomato-600 active:bg-tomato-700 px-4 py-2.5 text-sm;
+  }
+  .btn-secondary {
+    @apply btn border border-basil-300 bg-basil-100 px-4 py-2.5 text-sm text-pepper-700 hover:bg-basil-200
+      dark:border-pepper-600 dark:bg-pepper-800 dark:text-flour-100 dark:hover:bg-pepper-700;
+  }
+  .btn-ghost {
+    @apply btn px-3 py-2 text-sm text-pepper-700 hover:bg-butter-100 dark:text-flour-200 dark:hover:bg-pepper-800;
+  }
+  .btn-danger {
+    @apply btn bg-danger-500 px-4 py-2.5 text-sm text-white hover:bg-danger-700;
+  }
+  .input-base {
+    @apply block w-full rounded-lg border border-butter-300 bg-flour-50 px-3 py-2.5 text-sm text-pepper-700
+      placeholder:text-pepper-400 focus:border-basil-500 focus:ring-2 focus:ring-basil-200 focus:outline-none
+      dark:border-pepper-600 dark:bg-pepper-800 dark:text-flour-50 dark:placeholder:text-pepper-400
+      dark:focus:border-basil-400 dark:focus:ring-basil-900;
+  }
+  .card-base {
+    @apply rounded-xl2 border border-butter-200 bg-butter-50 p-5 shadow-card
+      dark:border-pepper-700 dark:bg-pepper-800 dark:text-flour-100;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-butter-300 bg-butter-50 px-3 py-1 text-xs text-pepper-700 transition-colors hover:bg-butter-100
+      dark:border-pepper-600 dark:bg-pepper-800 dark:text-flour-200 dark:hover:bg-pepper-700;
+  }
+  .chip-active {
+    @apply chip border-tomato-500 bg-tomato-100 text-tomato-700 dark:border-tomato-500 dark:bg-tomato-900/80 dark:text-tomato-200;
+  }
+}
+
+@layer utilities {
+  .pb-safe-bottom {
+    padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-butter-300 dark:bg-pepper-600;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}

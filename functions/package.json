@@ -1,0 +1,22 @@
+{
+  "name": "apcc-functions",
+  "version": "0.1.0",
+  "private": true,
+  "description": "App Portfolio Command Center — scheduled automation engine and report generators.",
+  "main": "lib/index.js",
+  "scripts": {
+    "build": "tsc",
+    "serve": "npm run build && firebase emulators:start --only functions",
+    "deploy": "firebase deploy --only functions"
+  },
+  "engines": {
+    "node": "20"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.7.0",
+    "firebase-functions": "^5.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

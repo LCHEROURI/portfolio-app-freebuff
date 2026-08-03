@@ -1,0 +1,116 @@
+'use client';
+
+import { GitBranch, ExternalLink, ArrowUpFromLine, FileDiff } from 'lucide-react';
+
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Card, CardHeader, StatCard } from '@/components/ui/Card';
+import { Badge } from '@/components/ui/Badge';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { useStore } from '@/lib/store';
+import { timeAgo } from '@/lib/engine';
+import { PROVIDER_LABELS } from '@/lib/labels';
+
+export default function RepositoriesPage() {
+  const store = useStore();
+  const repos = store.repositories.sort((a, b) => b.lastScannedAt.localeCompare(a.lastScannedAt));
+  const unpushed = repos.filter((r) => r.hasUnpushedCommits).length;
+  const dirty = repos.filter((r) => r.hasUncommittedChanges).length;
+
+  const versionLabel = (id?: string) => {
+    if (!id) return 'No linked version';
+    const v = store.versions.find((x) => x.id === id);
+    if (!v) return 'Unknown version';
+    const p = store.projects.find((x) => x.id === v.projectId);
+    return `${p?.name ?? 'Project'} / ${v.versionName}`;
+  };
+
+  return (
+    <div>
+      <PageHeader
+        title="Repositories"
+        description="Git repositories linked to your builds, updated by the local scanner companion."
+      />
+
+      <section aria-label="Repository metrics" className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <StatCard label="Connected repos" value={repos.length} icon={<GitBranch size={20} aria-hidden="true" />} tone="eggplant" />
+        <StatCard label="Unpushed commits" value={unpushed} icon={<ArrowUpFromLine size={20} aria-hidden="true" />} tone={unpushed > 0 ? 'tomato' : 'basil'} />
+        <StatCard label="Uncommitted changes" value={dirty} icon={<FileDiff size={20} aria-hidden="true" />} tone={dirty > 0 ? 'turmeric' : 'basil'} />
+      </section>
+
+      {/* Scanner instructions */}
+      <Card className="mb-6">
+        <CardHeader
+          title="Local Repository Scanner"
+          subtitle="Point the CLI at any local folder to push git metadata to this Command Center (no source code is ever uploaded)."
+        />
+        <div className="space-y-2 text-sm">
+          <p className="text-pepper-600 dark:text-pepper-200">Run from a terminal in the app folder:</p>
+          <pre className="overflow-x-auto rounded-xl2 bg-pepper-900 p-4 font-mono text-xs leading-relaxed text-flour-50">
+{`node scripts/repo-scanner.mjs \\
+  --path ~/dev/weeknight-planner/gemini \\
+  --api http://localhost:3000/api/scanner \\
+  --project-version "v-xxxx"`}
+          </pre>
+          <p className="text-xs text-pepper-400">
+            The scanner reads <code className="font-mono">git status --porcelain</code>, <code className="font-mono">git remote -v</code>,{' '}
+            <code className="font-mono">git branch --show-current</code>, <code className="font-mono">git log -1</code> and{' '}
+            <code className="font-mono">git rev-list --left-right --count</code>, then POSTs metadata to the Command Center API.
+          </p>
+        </div>
+      </Card>
+
+      {repos.length === 0 ? (
+        <EmptyState icon={<GitBranch size={32} aria-hidden="true" />} title="No repositories yet" description="Run the scanner above or link a repository to a version to see it here." />
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {repos.map((r) => (
+            <Card key={r.id} className="flex flex-col">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <h3 className="truncate font-display text-base font-bold">{r.owner}/{r.repositoryName}</h3>
+                  <p className="text-xs text-pepper-400">{PROVIDER_LABELS[r.provider]} · {r.currentBranch}</p>
+                </div>
+                <Badge tone={r.connectionStatus === 'CONNECTED' ? 'basil' : r.connectionStatus === 'AUTH_ERROR' ? 'paprika' : 'turmeric'}>
+                  {r.connectionStatus.replace(/_/g, ' ')}
+                </Badge>
+              </div>
+
+              <p className="mt-1 text-xs text-pepper-500 dark:text-pepper-300">
+                {versionLabel(r.projectVersionId)}
+              </p>
+
+              <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-lg bg-butter-100 p-2 dark:bg-pepper-700">
+                  <p className="text-sm font-bold">{r.commitsAhead}</p>
+                  <p className="text-[10px] uppercase text-pepper-400">ahead</p>
+                </div>
+                <div className="rounded-lg bg-butter-100 p-2 dark:bg-pepper-700">
+                  <p className="text-sm font-bold">{r.commitsBehind}</p>
+                  <p className="text-[10px] uppercase text-pepper-400">behind</p>
+                </div>
+                <div className="rounded-lg bg-butter-100 p-2 dark:bg-pepper-700">
+                  <p className="text-sm font-bold">{r.openPullRequests}</p>
+                  <p className="text-[10px] uppercase text-pepper-400">PRs</p>
+                </div>
+              </div>
+
+              {(r.hasUncommittedChanges || r.hasUnpushedCommits) && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {r.hasUncommittedChanges && <Badge tone="turmeric">uncommitted changes</Badge>}
+                  {r.hasUnpushedCommits && <Badge tone="tomato">unpushed commits</Badge>}
+                </div>
+              )}
+
+              <div className="mt-auto flex items-center justify-between border-t border-butter-200 pt-3 text-xs text-pepper-400 dark:border-pepper-700">
+                <span>scanned {timeAgo(r.lastScannedAt)}</span>
+                <a href={r.repositoryUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-tomato-600 hover:underline dark:text-tomato-300">
+                  Open <ExternalLink size={12} aria-hidden="true" />
+                </a>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

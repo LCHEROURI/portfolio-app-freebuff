@@ -1,0 +1,17 @@
+{
+  "name": "App Portfolio Command Center",
+  "short_name": "Command Center",
+  "description": "One dashboard for every AI-generated implementation of your app concept.",
+  "start_url": "/command-center",
+  "display": "standalone",
+  "background_color": "#FFFDFA",
+  "theme_color": "#E94B23",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
