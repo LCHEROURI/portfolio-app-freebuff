@@ -14,9 +14,11 @@ scheduled daily/weekly reports — in one desktop-first dashboard.
 
 - **Frontend:** Next.js 14 (App Router), React 18, TypeScript
 - **Styling:** Tailwind CSS, Lucide icons, light/dark/system themes
-- **Data:** Firebase Auth + Cloud Firestore (typed, user-isolated) with a fully
-  functional **local demo fallback** (localStorage) when no Firebase project is
-  configured — the app runs out of the box with seeded demo data
+- **Data:** Firebase Auth (email/password + Google) + Cloud Firestore (typed,
+  user-isolated, `firestore.rules`) with a fully functional **local demo
+  fallback** (localStorage) when no Firebase project is configured — the app
+  runs out of the box with seeded demo data, and local demo data can be
+  **imported into a real account** on first sign-in
 - **Automation:** 14-rule engine + priority queue + "Today's Top Three" (see
   `lib/engine.ts`), mirrored server-side in `functions/` (Cloud Scheduler)
 - **Integrations:** GitHub REST, Vercel API, Google Calendar, Gemini AI summaries
@@ -33,21 +35,39 @@ demo projects (Classic Chef Video Guide, Weeknight Meal Planner, Restaurant
 Social Media Manager, Restaurant 86-to-0 Board, Menu Competitor Analyzer,
 Takeout Voice 2) and persists changes to localStorage in demo mode.
 
-### Opt into Firebase
+### Opt into Firebase (Phase 3: real Auth + Firestore)
 
-Create a `.env.local` with Firestore-enabled project values:
+Create a `.env.local` with your Firebase web-app config values:
 
 ```bash
 NEXT_PUBLIC_FIREBASE_API_KEY=…
 NEXT_PUBLIC_FIREBASE_PROJECT_ID=…
 NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=…
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=…
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=…
 NEXT_PUBLIC_FIREBASE_APP_ID=…
 ```
 
-When these are present the app switches to the Firestore data service
-(`lib/firestore.ts`), which scopes every read/write by `userId` (user
-isolation). See `firestore.rules` guidance in the sibling meal-planner repo for
-matching rules.
+When these are present the app switches to real Authentication + Firestore:
+
+- A **sign-in gate** appears (`components/auth/AuthGate.tsx`) — email/password
+  or Google (popup). Authentication lives in `lib/auth.tsx`.
+- Every read/write is scoped by `userId` via `lib/firestore.ts`, and
+  `firestore.rules` enforces the same per-user isolation server-side.
+- On first sign-in the app offers to **import your local demo data** into the
+  account (`migrateLocalDemoToFirestore` in `lib/firestore.ts`) — projects,
+  versions, repos, deployments, tasks, evaluations, and activity are re-keyed
+  to your uid and written to Firestore.
+- Sign out from the sidebar footer or Settings → Account.
+
+Deploy the rules with:
+
+```bash
+npx firebase deploy --only firestore:rules
+```
+
+In **Demo Mode** (no env vars) everything still works: seeded data persists to
+localStorage and the app never asks for credentials.
 
 ### Local Repository Scanner companion
 

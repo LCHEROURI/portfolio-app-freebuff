@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged, type Auth, type User } from 'firebase/auth';
+import { getAuth, onAuthStateChanged, type Auth, type User } from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
 import { getFunctions, type Functions } from 'firebase/functions';
 
@@ -7,7 +7,9 @@ import { getFunctions, type Functions } from 'firebase/functions';
  * Firebase is optional in this workspace: when no project config is present
  * the app falls back to a fully functional local (localStorage-backed) demo
  * store so the Command Center can be developed, tested, and demoed without
- * credentials — identical to the sibling meal-planner family of apps.
+ * credentials. When `NEXT_PUBLIC_FIREBASE_*` env vars ARE present, real
+ * Authentication + Firestore are used (Phase 3), and the app gates the UI
+ * behind a sign-in screen.
  */
 
 export interface FirebaseConfig {
@@ -66,8 +68,14 @@ export const getFirebaseFunctions = (): Functions | null => {
 };
 
 /**
- * Resolve the current user id for Firestore user isolation. Falls back to a
- * stable local id (per browser) when Firebase auth is not configured.
+ * Resolve the current user id for Firestore user isolation.
+ *
+ * - Firebase mode: returns the signed-in user's uid. Phase 3 requires a real
+ *   account (the UI gates behind sign-in), so there is no anonymous fallback.
+ * - Demo mode: returns a stable per-browser local id.
+ *
+ * Throws when Firebase is configured but nobody is signed in — callers in the
+ * auth-gated store only reach this after authentication.
  */
 export const getUserId = async (): Promise<string> => {
   const auth = getFirebaseAuth();
@@ -81,9 +89,7 @@ export const getUserId = async (): Promise<string> => {
   }
   const current = auth.currentUser;
   if (current) return current.uid;
-  // Sign in anonymously so the data layer can always isolate by uid.
-  const cred = await signInAnonymously(auth);
-  return cred.user.uid;
+  throw new Error('Sign in to sync your Command Center.');
 };
 
 export const subscribeToUser = (cb: (user: User | null) => void): (() => void) => {

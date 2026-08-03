@@ -65,6 +65,7 @@ export const EvaluationModal = ({ open, onClose, projectId, versionId }: {
     const now = new Date().toISOString();
     const evaluation: ModelEvaluation = {
       id: `e-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
+      userId: store.userId,
       projectId,
       projectVersionId: version.id,
       builder: version.builder,

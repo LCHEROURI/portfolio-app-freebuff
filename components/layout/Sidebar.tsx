@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 
 import { useTheme } from '@/lib/theme';
+import { useAuth } from '@/lib/auth';
 import { isFirebaseConfigured } from '@/lib/firebase';
 
 const NAV = [
@@ -56,6 +57,7 @@ const ThemeToggle = () => {
 
 export const Sidebar = ({ open, onClose }: { open: boolean; onClose: () => void }) => {
   const pathname = usePathname();
+  const { user, signOut } = useAuth();
 
   const isActive = (href: string) =>
     href === '/command-center' ? pathname === href : pathname.startsWith(href);
@@ -116,6 +118,18 @@ export const Sidebar = ({ open, onClose }: { open: boolean; onClose: () => void 
             <span className={`h-2 w-2 shrink-0 rounded-full ${isFirebaseConfigured() ? 'bg-basil-500' : 'bg-turmeric-500'}`} />
             {isFirebaseConfigured() ? 'Firebase connected' : 'Demo mode — local data'}
           </div>
+          {isFirebaseConfigured() && (
+            <div className="flex items-center justify-between gap-2 rounded-lg bg-butter-100 px-3 py-2 text-xs text-pepper-600 dark:bg-pepper-700 dark:text-pepper-200">
+              <span className="truncate">{user?.email ?? user?.displayName ?? 'Signed in'}</span>
+              <button
+                type="button"
+                className="shrink-0 font-semibold text-tomato-600 hover:underline dark:text-tomato-400"
+                onClick={() => signOut()}
+              >
+                Sign out
+              </button>
+            </div>
+          )}
         </div>
       </aside>
     </>

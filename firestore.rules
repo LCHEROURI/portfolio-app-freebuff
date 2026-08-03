@@ -1,0 +1,21 @@
+rules_version = '2';
+
+// App Portfolio Command Center — Firestore security rules.
+//
+// Phase 3: real Authentication + Firestore. Every document carries a `userId`
+// field and is isolated per signed-in user. Anonymous / signed-out clients can
+// read or write nothing.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Per-user isolation: a user may only read/write their own documents.
+    // `userId` on every document must equal the authenticated uid.
+    match /{collection}/{document} {
+      allow read, update, delete: if request.auth != null
+        && resource.data.userId == request.auth.uid;
+
+      allow create: if request.auth != null
+        && request.resource.data.userId == request.auth.uid;
+    }
+  }
+}

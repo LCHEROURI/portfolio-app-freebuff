@@ -33,6 +33,7 @@ export const TaskModal = ({ open, onClose, editing, projectId }: {
       ? { ...editing, ...form, dueDate: form.dueDate || undefined, updatedAt: now }
       : {
           id: `t-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
+          userId: store.userId,
           projectId,
           position: store.tasks.filter((x) => x.projectId === projectId).length,
           createdAt: now,

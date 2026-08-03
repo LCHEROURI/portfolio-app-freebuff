@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 
 import { StoreProvider } from '@/lib/store';
+import { AuthProvider } from '@/lib/auth';
 import { ThemeProvider } from '@/lib/theme';
 import { AppLayout } from '@/components/layout/AppLayout';
 
@@ -30,9 +31,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" suppressHydrationWarning>
       <body>
         <ThemeProvider>
-          <StoreProvider>
-            <AppLayout>{children}</AppLayout>
-          </StoreProvider>
+          <AuthProvider>
+            <StoreProvider>
+              <AppLayout>{children}</AppLayout>
+            </StoreProvider>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

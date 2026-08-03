@@ -158,6 +158,7 @@ export interface Repository {
 
 export interface Deployment {
   id: string;
+  userId: string;
   projectVersionId?: string;
   provider: DeploymentProvider;
   projectName: string;
@@ -181,6 +182,7 @@ export interface Deployment {
 
 export interface Task {
   id: string;
+  userId: string;
   projectId: string;
   projectVersionId?: string;
   title: string;
@@ -202,6 +204,7 @@ export interface Task {
 
 export interface ModelEvaluation {
   id: string;
+  userId: string;
   projectId: string;
   projectVersionId: string;
   builder: string;
@@ -379,6 +382,7 @@ export const RepositorySchema = z.object({
 
 export const DeploymentSchema = z.object({
   id: idString,
+  userId: idString,
   projectVersionId: z.string().optional(),
   provider: DeploymentProviderSchema,
   projectName: z.string().min(1),
@@ -402,6 +406,7 @@ export const DeploymentSchema = z.object({
 
 export const TaskSchema = z.object({
   id: idString,
+  userId: idString,
   projectId: idString,
   projectVersionId: z.string().optional(),
   title: z.string().min(1),
@@ -423,6 +428,7 @@ export const TaskSchema = z.object({
 
 export const ModelEvaluationSchema = z.object({
   id: idString,
+  userId: idString,
   projectId: idString,
   projectVersionId: idString,
   builder: z.string(),

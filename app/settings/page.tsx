@@ -1,16 +1,18 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
-import { Save, RotateCcw, User } from 'lucide-react';
+import { Database, LogOut, Save, RotateCcw, User } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Field, Input, Select } from '@/components/ui/Field';
 import { useStore } from '@/lib/store';
+import { useAuth } from '@/lib/auth';
 import { isFirebaseConfigured } from '@/lib/firebase';
 
 export default function SettingsPage() {
   const store = useStore();
+  const { user } = useAuth();
   const [form, setForm] = useState(() => ({
     name: store.profile.name,
     email: store.profile.email,
@@ -34,6 +36,50 @@ export default function SettingsPage() {
   return (
     <div>
       <PageHeader title="Settings" description="Profile, report schedules, and automation thresholds." />
+
+      {isFirebaseConfigured() && (
+        <Card className="mb-6">
+          <CardHeader title="Account" subtitle="Your Command Center syncs to Firestore under this account." action={<User size={18} className="text-pepper-400" aria-hidden="true" />} />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm">
+              <p className="font-medium text-pepper-900 dark:text-flour-50">{user?.displayName || user?.email || 'Signed in'}</p>
+              <p className="text-pepper-500 dark:text-pepper-300">{user?.email ?? ''} · data isolated per user</p>
+            </div>
+            <button
+              type="button"
+              className="btn-ghost border border-butter-200 px-3 py-1.5 text-sm dark:border-pepper-700"
+              onClick={async () => { await store.signOut(); }}
+            >
+              <LogOut size={15} aria-hidden="true" /> Sign out
+            </button>
+          </div>
+        </Card>
+      )}
+
+      {isFirebaseConfigured() && store.hasLocalDemoData && !store.migrationDismissed && (
+        <Card className="mb-6 border-basil-300 bg-basil-50 dark:border-basil-800 dark:bg-basil-950/60">
+          <CardHeader title="Import demo data" subtitle="Local demo data from this browser is still on disk. Import it into your account so it syncs everywhere." action={<Database size={18} className="text-basil-600 dark:text-basil-300" aria-hidden="true" />} />
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={async () => {
+                const count = await store.migrateLocalDemo();
+                if (count > 0) alert(`Imported ${count} records into your account.`);
+              }}
+            >
+              <Database size={15} aria-hidden="true" /> Import demo data
+            </button>
+            <button
+              type="button"
+              className="btn-ghost text-sm"
+              onClick={() => store.dismissLocalDemoMigrate()}
+            >
+              Not now
+            </button>
+          </div>
+        </Card>
+      )}
 
       <form onSubmit={onSubmit} className="space-y-6">
         <Card>

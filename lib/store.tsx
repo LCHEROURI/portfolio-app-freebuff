@@ -1,9 +1,15 @@
-'use client';import { createContext, useContext, useEffect, useMemo, useRef, useState,
+'use client';
+import { createContext, useContext, useEffect, useMemo, useRef, useState,
   type ReactNode,
 } from 'react';
 import { Sparkles } from 'lucide-react';
 
-import { createDataService, type DataService } from '@/lib/firestore';
+import { useAuth } from '@/lib/auth';
+import { AuthGate } from '@/components/auth/AuthGate';
+import {
+  DEMO_STORAGE_KEY, DemoService, FirestoreService,
+  migrateLocalDemoToFirestore, readLocalDemoData, type DataService,
+} from '@/lib/firestore';
 import {
   type UserProfile, type Project, type ProjectVersion, type Repository,
   type Deployment, type Task, type ModelEvaluation, type ActivityEntry, type Report,
@@ -26,7 +32,13 @@ export interface CommandCenterData {
 interface StoreApi extends CommandCenterData {
   loading: boolean;
   error: string | null;
-  resetDemo: () => Promise<void>;
+  // Auth
+  signOut: () => Promise<void>;
+  // Migration (localStorage demo → Firestore)
+  hasLocalDemoData: boolean;
+  migrationDismissed: boolean;
+  dismissLocalDemoMigrate: () => void;
+  migrateLocalDemo: () => Promise<number>;
   // Project actions
   saveProject: (p: Project) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
@@ -49,6 +61,7 @@ interface StoreApi extends CommandCenterData {
   saveProfile: (p: UserProfile) => Promise<void>;
   saveReport: (r: Report) => Promise<void>;
   logActivity: (entry: Omit<ActivityEntry, 'id' | 'userId' | 'createdAt'>) => Promise<void>;
+  resetDemo: () => Promise<void>;
 }
 
 const StoreContext = createContext<StoreApi | null>(null);
@@ -57,20 +70,32 @@ const uid = (prefix: string) =>
   `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
 export const StoreProvider = ({ children }: { children: ReactNode }) => {
+  const { mode: authMode, user, initializing: authInitializing, signOut: authSignOut } = useAuth();
   const [data, setData] = useState<CommandCenterData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [migrationDismissed, setMigrationDismissed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try { return localStorage.getItem('apcc-demo-migrated') === '1'; } catch { return false; }
+  });
   const serviceRef = useRef<DataService | null>(null);
 
+  // Firebase mode waits for auth to resolve. Demo mode loads immediately.
   useEffect(() => {
+    if (authMode === 'firebase' && authInitializing) return;
+    if (authMode === 'firebase' && !user) {
+      setData(null);
+      setLoading(false);
+      return;
+    }
     let cancelled = false;
+    setLoading(true);
+    setError(null);
     (async () => {
       try {
-        const service = await createDataService();
+        const service = authMode === 'demo' ? new DemoService() : new FirestoreService();
         serviceRef.current = service;
-        const userId = service.mode === 'demo'
-          ? 'demo-user'
-          : (await import('@/lib/firebase').then((m) => m.getUserId()));
+        const userId = authMode === 'demo' ? 'demo-user' : user!.uid;
         const all = await service.loadAll(userId);
         if (cancelled) return;
         setData({ mode: service.mode, userId, ...all });
@@ -81,7 +106,7 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [authMode, user, authInitializing]);
 
   const api = useMemo<StoreApi | null>(() => {
     if (!data) return null;
@@ -108,6 +133,28 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
       ...data,
       loading,
       error,
+      signOut: async () => {
+        await authSignOut();
+        setData(null);
+      },
+      hasLocalDemoData: !!readLocalDemoData(),
+      migrationDismissed,
+      dismissLocalDemoMigrate: () => {
+        try { localStorage.setItem('apcc-demo-migrated', '1'); } catch { /* ignore */ }
+        setMigrationDismissed(true);
+      },
+      migrateLocalDemo: async () => {
+        if (authMode !== 'firebase' || !user) return 0;
+        const count = await migrateLocalDemoToFirestore(user.uid);
+        try { localStorage.removeItem(DEMO_STORAGE_KEY); } catch { /* ignore */ }
+        try { localStorage.setItem('apcc-demo-migrated', '1'); } catch { /* ignore */ }
+        setMigrationDismissed(true);
+        const next = new FirestoreService();
+        serviceRef.current = next;
+        const all = await next.loadAll(user.uid);
+        setData({ mode: 'firestore', userId: user.uid, ...all });
+        return count;
+      },
       resetDemo: async () => {
         if (service.mode === 'demo') {
           const d = service as unknown as { resetDemo(): CommandCenterData };
@@ -215,16 +262,31 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
       },
       logActivity,
     };
-  }, [data, loading, error]);
+  }, [data, loading, error, authMode, user, authSignOut, migrationDismissed]);
 
   if (!api) {
+    // Signed out in Firebase mode → show the sign-in gate instead of the app.
+    if (authMode === 'firebase' && !authInitializing && !user) {
+      return <AuthGate />;
+    }
     return (
       <div className="flex min-h-screen items-center justify-center bg-flour-50 dark:bg-pepper-900">
         <div className="flex flex-col items-center gap-3">
           <span className="flex h-10 w-10 animate-pulse items-center justify-center rounded-xl2 bg-gradient-spice text-white shadow-warm">
             <Sparkles size={20} aria-hidden="true" />
           </span>
-          <p className="text-sm text-pepper-500 dark:text-pepper-300">Loading command center…</p>
+          <p className="text-sm text-pepper-500 dark:text-pepper-300">
+            {loading ? 'Loading command center…' : error ?? 'Preparing your data…'}
+          </p>
+          {error && (
+            <button
+              type="button"
+              className="btn-ghost text-xs"
+              onClick={() => window.location.reload()}
+            >
+              Reload
+            </button>
+          )}
         </div>
       </div>
     );
