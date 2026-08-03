@@ -263,6 +263,18 @@ export interface Report {
   createdAt: string;
 }
 
+export interface Reminder {
+  id: string;
+  userId: string;
+  projectId?: string;
+  title: string;
+  note?: string;
+  remindAt: string; // ISO or YYYY-MM-DDTHH:mm
+  done: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ============================================================================
 // ZOD SCHEMAS
 // ============================================================================
@@ -474,6 +486,18 @@ export const ReportSchema = z.object({
   body: z.string(),
   attentionCount: z.number().int().min(0),
   createdAt: timestamp,
+});
+
+export const ReminderSchema = z.object({
+  id: idString,
+  userId: idString,
+  projectId: z.string().optional(),
+  title: z.string().min(1),
+  note: z.string().optional(),
+  remindAt: z.string().min(4),
+  done: z.boolean(),
+  createdAt: timestamp,
+  updatedAt: timestamp,
 });
 
 // ============================================================================

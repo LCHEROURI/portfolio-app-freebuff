@@ -11,6 +11,7 @@ import {
 import { useTheme } from '@/lib/theme';
 import { useAuth } from '@/lib/auth';
 import { isFirebaseConfigured } from '@/lib/firebase';
+import { readLiveFlags } from '@/lib/liveData';
 
 const NAV = [
   { href: '/command-center', label: 'Command Center', icon: LayoutDashboard },
@@ -58,6 +59,13 @@ const ThemeToggle = () => {
 export const Sidebar = ({ open, onClose }: { open: boolean; onClose: () => void }) => {
   const pathname = usePathname();
   const { user, signOut } = useAuth();
+  const live = readLiveFlags();
+  const liveCount = Object.values(live).filter(Boolean).length;
+  const liveLabels = [
+    live.tasks && 'Tasks',
+    live.repositories && 'GitHub',
+    live.deployments && 'Vercel',
+  ].filter(Boolean) as string[];
 
   const isActive = (href: string) =>
     href === '/command-center' ? pathname === href : pathname.startsWith(href);
@@ -114,9 +122,16 @@ export const Sidebar = ({ open, onClose }: { open: boolean; onClose: () => void 
 
         <div className="space-y-3 border-t border-butter-200 px-4 py-4 dark:border-pepper-700">
           <ThemeToggle />
-          <div className="flex items-center gap-2 rounded-lg bg-butter-100 px-3 py-2 text-xs text-pepper-600 dark:bg-pepper-700 dark:text-pepper-200">
-            <span className={`h-2 w-2 shrink-0 rounded-full ${isFirebaseConfigured() ? 'bg-basil-500' : 'bg-turmeric-500'}`} />
-            {isFirebaseConfigured() ? 'Firebase connected' : 'Demo mode — local data'}
+          <div className="rounded-lg bg-butter-100 px-3 py-2 text-xs text-pepper-600 dark:bg-pepper-700 dark:text-pepper-200">
+            <div className="flex items-center gap-2">
+              <span className={`h-2 w-2 shrink-0 rounded-full ${liveCount > 0 ? 'bg-basil-500' : isFirebaseConfigured() ? 'bg-basil-500' : 'bg-turmeric-500'}`} />
+              <span className="font-semibold">{liveCount > 0 ? 'Live integrations' : isFirebaseConfigured() ? 'Firebase connected' : 'Local workspace'}</span>
+            </div>
+            {liveCount > 0 && (
+              <p className="mt-1 leading-snug text-pepper-400 dark:text-pepper-300">
+                {liveLabels.join(' · ')}
+              </p>
+            )}
           </div>
           {isFirebaseConfigured() && (
             <div className="flex items-center justify-between gap-2 rounded-lg bg-butter-100 px-3 py-2 text-xs text-pepper-600 dark:bg-pepper-700 dark:text-pepper-200">

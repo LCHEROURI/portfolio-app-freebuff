@@ -11,8 +11,15 @@ import {
   migrateLocalDemoToFirestore, readLocalDemoData, type DataService,
 } from '@/lib/firestore';
 import {
+  readLiveFlags, fetchLiveTasks, fetchLiveReminders, fetchLiveRepos,
+  fetchLiveDeployments, createLiveTask, saveLiveTask, deleteLiveTask,
+  createLiveReminder, updateLiveReminder, deleteLiveReminder,
+  type LiveFlags,
+} from '@/lib/liveData';
+import {
   type UserProfile, type Project, type ProjectVersion, type Repository,
-  type Deployment, type Task, type ModelEvaluation, type ActivityEntry, type Report,
+  type Deployment, type Task, type Reminder, type ModelEvaluation,
+  type ActivityEntry, type Report,
 } from '@/types';
 
 export interface CommandCenterData {
@@ -23,10 +30,13 @@ export interface CommandCenterData {
   repositories: Repository[];
   deployments: Deployment[];
   tasks: Task[];
+  reminders: Reminder[];
   evaluations: ModelEvaluation[];
   activity: ActivityEntry[];
   reports: Report[];
   userId: string;
+  /** Which collections are currently backed by a live integration. */
+  live: LiveFlags;
 }
 
 interface StoreApi extends CommandCenterData {
@@ -39,6 +49,8 @@ interface StoreApi extends CommandCenterData {
   migrationDismissed: boolean;
   dismissLocalDemoMigrate: () => void;
   migrateLocalDemo: () => Promise<number>;
+  // Live data refresh
+  refreshLive: () => Promise<void>;
   // Project actions
   saveProject: (p: Project) => Promise<void>;
   deleteProject: (id: string) => Promise<void>;
@@ -54,6 +66,10 @@ interface StoreApi extends CommandCenterData {
   saveTask: (t: Task) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
   completeTask: (id: string) => Promise<void>;
+  // Reminder actions
+  saveReminder: (r: Reminder) => Promise<void>;
+  deleteReminder: (id: string) => Promise<void>;
+  toggleReminder: (id: string) => Promise<void>;
   // Evaluation actions
   saveEvaluation: (e: ModelEvaluation) => Promise<void>;
   deleteEvaluation: (id: string) => Promise<void>;
@@ -68,6 +84,8 @@ const StoreContext = createContext<StoreApi | null>(null);
 
 const uid = (prefix: string) =>
   `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+
+const NO_LIVE: LiveFlags = { tasks: false, reminders: false, repositories: false, deployments: false };
 
 export const StoreProvider = ({ children }: { children: ReactNode }) => {
   const { mode: authMode, user, initializing: authInitializing, signOut: authSignOut } = useAuth();
@@ -98,7 +116,48 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
         const userId = authMode === 'demo' ? 'demo-user' : user!.uid;
         const all = await service.loadAll(userId);
         if (cancelled) return;
-        setData({ mode: service.mode, userId, ...all });
+
+        // Overlay live data when the matching integration is enabled.
+        const flags = readLiveFlags();
+        const live: LiveFlags = { ...NO_LIVE };
+        let tasks = all.tasks;
+        let reminders: Reminder[] = [];
+        let repositories = all.repositories;
+        let deployments = all.deployments;
+
+        if (flags.tasks) {
+          try {
+            const [t, r] = await Promise.all([
+              fetchLiveTasks(userId).catch(() => null),
+              fetchLiveReminders(userId).catch(() => null),
+            ]);
+            // Live wins wholesale: when a real backend is wired up, placeholder
+            // demo tasks are intentionally replaced rather than merged.
+            if (t?.configured && Array.isArray(t.tasks)) { tasks = t.tasks; live.tasks = true; }
+            if (r?.configured && Array.isArray(r.reminders)) { reminders = r.reminders; live.reminders = true; }
+          } catch { /* live tasks unavailable → keep local */ }
+        }
+        if (flags.repositories) {
+          try {
+            const r = await fetchLiveRepos(userId);
+            if (r?.configured && Array.isArray(r.repositories)) {
+              repositories = mergeScannerOverlay(r.repositories, all.repositories);
+              live.repositories = true;
+            }
+          } catch { /* live repos unavailable → keep local */ }
+        }
+        if (flags.deployments) {
+          try {
+            const d = await fetchLiveDeployments(userId);
+            if (d?.configured && Array.isArray(d.deployments)) {
+              deployments = d.deployments;
+              live.deployments = true;
+            }
+          } catch { /* live deployments unavailable → keep local */ }
+        }
+
+        if (cancelled) return;
+        setData({ mode: service.mode, userId, ...all, tasks, reminders, repositories, deployments, live });
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load data.');
       } finally {
@@ -129,6 +188,45 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
       await mutate((prev) => ({ ...prev, activity: [full, ...prev.activity].slice(0, 200) }));
     };
 
+    const upsertIn = <T extends { id: string }>(list: T[], item: T): T[] =>
+      list.some((x) => x.id === item.id)
+        ? list.map((x) => (x.id === item.id ? item : x))
+        : [...list, item];
+
+    const refreshLive = async () => {
+      const flags = readLiveFlags();
+      const userId = data.userId;
+      const next: Partial<CommandCenterData> = {};
+      const live: LiveFlags = { ...data.live };
+
+      if (flags.tasks) {
+        try {
+          const [t, r] = await Promise.all([
+            fetchLiveTasks(userId).catch(() => null),
+            fetchLiveReminders(userId).catch(() => null),
+          ]);
+          if (t?.configured && Array.isArray(t.tasks)) { next.tasks = t.tasks; live.tasks = true; }
+          if (r?.configured && Array.isArray(r.reminders)) { next.reminders = r.reminders; live.reminders = true; }
+        } catch { /* keep current */ }
+      }
+      if (flags.repositories) {
+        try {
+          const r = await fetchLiveRepos(userId);
+          if (r?.configured && Array.isArray(r.repositories)) {
+            next.repositories = mergeScannerOverlay(r.repositories, data.repositories);
+            live.repositories = true;
+          }
+        } catch { /* keep current */ }
+      }
+      if (flags.deployments) {
+        try {
+          const d = await fetchLiveDeployments(userId);
+          if (d?.configured && Array.isArray(d.deployments)) { next.deployments = d.deployments; live.deployments = true; }
+        } catch { /* keep current */ }
+      }
+      await mutate((prev) => ({ ...prev, ...next, live }));
+    };
+
     return {
       ...data,
       loading,
@@ -137,6 +235,7 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
         await authSignOut();
         setData(null);
       },
+      refreshLive,
       hasLocalDemoData: !!readLocalDemoData(),
       migrationDismissed,
       dismissLocalDemoMigrate: () => {
@@ -152,20 +251,21 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
         const next = new FirestoreService();
         serviceRef.current = next;
         const all = await next.loadAll(user.uid);
-        setData({ mode: 'firestore', userId: user.uid, ...all });
+        setData({ mode: 'firestore', userId: user.uid, ...all, reminders: [], live: { ...NO_LIVE } });
+        await refreshLive();
         return count;
       },
       resetDemo: async () => {
         if (service.mode === 'demo') {
           const d = service as unknown as { resetDemo(): CommandCenterData };
           const seeded = d.resetDemo();
-          setData({ ...data, ...seeded });
+          setData({ ...data, ...seeded, live: { ...NO_LIVE } });
         }
       },
       saveProject: async (p: Project) => {
         const next = touch(p);
         await service.saveProject(next);
-        await mutate((prev) => ({ ...prev, projects: prev.projects.some((x) => x.id === next.id) ? prev.projects.map((x) => (x.id === next.id ? next : x)) : [...prev.projects, next] }));
+        await mutate((prev) => ({ ...prev, projects: upsertIn(prev.projects, next) }));
         await logActivity({ kind: 'project_updated', projectId: next.id, message: `Project "${next.name}" updated` });
       },
       deleteProject: async (id: string) => {
@@ -175,13 +275,14 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
           projects: prev.projects.filter((x) => x.id !== id),
           versions: prev.versions.filter((x) => x.projectId !== id),
           tasks: prev.tasks.filter((x) => x.projectId !== id),
+          reminders: prev.reminders.filter((x) => x.projectId !== id),
           evaluations: prev.evaluations.filter((x) => x.projectId !== id),
         }));
       },
       saveVersion: async (v: ProjectVersion) => {
         const next = touch(v);
         await service.saveVersion(next);
-        await mutate((prev) => ({ ...prev, versions: prev.versions.some((x) => x.id === next.id) ? prev.versions.map((x) => (x.id === next.id ? next : x)) : [...prev.versions, next] }));
+        await mutate((prev) => ({ ...prev, versions: upsertIn(prev.versions, next) }));
       },
       deleteVersion: async (id: string) => {
         await service.deleteVersion(id);
@@ -215,20 +316,43 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
       saveRepository: async (r: Repository) => {
         const next = touch(r);
         await service.saveRepository(next);
-        await mutate((prev) => ({ ...prev, repositories: prev.repositories.some((x) => x.id === next.id) ? prev.repositories.map((x) => (x.id === next.id ? next : x)) : [...prev.repositories, next] }));
+        await mutate((prev) => ({ ...prev, repositories: upsertIn(prev.repositories, next) }));
       },
       saveDeployment: async (d: Deployment) => {
         const next = touch(d);
         await service.saveDeployment(next);
-        await mutate((prev) => ({ ...prev, deployments: prev.deployments.some((x) => x.id === next.id) ? prev.deployments.map((x) => (x.id === next.id ? next : x)) : [...prev.deployments, next] }));
+        await mutate((prev) => ({ ...prev, deployments: upsertIn(prev.deployments, next) }));
       },
       saveTask: async (t: Task) => {
         const next = touch(t);
-        await service.saveTask(next);
-        await mutate((prev) => ({ ...prev, tasks: prev.tasks.some((x) => x.id === next.id) ? prev.tasks.map((x) => (x.id === next.id ? next : x)) : [...prev.tasks, next] }));
+        const exists = data.tasks.some((x) => x.id === next.id);
+        if (data.live.tasks) {
+          try {
+            if (exists) await saveLiveTask(data.userId, next);
+            else await createLiveTask(data.userId, next);
+          } catch (e) {
+            console.warn('live task save failed; falling back to local store:', e);
+            await service.saveTask(next);
+          }
+        } else {
+          await service.saveTask(next);
+        }
+        await mutate((prev) => ({ ...prev, tasks: upsertIn(prev.tasks, next) }));
       },
       deleteTask: async (id: string) => {
-        await service.deleteTask(id);
+        if (data.live.tasks) {
+          // Live mode: the source of truth is Supabase. Only delete locally if
+          // the live delete actually succeeded, so a failed delete doesn't make
+          // the task vanish locally only to reappear on the next live reload.
+          try {
+            await deleteLiveTask(data.userId, id);
+            await service.deleteTask(id);
+          } catch (e) {
+            console.warn('live task delete failed; task kept:', e);
+          }
+        } else {
+          await service.deleteTask(id);
+        }
         await mutate((prev) => ({ ...prev, tasks: prev.tasks.filter((x) => x.id !== id) }));
       },
       completeTask: async (id: string) => {
@@ -238,14 +362,56 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
           ...task, status: 'COMPLETED', completedAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
-        await service.saveTask(next);
+        if (data.live.tasks) {
+          try { await saveLiveTask(data.userId, next); } catch (e) {
+            console.warn('live task complete failed; falling back to local store:', e);
+            await service.saveTask(next);
+          }
+        } else {
+          await service.saveTask(next);
+        }
         await mutate((prev) => ({ ...prev, tasks: prev.tasks.map((t) => (t.id === id ? next : t)) }));
         await logActivity({ kind: 'task_completed', projectId: task.projectId, projectVersionId: task.projectVersionId, message: `Completed task "${task.title}"` });
+      },
+      saveReminder: async (r: Reminder) => {
+        const next = touch(r);
+        const exists = data.reminders.some((x) => x.id === next.id);
+        if (data.live.reminders) {
+          try {
+            if (exists) await updateLiveReminder(data.userId, next);
+            else await createLiveReminder(data.userId, next);
+          } catch (e) {
+            console.warn('live reminder save failed:', e);
+          }
+        }
+        await mutate((prev) => ({ ...prev, reminders: upsertIn(prev.reminders, next) }));
+      },
+      deleteReminder: async (id: string) => {
+        if (data.live.reminders) {
+          try { await deleteLiveReminder(data.userId, id); } catch (e) {
+            console.warn('live reminder delete failed:', e);
+          }
+        }
+        await mutate((prev) => ({ ...prev, reminders: prev.reminders.filter((x) => x.id !== id) }));
+      },
+      toggleReminder: async (id: string) => {
+        const reminder = data.reminders.find((r) => r.id === id);
+        if (!reminder) return;
+        const next = touch({ ...reminder, done: !reminder.done });
+        if (data.live.reminders) {
+          try { await updateLiveReminder(data.userId, next); } catch (e) {
+            console.warn('live reminder toggle failed:', e);
+          }
+        }
+        await mutate((prev) => ({
+          ...prev,
+          reminders: prev.reminders.map((r) => (r.id === id ? next : r)),
+        }));
       },
       saveEvaluation: async (e: ModelEvaluation) => {
         const next = touch(e);
         await service.saveEvaluation(next);
-        await mutate((prev) => ({ ...prev, evaluations: prev.evaluations.some((x) => x.id === next.id) ? prev.evaluations.map((x) => (x.id === next.id ? next : x)) : [...prev.evaluations, next] }));
+        await mutate((prev) => ({ ...prev, evaluations: upsertIn(prev.evaluations, next) }));
       },
       deleteEvaluation: async (id: string) => {
         await service.deleteEvaluation(id);
@@ -293,6 +459,32 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
   }
 
   return <StoreContext.Provider value={api}>{children}</StoreContext.Provider>;
+};
+
+// ============================================================================
+// Merge helpers
+// ============================================================================
+
+/** Overlay local scanner facts (uncommitted/unpushed, branch) onto the live GitHub feed. */
+const mergeScannerOverlay = (live: Repository[], local: Repository[]): Repository[] => {
+  if (local.length === 0) return live;
+  const localByKey = new Map(
+    local.map((r) => [`${r.owner}/${r.repositoryName}`.toLowerCase(), r]),
+  );
+  return live.map((repo) => {
+    const key = `${repo.owner}/${repo.repositoryName}`.toLowerCase();
+    const localMatch = localByKey.get(key);
+    if (!localMatch) return repo;
+    return {
+      ...repo,
+      projectVersionId: localMatch.projectVersionId ?? repo.projectVersionId,
+      hasUncommittedChanges: localMatch.hasUncommittedChanges,
+      hasUnpushedCommits: localMatch.hasUnpushedCommits,
+      commitsAhead: localMatch.hasUnpushedCommits ? localMatch.commitsAhead : repo.commitsAhead,
+      commitsBehind: localMatch.commitsBehind,
+      lastScannedAt: localMatch.lastScannedAt,
+    };
+  });
 };
 
 export const useStore = (): StoreApi => {

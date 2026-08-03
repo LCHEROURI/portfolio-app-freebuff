@@ -113,6 +113,41 @@ npx firebase deploy --only firestore:rules
 In **Demo Mode** (no env vars) everything still works: seeded data persists to
 localStorage and the app never asks for credentials.
 
+### 🔌 Live integrations — Supabase · GitHub · Vercel
+
+The Command Center ships with a **live-data layer** that replaces demo
+placeholder data with your real services. Each integration is toggled by a
+`NEXT_PUBLIC_LIVE_*` flag plus a matching server-side credential; if a
+credential is missing the app falls back to local demo data, so every screen
+stays usable.
+
+| Source | Feeds | Flag | Server env |
+| --- | --- | --- | --- |
+| **Supabase** | `Today` + `Tasks` — add/edit/check-off tasks & reminders persisted to Postgres | `NEXT_PUBLIC_LIVE_TASKS=1` | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` |
+| **GitHub** | `Repositories` — branches, latest commit, PRs, issues, workflow status | `NEXT_PUBLIC_LIVE_REPOS=1` | `GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPOS` |
+| **Vercel** | `Deployments` — latest deploy per project + live health checks (HTTP status + response time) | `NEXT_PUBLIC_LIVE_DEPLOYMENTS=1` | `VERCEL_TOKEN`, `VERCEL_TEAM_ID` |
+
+**Setup (full detail in `.env.example`):**
+
+1. **Supabase** — create a project, run `supabase/schema.sql` in the SQL editor
+   (creates `tasks` + `reminders` tables with owner-scoped RLS), then add the
+   project URL + service-role key to your env.
+2. **GitHub** — create a fine-grained PAT (repo read). Owner defaults to
+   `LCHEROURI`; the repo list defaults to your 7 active repos and is
+   overridable via `GITHUB_REPOS`.
+3. **Vercel** — create an API token (Account → Tokens). Projects default to
+   `GITHUB_REPOS` (or set `VERCEL_PROJECTS`).
+4. Flip the matching `NEXT_PUBLIC_LIVE_*` flag to `1` and redeploy.
+
+> **Auth model:** every live API route reads the acting user id from the
+> `x-app-user` header — the store's `userId` (a Firebase uid when Firebase is
+> wired, otherwise the local demo id) — so user isolation holds across sources.
+
+> **Local git state:** unpushed commits and uncommitted changes exist only on
+> your machine, so the GitHub API can't see them. The **repo scanner CLI**
+> (`npm run scanner`) reports those and the store overlays them onto the live
+> GitHub feed (see `mergeScannerOverlay` in `lib/store.tsx`).
+
 ### Local Repository Scanner companion
 
 ```bash
@@ -165,7 +200,11 @@ Overall = 0.15·UI + 0.20·Features + 0.15·Code + 0.15·Stability + 0.10·Perf 
 app/            Next.js App Router pages + API route (scanner ingest)
 components/     Layout shell, auth gate, modals, UI kit
 lib/            firebase.ts, auth.tsx, firestore.ts, seed.ts, engine.ts,
-                store.tsx (React context), theme.tsx
+                store.tsx (React context), liveData.ts (live API facade),
+                theme.tsx
+app/api/        Live API routes: tasks, reminders, repos (GitHub),
+                deployments (Vercel + health checks), scanner
+supabase/       schema.sql — tasks + reminders tables with RLS
 types/          Full domain model + zod schemas + scoring
 scripts/        repo-scanner.mjs (local CLI companion)
 functions/      Firebase Cloud Functions (automation + scheduled reports)

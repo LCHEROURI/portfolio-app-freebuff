@@ -1,6 +1,7 @@
 'use client';
 
-import { GitBranch, ExternalLink, ArrowUpFromLine, FileDiff } from 'lucide-react';
+import { GitBranch, ExternalLink, ArrowUpFromLine, FileDiff, RefreshCw } from 'lucide-react';
+import { useState } from 'react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader, StatCard } from '@/components/ui/Card';
@@ -12,9 +13,11 @@ import { PROVIDER_LABELS } from '@/lib/labels';
 
 export default function RepositoriesPage() {
   const store = useStore();
-  const repos = store.repositories.sort((a, b) => b.lastScannedAt.localeCompare(a.lastScannedAt));
+  const [refreshing, setRefreshing] = useState(false);
+  const repos = [...store.repositories].sort((a, b) => b.lastScannedAt.localeCompare(a.lastScannedAt));
   const unpushed = repos.filter((r) => r.hasUnpushedCommits).length;
   const dirty = repos.filter((r) => r.hasUncommittedChanges).length;
+  const live = store.live.repositories;
 
   const versionLabel = (id?: string) => {
     if (!id) return 'No linked version';
@@ -24,12 +27,32 @@ export default function RepositoriesPage() {
     return `${p?.name ?? 'Project'} / ${v.versionName}`;
   };
 
+  const refresh = async () => {
+    setRefreshing(true);
+    try { await store.refreshLive(); } finally { setRefreshing(false); }
+  };
+
   return (
     <div>
       <PageHeader
         title="Repositories"
-        description="Git repositories linked to your builds, updated by the local scanner companion."
+        description={live
+          ? 'Live from the GitHub API — branches, commits, PRs, issues, and workflow status for your active repos.'
+          : 'Git repositories linked to your builds, updated by the local scanner companion.'}
+        action={
+          <button type="button" className="btn-secondary" onClick={refresh} disabled={refreshing}>
+            <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} aria-hidden="true" />
+            {refreshing ? 'Refreshing…' : 'Refresh'}
+          </button>
+        }
       />
+
+      {live && (
+        <div className="mb-4 flex items-center gap-2 text-xs text-pepper-500 dark:text-pepper-300">
+          <Badge tone="basil"><GitBranch size={11} aria-hidden="true" /> GitHub API</Badge>
+          <span>Remote data refreshed on demand. Local uncommitted/unpushed flags still come from the scanner CLI and are overlaid on these repos.</span>
+        </div>
+      )}
 
       <section aria-label="Repository metrics" className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
         <StatCard label="Connected repos" value={repos.length} icon={<GitBranch size={20} aria-hidden="true" />} tone="eggplant" />
@@ -46,9 +69,9 @@ export default function RepositoriesPage() {
         <div className="space-y-2 text-sm">
           <p className="text-pepper-600 dark:text-pepper-200">Run from a terminal in the app folder:</p>
           <pre className="overflow-x-auto rounded-xl2 bg-pepper-900 p-4 font-mono text-xs leading-relaxed text-flour-50">
-{`node scripts/repo-scanner.mjs \\
-  --path ~/dev/weeknight-planner/gemini \\
-  --api http://localhost:3000/api/scanner \\
+{`node scripts/repo-scanner.mjs \\\
+  --path ~/dev/weeknight-planner/gemini \\\
+  --api http://localhost:3000/api/scanner \\\
   --project-version "v-xxxx"`}
           </pre>
           <p className="text-xs text-pepper-400">
@@ -94,6 +117,12 @@ export default function RepositoriesPage() {
                 </div>
               </div>
 
+              {live && r.lastCommitMessage && (
+                <p className="mt-2 truncate rounded-lg bg-butter-100 px-2.5 py-1.5 text-xs text-pepper-600 dark:bg-pepper-700 dark:text-pepper-200">
+                  <span className="font-mono">{r.lastCommitSha?.slice(0, 7)}</span> · {r.lastCommitMessage}
+                </p>
+              )}
+
               {(r.hasUncommittedChanges || r.hasUnpushedCommits) && (
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {r.hasUncommittedChanges && <Badge tone="turmeric">uncommitted changes</Badge>}
@@ -102,7 +131,7 @@ export default function RepositoriesPage() {
               )}
 
               <div className="mt-auto flex items-center justify-between border-t border-butter-200 pt-3 text-xs text-pepper-400 dark:border-pepper-700">
-                <span>scanned {timeAgo(r.lastScannedAt)}</span>
+                <span>{live && r.lastCommitAt ? `committed ${timeAgo(r.lastCommitAt)}` : `scanned ${timeAgo(r.lastScannedAt)}`}</span>
                 <a href={r.repositoryUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-tomato-600 hover:underline dark:text-tomato-300">
                   Open <ExternalLink size={12} aria-hidden="true" />
                 </a>
