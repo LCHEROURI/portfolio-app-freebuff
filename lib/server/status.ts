@@ -39,6 +39,38 @@ const ping = async (url: string, init?: RequestInit, timeoutMs = 8000): Promise<
   }
 };
 
+const PING_TTL_MS = 120_000;
+
+// Per-check cache: reuse the last *successful* ping within a short TTL so the
+// Integrations panel's 30s polling doesn't re-hit provider APIs every poll
+// (GitHub's unauthenticated budget is 60 req/h; a 2-min TTL keeps steady-state
+// status pings around 30/h, and a GITHUB_TOKEN lifts the limit to 5,000/h).
+// Responses that never returned an HTTP status (timeout/unreachable) are NOT
+// cached, so a transient blip retries on the next poll instead of being served
+// stale. A manual refresh (?refresh=1) clears the cache entirely.
+const pingCache = new Map<string, { at: number; result: PingResult }>();
+// In-flight promises so concurrent cold misses share a single ping (same
+// pattern as the Firebase cert fetch).
+const inFlightPings = new Map<string, Promise<PingResult>>();
+
+const cachedPing = async (
+  key: string, url: string, init?: RequestInit, timeoutMs?: number,
+): Promise<PingResult> => {
+  const now = Date.now();
+  const hit = pingCache.get(key);
+  if (hit && now - hit.at < PING_TTL_MS) return hit.result;
+  const pending = inFlightPings.get(key);
+  if (pending) return pending;
+  const promise = ping(url, init, timeoutMs)
+    .then((result) => {
+      if (result.status !== null) pingCache.set(key, { at: Date.now(), result });
+      return result;
+    })
+    .finally(() => inFlightPings.delete(key));
+  inFlightPings.set(key, promise);
+  return promise;
+};
+
 const endpoint = (r: PingResult, detail: string, okOverride?: boolean): IntegrationEndpoint => ({
   // A provider may respond 200 while its data feed is actually broken (e.g.
   // GitHub /rate_limit at remaining: 0) — callers can override `ok` for that.
@@ -64,7 +96,7 @@ const checkSupabase = async (): Promise<IntegrationStatus> => {
 
   let ep = unsetEndpoint();
   if (configured && url) {
-    const r = await ping(`${url}/rest/v1/tasks?select=id&limit=1`, {
+    const r = await cachedPing('supabase', `${url}/rest/v1/tasks?select=id&limit=1`, {
       headers: { apikey: key as string, Authorization: `Bearer ${key}` },
     });
     const json = r.json as { code?: string; message?: string } | null;
@@ -87,8 +119,11 @@ const checkSupabase = async (): Promise<IntegrationStatus> => {
 // ─── GitHub ─────────────────────────────────────────────────────────────────
 const checkGithub = async (): Promise<IntegrationStatus> => {
   const token = varSet('GITHUB_TOKEN');
+  // GITHUB_TOKEN is marked required so the Integrations setup checklist fires
+  // on a fresh install (the feed works tokenless, but the token lifts the
+  // 60 req/h cap and is the intended first step).
   const env = [
-    envVar('GITHUB_TOKEN'),
+    envVar('GITHUB_TOKEN', true),
     envVar('GITHUB_OWNER'),
     envVar('GITHUB_REPOS'),
     envVar('NEXT_PUBLIC_LIVE_REPOS', false, true),
@@ -100,7 +135,7 @@ const checkGithub = async (): Promise<IntegrationStatus> => {
   const configured =
     varSet('GITHUB_TOKEN') || varSet('GITHUB_OWNER') || varSet('GITHUB_REPOS') || flagSet('NEXT_PUBLIC_LIVE_REPOS');
 
-  const r = await ping('https://api.github.com/rate_limit', {
+  const r = await cachedPing('github', 'https://api.github.com/rate_limit', {
     headers: token ? { Authorization: `Bearer ${process.env.GITHUB_TOKEN as string}` } : undefined,
   });
   const json = r.json as { resources?: { core?: { remaining?: number; limit?: number } }; message?: string } | null;
@@ -133,7 +168,7 @@ const checkVercel = async (): Promise<IntegrationStatus> => {
 
   let ep = unsetEndpoint();
   if (token) {
-    const r = await ping('https://api.vercel.com/v2/user', {
+    const r = await cachedPing('vercel', 'https://api.vercel.com/v2/user', {
       headers: { Authorization: `Bearer ${process.env.VERCEL_TOKEN as string}` },
     });
     const detail =
@@ -168,7 +203,7 @@ const checkFirebase = async (): Promise<IntegrationStatus> => {
 
   let ep = unsetEndpoint();
   if (fbToken) {
-    const r = await ping('https://firebase.googleapis.com/v1beta1/projects?pageSize=1', {
+    const r = await cachedPing('firebase', 'https://firebase.googleapis.com/v1beta1/projects?pageSize=1', {
       headers: { Authorization: `Bearer ${process.env.FIREBASE_TOKEN as string}` },
     });
     const detail =
@@ -207,7 +242,8 @@ const checkAutomation = (): IntegrationStatus => {
   };
 };
 
-export const checkIntegrations = async (): Promise<IntegrationStatus[]> => {
+export const checkIntegrations = async (refresh = false): Promise<IntegrationStatus[]> => {
+  if (refresh) pingCache.clear();
   const [supabase, github, vercel, firebase] = await Promise.all([
     checkSupabase(), checkGithub(), checkVercel(), checkFirebase(),
   ]);

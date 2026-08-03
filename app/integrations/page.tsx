@@ -1,17 +1,18 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
-  Activity, Check, Cpu, Database, ExternalLink, Github, HeartPulse,
-  Plug, RefreshCw, Rocket, Wrench, X, type LucideIcon,
+  Activity, Check, ChevronDown, Copy, Cpu, Database, ExternalLink, Github,
+  HeartPulse, Plug, RefreshCw, Rocket, Wrench, X, type LucideIcon,
 } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Badge, type Tone } from '@/components/ui/Badge';
 import { isFirebaseConfigured } from '@/lib/firebase';
-import { readLiveFlags, fetchIntegrationStatus, type IntegrationStatus } from '@/lib/liveData';
+import { readLiveFlags, type IntegrationStatus } from '@/lib/liveData';
 import { useStore } from '@/lib/store';
+import { useIntegrationStatus } from '@/lib/useIntegrationStatus';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Live connection-status panel — polls /api/status every 30s.
@@ -33,6 +34,124 @@ const STATUS_TONES: Record<string, string> = {
   vercel: 'bg-pepper-900 text-white',
   firebase: 'bg-turmeric-500 text-white',
   automation: 'bg-eggplant-700 text-white',
+};
+
+// ─── Setup checklist data ────────────────────────────────────────────────────
+// The exact .env.example lines per integration (mirrored from the repo's
+// .env.example) so a missing integration shows precisely what to paste into
+// Vercel → Project → Settings → Environment Variables, then how to redeploy.
+
+interface SetupStep {
+  label: string;
+  /** Exact .env.example line(s) to paste (placeholders for values). */
+  code?: string;
+  note?: string;
+}
+
+const SETUP_GUIDES: Record<string, SetupStep[]> = {
+  supabase: [
+    {
+      label: 'Create a Supabase project and run the schema',
+      note: 'Dashboard → SQL Editor → run supabase/schema.sql. It creates public.tasks, reminders, projects, versions, and evaluations with row-level security.',
+    },
+    {
+      label: 'Copy the project URL and service-role key',
+      code: 'SUPABASE_URL=https://<project-ref>.supabase.co\nSUPABASE_SERVICE_ROLE_KEY=<service-role-key>',
+      note: 'Project Settings → API. The service-role key is server-only — never prefix it with NEXT_PUBLIC_.',
+    },
+    {
+      label: 'Turn on the live flags',
+      code: 'NEXT_PUBLIC_LIVE_TASKS=1\nNEXT_PUBLIC_LIVE_PROJECTS=1',
+      note: 'PROJECTS persists projects/versions/evaluations so the automation cron can evaluate the project-level rules.',
+    },
+  ],
+  github: [
+    {
+      label: 'Create a fine-grained personal access token',
+      note: 'GitHub → Settings → Developer settings → Personal access tokens → Fine-grained tokens, with read access to Contents and Metadata.',
+    },
+    {
+      label: 'Add the token (owner and repo list already default to your active repos)',
+      code: 'GITHUB_TOKEN=<github_pat_...>\nGITHUB_OWNER=LCHEROURI\nGITHUB_REPOS=portfolio-app-freebuff,freebuff-meal,newark-websites25,prompt-vault-pro,tip-compass,reviewmaestro-production,mortgage-zip-lead-engine',
+    },
+    {
+      label: 'Turn on the live flag',
+      code: 'NEXT_PUBLIC_LIVE_REPOS=1',
+    },
+  ],
+  vercel: [
+    {
+      label: 'Create a Vercel API token',
+      note: 'Vercel → Account Settings → Tokens → Create Token with read access.',
+    },
+    {
+      label: 'Add the token (projects default to GITHUB_REPOS)',
+      code: 'VERCEL_TOKEN=<token>\nVERCEL_TEAM_ID=<team-id>\nVERCEL_PROJECTS=',
+      note: 'TEAM_ID and PROJECTS are optional — omit them to use your personal account and the GitHub repo list.',
+    },
+    {
+      label: 'Turn on the live flag',
+      code: 'NEXT_PUBLIC_LIVE_DEPLOYMENTS=1',
+    },
+  ],
+  firebase: [
+    {
+      label: 'Register a web app in the Firebase console',
+      note: 'Console → Project settings → Your apps → </> Web. Copy the SDK config values below.',
+    },
+    {
+      label: 'Add the client config',
+      code: 'NEXT_PUBLIC_FIREBASE_API_KEY=<api-key>\nNEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=<auth-domain>\nNEXT_PUBLIC_FIREBASE_PROJECT_ID=<project-id>\nNEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=<bucket>\nNEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=<sender-id>\nNEXT_PUBLIC_FIREBASE_APP_ID=<app-id>',
+    },
+    {
+      label: 'Optional: Firebase Hosting deployments feed',
+      code: 'FIREBASE_TOKEN=',
+      note: 'Generate with npx firebase login:ci. Without it the app still works — only the Hosting deployments feed stays off.',
+    },
+  ],
+  automation: [
+    {
+      label: 'Create a Resend API key',
+      note: 'https://resend.com → API Keys. The free tier covers daily report emails.',
+    },
+    {
+      label: 'Pick a CRON_SECRET and a report inbox',
+      code: 'CRON_SECRET=<long-random-string>\nRESEND_API_KEY=<key>\nREPORT_EMAIL=you@example.com',
+      note: 'Vercel Cron sends CRON_SECRET automatically as Authorization: Bearer — the route rejects requests without it.',
+    },
+  ],
+};
+
+const REDEPLOY_STEP: SetupStep = {
+  label: 'Redeploy to Vercel',
+  code: 'git push origin main',
+  note: 'Env changes only apply on the next deployment. Pushing triggers a new one automatically (or use Redeploy in the Vercel dashboard).',
+};
+
+/** Copy text with a legacy execCommand fallback for non-secure contexts. */
+const copyToClipboard = async (text: string): Promise<boolean> => {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // fall through to the legacy path
+  }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  try {
+    ta.select();
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    // Always clean up the helper textarea, even if select/copy throws.
+    document.body.removeChild(ta);
+  }
 };
 
 const stateOf = (s: IntegrationStatus): { tone: Tone; label: string } => {
@@ -77,7 +196,7 @@ function StatusCard({ status }: { status: IntegrationStatus }) {
         ))}
       </ul>
 
-      <div className="mt-3 border-t border-butter-200 pt-2 text-xs dark:border-pepper-700">
+      <div className="mt-3 text-xs">
         {ep ? (
           <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-pepper-600 dark:text-pepper-300">
             <span className={`h-2 w-2 rounded-full ${ep.ok ? 'bg-basil-500' : 'bg-paprika-500'}`} aria-hidden="true" />
@@ -91,54 +210,142 @@ function StatusCard({ status }: { status: IntegrationStatus }) {
           </p>
         )}
       </div>
+
+      <SetupChecklist status={status} />
+    </div>
+  );
+}
+
+// ─── Setup checklist ─────────────────────────────────────────────────────────
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const handle = async () => {
+    if (await copyToClipboard(text)) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={handle}
+      aria-label={copied ? 'Copied' : 'Copy to clipboard'}
+      className="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-semibold text-pepper-400 transition-colors hover:bg-butter-100 hover:text-pepper-700 dark:text-pepper-400 dark:hover:bg-pepper-700 dark:hover:text-flour-100"
+    >
+      {copied ? <Check size={11} aria-hidden="true" /> : <Copy size={11} aria-hidden="true" />}
+      {copied ? 'Copied' : 'Copy'}
+    </button>
+  );
+}
+
+function CodeBlock({ code }: { code: string }) {
+  const [copied, setCopied] = useState(false);
+  const handle = async () => {
+    if (await copyToClipboard(code)) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }
+  };
+  return (
+    <div className="relative mt-1.5 overflow-hidden rounded-lg bg-pepper-900 dark:bg-pepper-950">
+      <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all px-3 py-2 pr-20 font-mono text-[11px] leading-relaxed text-flour-100">
+        {code}
+      </pre>
+      <button
+        type="button"
+        onClick={handle}
+        aria-label={copied ? 'Copied' : 'Copy env lines'}
+        className="absolute right-1.5 top-1.5 inline-flex items-center gap-1 rounded-md bg-pepper-800 px-1.5 py-1 text-[10px] font-semibold text-flour-200 transition-colors hover:bg-pepper-700 dark:text-flour-100"
+      >
+        {copied ? <Check size={10} aria-hidden="true" /> : <Copy size={10} aria-hidden="true" />}
+        {copied ? 'Copied' : 'Copy'}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Inline setup checklist: when required env vars are missing, shows the exact
+ * .env.example lines to paste plus the redeploy step. When everything is set,
+ * confirms it (and nudges to flip the live flag if it's still off).
+ */
+function SetupChecklist({ status }: { status: IntegrationStatus }) {
+  const missing = status.env.filter((v) => !v.set && v.required);
+  const [open, setOpen] = useState(missing.length > 0);
+
+  if (missing.length === 0) {
+    const flagOff = status.env.find((v) => v.name.startsWith('NEXT_PUBLIC_LIVE_') && !v.set);
+    if (flagOff) {
+      return (
+        <p className="mt-3 border-t border-butter-200 pt-2 text-xs text-turmeric-700 dark:border-pepper-700 dark:text-turmeric-300">
+          Required vars are set — flip{' '}
+          <code className="rounded bg-butter-100 px-1 py-0.5 font-mono dark:bg-pepper-700">{flagOff.name}=1</code>{' '}
+          to activate this integration.
+        </p>
+      );
+    }
+    return (
+      <p className="mt-3 border-t border-butter-200 pt-2 text-xs font-medium text-basil-700 dark:border-pepper-700 dark:text-basil-300">
+        <Check size={12} className="mr-1 inline" aria-hidden="true" /> All required env vars are set
+      </p>
+    );
+  }
+
+  const guide = SETUP_GUIDES[status.id] ?? [];
+  const steps = [...guide, REDEPLOY_STEP];
+  // Copy-all carries only the env lines — the redeploy `git push` step is
+  // intentionally excluded so the blob is safe to paste into Vercel's env UI.
+  const allLines = guide.flatMap((s) => (s.code ? [s.code] : [])).join('\n');
+
+  return (
+    <div className="mt-3 border-t border-butter-200 pt-2 dark:border-pepper-700">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-controls={`${status.id}-checklist`}
+        className="flex w-full items-center justify-between gap-2 text-left text-xs font-semibold text-turmeric-700 dark:text-turmeric-300"
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <ChevronDown size={14} className={`transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
+          Setup checklist · {missing.length} missing required {missing.length === 1 ? 'var' : 'vars'}
+        </span>
+        <span className="font-normal text-pepper-400 dark:text-pepper-500">{open ? 'Hide steps' : 'Show steps'}</span>
+      </button>
+      <p className="mt-1 pl-[22px] font-mono text-[10px] text-paprika-600 dark:text-paprika-400">
+        {missing.map((v) => v.name).join(' · ')}
+      </p>
+
+      {open && (
+        <ol id={`${status.id}-checklist`} className="mt-3 space-y-3">
+          {steps.map((step, i) => (
+            <li key={`${status.id}-step-${i}`} className="flex gap-2.5">
+              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-turmeric-100 text-[11px] font-bold text-turmeric-800 dark:bg-turmeric-900 dark:text-turmeric-200">
+                {i + 1}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium text-pepper-800 dark:text-flour-100">{step.label}</p>
+                {step.note && <p className="mt-0.5 text-[11px] leading-snug text-pepper-400 dark:text-pepper-400">{step.note}</p>}
+                {step.code && <CodeBlock code={step.code} />}
+              </div>
+            </li>
+          ))}
+          <li className="flex items-center justify-between rounded-lg bg-butter-100 py-1.5 pl-3 pr-1.5 dark:bg-pepper-700">
+            <span className="text-[11px] text-pepper-500 dark:text-pepper-300">Copy every env line above</span>
+            <CopyButton text={allLines} />
+          </li>
+        </ol>
+      )}
     </div>
   );
 }
 
 function ConnectionStatusPanel() {
   const { userId } = useStore();
-  const [statuses, setStatuses] = useState<IntegrationStatus[] | null>(null);
-  const [checkedAt, setCheckedAt] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [refreshKey, setRefreshKey] = useState(0);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-
-    const run = async () => {
-      setLoading(true);
-      try {
-        const res = await fetchIntegrationStatus(userId);
-        if (cancelled) return;
-        setStatuses(res.integrations);
-        setCheckedAt(res.checkedAt);
-        setError(null);
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to check integrations.');
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-          // Pause polling while the tab is hidden; the visibility listener
-          // below reschedules when it becomes visible again.
-          if (document.visibilityState === 'visible') timer = setTimeout(run, POLL_MS);
-        }
-      }
-    };
-    run();
-    const onVisible = () => {
-      if (document.visibilityState !== 'visible') return;
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(run, POLL_MS);
-    };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-      document.removeEventListener('visibilitychange', onVisible);
-    };
-  }, [userId, refreshKey]);
+  // Shared hook — same polling/refresh behavior as the sidebar widget, with
+  // the server-side ping cache absorbing provider API calls between polls.
+  const { statuses, checkedAt, error, loading, refresh } = useIntegrationStatus(userId, POLL_MS);
 
   const connected = statuses?.filter((s) => s.enabled && (s.endpoint?.ok ?? true)).length ?? 0;
 
@@ -161,7 +368,7 @@ function ConnectionStatusPanel() {
             <button
               type="button"
               className="btn-ghost text-xs"
-              onClick={() => setRefreshKey((k) => k + 1)}
+              onClick={refresh}
               disabled={loading}
               aria-label="Refresh connection status"
             >

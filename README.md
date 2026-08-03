@@ -146,7 +146,10 @@ stays usable.
 vars are set (✓/✗, booleans only — values are never exposed) and a live
 endpoint ping with HTTP status + latency (Supabase PostgREST, GitHub
 `rate_limit`, Vercel `v2/user`, Firebase projects API, and the automation
-engine). Same Firebase-token auth as every other live route.
+engine). Pings are cached server-side for 2 minutes (successful responses
+only — failures retry immediately), so polling never hammers provider APIs;
+the Refresh button bypasses the cache with `?refresh=1`. Same Firebase-token
+auth as every other live route.
 
 > **Auth model:** every live API route is owner-scoped by a **cryptographically
 > verified Firebase ID token** (`Authorization: Bearer <idToken>`, RS256-verified

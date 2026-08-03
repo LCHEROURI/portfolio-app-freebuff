@@ -19,7 +19,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Authentication required.' }, { status: 401 });
   }
 
-  const integrations = await checkIntegrations();
+  // ?refresh=1 bypasses the per-check ping cache (used by the panel's Refresh
+  // button so a manual refresh always re-pings the providers).
+  const refresh = req.nextUrl.searchParams.get('refresh') === '1';
+  const integrations = await checkIntegrations(refresh);
   return NextResponse.json(
     { ok: true, checkedAt: new Date().toISOString(), integrations },
     { headers: { 'Cache-Control': 'no-store' } },

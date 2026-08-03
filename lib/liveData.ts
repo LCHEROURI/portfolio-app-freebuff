@@ -165,8 +165,11 @@ export interface IntegrationStatus {
   note?: string;
 }
 
-export const fetchIntegrationStatus = (userId: string) =>
-  call<{ ok: true; checkedAt: string; integrations: IntegrationStatus[] }>('/api/status', userId);
+export const fetchIntegrationStatus = (userId: string, refresh = false) =>
+  call<{ ok: true; checkedAt: string; integrations: IntegrationStatus[] }>(
+    `/api/status${refresh ? '?refresh=1' : ''}`,
+    userId,
+  );
 
 export const saveLiveEvaluation = (userId: string, evaluation: ModelEvaluation) =>
   call<{ evaluation: ModelEvaluation }>('/api/evaluations', userId, { method: 'POST', body: JSON.stringify(evaluation) });
