@@ -1,26 +1,69 @@
-# App Portfolio Command Center
+<div align="center">
 
-A production-ready command center for a solo developer who builds multiple
-implementations of the same app concept using different AI models and
-app-building platforms (Gemini, DeepSeek, Lovable, Replit, Kimi K3, Claude,
-Cursor, Anti-Gravity, Codex, ChatGPT, Google AI Studio, FreeBuff, …).
+# 🍳 App Portfolio Command Center
 
-It organizes every **Project** (the business concept) separately from its
-**ProjectVersion** builds (the model-generated implementations), plus
-repositories, deployments, tasks, model evaluations, automated alerts, and
-scheduled daily/weekly reports — in one desktop-first dashboard.
+**One dashboard to run every AI-built version of your app idea.**
+
+[![Live demo](https://img.shields.io/badge/Live%20demo-Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://portfolio-app-freebuff.vercel.app)
+[![Next.js](https://img.shields.io/badge/Next.js%2014-black?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![Firebase](https://img.shields.io/badge/Firebase-FFCA28?style=for-the-badge&logo=firebase&logoColor=black)](https://firebase.google.com)
+[![Tailwind](https://img.shields.io/badge/Tailwind%20CSS-38BDF8?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
+
+**[Live demo →](https://portfolio-app-freebuff.vercel.app)** · No sign-up needed — runs in demo mode with seeded data.
+
+</div>
+
+---
+
+## What it is
+
+A solo developer doesn't build one app — they build the **same idea many times**,
+once per AI model and platform: Gemini, DeepSeek, Lovable, Replit, Kimi K3,
+Claude, Cursor, Codex, ChatGPT, Google AI Studio, Anti-Gravity, FreeBuff…
+
+**App Portfolio Command Center** turns that chaos into a single, ranked,
+actionable dashboard. Each business concept is a **Project**; each AI build of
+it is a **ProjectVersion**. Repositories, deployments, tasks, model
+evaluations, automated alerts, and daily/weekly reports all live in one
+desktop-first view.
+
+## Screenshots
+
+| Command Center | Command Center (dark) |
+| :---: | :---: |
+| ![Command Center dashboard](screenshots/command-center.png) | ![Command Center dark mode](screenshots/command-center-dark.png) |
+
+| Project portfolio | Model comparison |
+| :---: | :---: |
+| ![Projects grid](screenshots/projects.png) | ![Model comparison matrix](screenshots/model-comparison.png) |
+
+> Try the live demo in dark mode: `https://portfolio-app-freebuff.vercel.app/command-center?theme=dark`
+
+## Why it's a portfolio piece
+
+- **A real engine, not a mockup** — the 8-tier priority queue, all **14
+  automation rules**, "Today's Top Three", and daily/weekly report builders are
+  implemented and running (`lib/engine.ts`).
+- **Data-backed model selection** — every version is scored across 10 weighted
+  axes (UI, features, code quality, stability, performance, maintainability,
+  speed, cost, mobile, accessibility) so "which build won?" has an answer.
+- **Production-ready data layer** — typed, user-isolated Firestore with real
+  Authentication (email/password + Google), a `firestore.rules` security model,
+  and a one-click **migration path** from the localStorage demo mode into a
+  real account.
+- **Ships with a local companion** — `scripts/repo-scanner.mjs` reads your git
+  state locally and POSTs metadata (never source) to the scanner API, so repos
+  show up in the dashboard.
+- **Runs out of the box** — seeded with 6 realistic demo projects; no Firebase
+  config required to explore every screen.
 
 ## Stack
 
 - **Frontend:** Next.js 14 (App Router), React 18, TypeScript
-- **Styling:** Tailwind CSS, Lucide icons, light/dark/system themes
-- **Data:** Firebase Auth (email/password + Google) + Cloud Firestore (typed,
-  user-isolated, `firestore.rules`) with a fully functional **local demo
-  fallback** (localStorage) when no Firebase project is configured — the app
-  runs out of the box with seeded demo data, and local demo data can be
-  **imported into a real account** on first sign-in
-- **Automation:** 14-rule engine + priority queue + "Today's Top Three" (see
-  `lib/engine.ts`), mirrored server-side in `functions/` (Cloud Scheduler)
+- **Styling:** Tailwind CSS, Lucide icons, light/dark/system themes (`?theme=` URL override)
+- **Data:** Firebase Auth + Cloud Firestore (typed, user-isolated, `firestore.rules`) with a fully functional **local demo fallback** (localStorage) — local demo data can be **imported into a real account** on first sign-in
+- **Automation:** 14-rule engine + priority queue + "Today's Top Three", mirrored server-side in `functions/` (Cloud Scheduler)
 - **Integrations:** GitHub REST, Vercel API, Google Calendar, Gemini AI summaries
 
 ## Getting started
@@ -35,7 +78,7 @@ demo projects (Classic Chef Video Guide, Weeknight Meal Planner, Restaurant
 Social Media Manager, Restaurant 86-to-0 Board, Menu Competitor Analyzer,
 Takeout Voice 2) and persists changes to localStorage in demo mode.
 
-### Opt into Firebase (Phase 3: real Auth + Firestore)
+### Opt into Firebase (real Auth + Firestore)
 
 Create a `.env.local` with your Firebase web-app config values:
 
@@ -119,10 +162,12 @@ Overall = 0.15·UI + 0.20·Features + 0.15·Code + 0.15·Stability + 0.10·Perf 
 
 ```
 app/            Next.js App Router pages + API route (scanner ingest)
-components/     Layout shell, project/version/task/evaluation modals, UI kit
-lib/            firebase.ts, firestore.ts (data service), seed.ts, engine.ts,
+components/     Layout shell, auth gate, modals, UI kit
+lib/            firebase.ts, auth.tsx, firestore.ts, seed.ts, engine.ts,
                 store.tsx (React context), theme.tsx
 types/          Full domain model + zod schemas + scoring
 scripts/        repo-scanner.mjs (local CLI companion)
 functions/      Firebase Cloud Functions (automation + scheduled reports)
+firestore.rules Per-user Firestore security rules
+screenshots/    Screenshots used in this README
 ```

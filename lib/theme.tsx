@@ -13,6 +13,9 @@ const getSystemTheme = (): 'light' | 'dark' =>
 
 const getStored = (): ThemeMode => {
   if (typeof window === 'undefined') return 'system';
+  // ?theme=light|dark overrides the stored preference (shareable demo links).
+  const fromUrl = new URLSearchParams(window.location.search).get('theme');
+  if (fromUrl === 'light' || fromUrl === 'dark') return fromUrl;
   const stored = localStorage.getItem(STORAGE_KEY);
   return stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'system';
 };
