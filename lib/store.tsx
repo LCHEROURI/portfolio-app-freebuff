@@ -14,6 +14,9 @@ import {
   readLiveFlags, fetchLiveTasks, fetchLiveReminders, fetchLiveRepos,
   fetchLiveDeployments, createLiveTask, saveLiveTask, deleteLiveTask,
   createLiveReminder, updateLiveReminder, deleteLiveReminder,
+  fetchLiveProjects, saveLiveProject, deleteLiveProject,
+  fetchLiveVersions, saveLiveVersion, deleteLiveVersion,
+  fetchLiveEvaluations, saveLiveEvaluation, deleteLiveEvaluation,
   type LiveFlags,
 } from '@/lib/liveData';
 import {
@@ -85,7 +88,7 @@ const StoreContext = createContext<StoreApi | null>(null);
 const uid = (prefix: string) =>
   `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
-const NO_LIVE: LiveFlags = { tasks: false, reminders: false, repositories: false, deployments: false };
+const NO_LIVE: LiveFlags = { tasks: false, reminders: false, repositories: false, deployments: false, projects: false };
 
 export const StoreProvider = ({ children }: { children: ReactNode }) => {
   const { mode: authMode, user, initializing: authInitializing, signOut: authSignOut } = useAuth();
@@ -124,6 +127,9 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
         let reminders: Reminder[] = [];
         let repositories = all.repositories;
         let deployments = all.deployments;
+        let projects = all.projects;
+        let versions = all.versions;
+        let evaluations = all.evaluations;
 
         if (flags.tasks) {
           try {
@@ -155,9 +161,28 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
             }
           } catch { /* live deployments unavailable → keep local */ }
         }
+        if (flags.projects) {
+          // Projects/versions/evaluations live in Supabase when NEXT_PUBLIC_LIVE_PROJECTS=1
+          // — the same tables the automation cron evaluates, so emailed reports
+          // and the UI always share one source of truth.
+          try {
+            const [p, v, e] = await Promise.all([
+              fetchLiveProjects(userId).catch(() => null),
+              fetchLiveVersions(userId).catch(() => null),
+              fetchLiveEvaluations(userId).catch(() => null),
+            ]);
+            const anyConfigured = p?.configured || v?.configured || e?.configured;
+            if (anyConfigured) {
+              if (p?.configured && Array.isArray(p.projects)) projects = p.projects;
+              if (v?.configured && Array.isArray(v.versions)) versions = v.versions;
+              if (e?.configured && Array.isArray(e.evaluations)) evaluations = e.evaluations;
+              live.projects = true;
+            }
+          } catch { /* live projects unavailable → keep local */ }
+        }
 
         if (cancelled) return;
-        setData({ mode: service.mode, userId, ...all, tasks, reminders, repositories, deployments, live });
+        setData({ mode: service.mode, userId, ...all, tasks, reminders, repositories, deployments, projects, versions, evaluations, live });
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load data.');
       } finally {
@@ -193,6 +218,23 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
         ? list.map((x) => (x.id === item.id ? item : x))
         : [...list, item];
 
+    // Live-first persistence helpers: write to Supabase when the projects live
+    // flag is on, falling back to the local service if the live write fails.
+    const persistProject = async (p: Project) => {
+      if (data.live.projects) {
+        try { await saveLiveProject(data.userId, p); return; }
+        catch (e) { console.warn('live project save failed; falling back to local store:', e); }
+      }
+      await service.saveProject(p);
+    };
+    const persistVersion = async (v: ProjectVersion) => {
+      if (data.live.projects) {
+        try { await saveLiveVersion(data.userId, v); return; }
+        catch (e) { console.warn('live version save failed; falling back to local store:', e); }
+      }
+      await service.saveVersion(v);
+    };
+
     const refreshLive = async () => {
       const flags = readLiveFlags();
       const userId = data.userId;
@@ -222,6 +264,22 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
         try {
           const d = await fetchLiveDeployments(userId);
           if (d?.configured && Array.isArray(d.deployments)) { next.deployments = d.deployments; live.deployments = true; }
+        } catch { /* keep current */ }
+      }
+      if (flags.projects) {
+        try {
+          const [p, v, e] = await Promise.all([
+            fetchLiveProjects(userId).catch(() => null),
+            fetchLiveVersions(userId).catch(() => null),
+            fetchLiveEvaluations(userId).catch(() => null),
+          ]);
+          const anyConfigured = p?.configured || v?.configured || e?.configured;
+          if (anyConfigured) {
+            if (p?.configured && Array.isArray(p.projects)) next.projects = p.projects;
+            if (v?.configured && Array.isArray(v.versions)) next.versions = v.versions;
+            if (e?.configured && Array.isArray(e.evaluations)) next.evaluations = e.evaluations;
+            live.projects = true;
+          }
         } catch { /* keep current */ }
       }
       await mutate((prev) => ({ ...prev, ...next, live }));
@@ -264,12 +322,19 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
       },
       saveProject: async (p: Project) => {
         const next = touch(p);
-        await service.saveProject(next);
+        await persistProject(next);
         await mutate((prev) => ({ ...prev, projects: upsertIn(prev.projects, next) }));
         await logActivity({ kind: 'project_updated', projectId: next.id, message: `Project "${next.name}" updated` });
       },
       deleteProject: async (id: string) => {
-        await service.deleteProject(id);
+        if (data.live.projects) {
+          try {
+            await deleteLiveProject(data.userId, id);
+            await service.deleteProject(id);
+          } catch (e) { console.warn('live project delete failed; rows kept:', e); }
+        } else {
+          await service.deleteProject(id);
+        }
         await mutate((prev) => ({
           ...prev,
           projects: prev.projects.filter((x) => x.id !== id),
@@ -281,11 +346,18 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
       },
       saveVersion: async (v: ProjectVersion) => {
         const next = touch(v);
-        await service.saveVersion(next);
+        await persistVersion(next);
         await mutate((prev) => ({ ...prev, versions: upsertIn(prev.versions, next) }));
       },
       deleteVersion: async (id: string) => {
-        await service.deleteVersion(id);
+        if (data.live.projects) {
+          try {
+            await deleteLiveVersion(data.userId, id);
+            await service.deleteVersion(id);
+          } catch (e) { console.warn('live version delete failed; rows kept:', e); }
+        } else {
+          await service.deleteVersion(id);
+        }
         await mutate((prev) => ({ ...prev, versions: prev.versions.filter((x) => x.id !== id) }));
       },
       selectWinner: async (projectId: string, versionId: string) => {
@@ -297,9 +369,9 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
           ...project, winningVersionId: versionId, overallStatus: 'WINNER_SELECTED',
           updatedAt: now, lastActivityAt: now,
         };
-        await service.saveProject(updatedProject);
+        await persistProject(updatedProject);
         for (const v of data.versions.filter((v) => v.projectId === projectId)) {
-          await service.saveVersion({ ...v, isWinner: v.id === versionId, updatedAt: now });
+          await persistVersion({ ...v, isWinner: v.id === versionId, updatedAt: now });
         }
         // Merge per-id so concurrent version writes are never clobbered.
         await mutate((prev) => ({
@@ -410,11 +482,26 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
       },
       saveEvaluation: async (e: ModelEvaluation) => {
         const next = touch(e);
-        await service.saveEvaluation(next);
+        if (data.live.projects) {
+          try { await saveLiveEvaluation(data.userId, next); }
+          catch (err) {
+            console.warn('live evaluation save failed; falling back to local store:', err);
+            await service.saveEvaluation(next);
+          }
+        } else {
+          await service.saveEvaluation(next);
+        }
         await mutate((prev) => ({ ...prev, evaluations: upsertIn(prev.evaluations, next) }));
       },
       deleteEvaluation: async (id: string) => {
-        await service.deleteEvaluation(id);
+        if (data.live.projects) {
+          try {
+            await deleteLiveEvaluation(data.userId, id);
+            await service.deleteEvaluation(id);
+          } catch (e) { console.warn('live evaluation delete failed; rows kept:', e); }
+        } else {
+          await service.deleteEvaluation(id);
+        }
         await mutate((prev) => ({ ...prev, evaluations: prev.evaluations.filter((x) => x.id !== id) }));
       },
       saveProfile: async (p: UserProfile) => {

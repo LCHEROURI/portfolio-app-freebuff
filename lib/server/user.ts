@@ -1,14 +1,30 @@
 import type { NextRequest } from 'next/server';
 
-/**
- * Resolve the acting user id for live-data API routes.
- *
- * The client sends `x-app-user` (the store's userId: a Firebase uid in
- * Firebase mode, or the stable local id in demo mode). In production with
- * Firebase wired up, the App Layout gates everything behind a signed-in user,
- * so the header value is the authenticated uid. A future hardening step can
- * verify a Firebase ID token server-side; for now the header matches the
- * existing user-isolation model used across the data layer.
- */
-export const getRequestUserId = (req: NextRequest): string | null =>
-  req.headers.get('x-app-user');
+import { verifyFirebaseIdToken } from '@/lib/server/firebase-token';
+
+// ============================================================================
+// Resolve the acting user id for live-data API routes.
+//
+// Firebase mode (NEXT_PUBLIC_FIREBASE_PROJECT_ID set): owner identity comes
+// from a verified Firebase ID token in `Authorization: Bearer <idToken>` —
+// the `x-app-user` header is ignored entirely, so it can no longer be spoofed
+// to read or write another user's rows.
+//
+// Demo mode (no Firebase configured): there is no token issuer to verify
+// against, so the stable local id in `x-app-user` remains the only identity.
+// The demo store is per-browser local data, so this poses no cross-user risk.
+// ============================================================================
+
+export const getRequestUserId = async (req: NextRequest): Promise<string | null> => {
+  const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+
+  if (projectId) {
+    const auth = req.headers.get('authorization') ?? '';
+    const token = auth.startsWith('Bearer ') ? auth.slice('Bearer '.length).trim() : null;
+    if (!token) return null;
+    const verified = await verifyFirebaseIdToken(token, projectId);
+    return verified?.uid ?? null;
+  }
+
+  return req.headers.get('x-app-user');
+};

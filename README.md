@@ -64,7 +64,7 @@ desktop-first view.
 - **Frontend:** Next.js 14 (App Router), React 18, TypeScript
 - **Styling:** Tailwind CSS, Lucide icons, light/dark/system themes (`?theme=` URL override)
 - **Data:** Firebase Auth + Cloud Firestore (typed, user-isolated, `firestore.rules`) with a fully functional **local demo fallback** (localStorage) — local demo data can be **imported into a real account** on first sign-in
-- **Automation:** 14-rule engine + priority queue + "Today's Top Three", mirrored server-side in `functions/` (Cloud Scheduler)
+- **Automation:** 14-rule engine + priority queue + "Today's Top Three", fired by a Vercel Cron (`/api/cron/reports`) that emails daily/weekly reports against live data
 - **Integrations:** GitHub REST, Vercel API, Google Calendar, Gemini AI summaries
 
 ## Getting started
@@ -123,15 +123,17 @@ stays usable.
 
 | Source | Feeds | Flag | Server env |
 | --- | --- | --- | --- |
-| **Supabase** | `Today` + `Tasks` — add/edit/check-off tasks & reminders persisted to Postgres | `NEXT_PUBLIC_LIVE_TASKS=1` | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` |
+| **Supabase** | `Today` + `Tasks` + `Projects`/`Versions` — tasks, reminders, projects, versions & evaluations persisted to Postgres (the tables the automation cron reads) | `NEXT_PUBLIC_LIVE_TASKS=1`, `NEXT_PUBLIC_LIVE_PROJECTS=1` | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` |
 | **GitHub** | `Repositories` — branches, latest commit, PRs, issues, workflow status | `NEXT_PUBLIC_LIVE_REPOS=1` | `GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPOS` |
 | **Vercel** | `Deployments` — latest deploy per project + live health checks (HTTP status + response time) | `NEXT_PUBLIC_LIVE_DEPLOYMENTS=1` | `VERCEL_TOKEN`, `VERCEL_TEAM_ID` |
 
 **Setup (full detail in `.env.example`):**
 
 1. **Supabase** — create a project, run `supabase/schema.sql` in the SQL editor
-   (creates `tasks` + `reminders` tables with owner-scoped RLS), then add the
-   project URL + service-role key to your env.
+   (creates `tasks`, `reminders`, `projects`, `versions` and `evaluations`
+   tables with owner-scoped RLS), then add the project URL + service-role key
+   to your env. Set `NEXT_PUBLIC_LIVE_PROJECTS=1` to persist projects/versions/
+   evaluations there as well.
 2. **GitHub** — create a fine-grained PAT (repo read). Owner defaults to
    `LCHEROURI`; the repo list defaults to your 7 active repos and is
    overridable via `GITHUB_REPOS`.
@@ -139,14 +141,63 @@ stays usable.
    `GITHUB_REPOS` (or set `VERCEL_PROJECTS`).
 4. Flip the matching `NEXT_PUBLIC_LIVE_*` flag to `1` and redeploy.
 
-> **Auth model:** every live API route reads the acting user id from the
-> `x-app-user` header — the store's `userId` (a Firebase uid when Firebase is
-> wired, otherwise the local demo id) — so user isolation holds across sources.
+**Connection status panel** — the **Integrations** page live-polls `/api/status`
+(every 30s + manual refresh) and shows, per integration: exactly which env
+vars are set (✓/✗, booleans only — values are never exposed) and a live
+endpoint ping with HTTP status + latency (Supabase PostgREST, GitHub
+`rate_limit`, Vercel `v2/user`, Firebase projects API, and the automation
+engine). Same Firebase-token auth as every other live route.
+
+> **Auth model:** every live API route is owner-scoped by a **cryptographically
+> verified Firebase ID token** (`Authorization: Bearer <idToken>`, RS256-verified
+> against Google's public certs — see `lib/server/firebase-token.ts`). The old
+> `x-app-user` header is ignored server-side whenever Firebase is configured, so
+> it can no longer be spoofed to read or write another user's rows. In demo mode
+> (no Firebase env vars) the header is still used — there is no token issuer and
+> the data is per-browser local.
 
 > **Local git state:** unpushed commits and uncommitted changes exist only on
 > your machine, so the GitHub API can't see them. The **repo scanner CLI**
 > (`npm run scanner`) reports those and the store overlays them onto the live
 > GitHub feed (see `mergeScannerOverlay` in `lib/store.tsx`).
+
+### 🤖 Automation Engine — scheduled daily/weekly report emails
+
+The 14 rules aren't just a dashboard widget — a **Vercel Cron job**
+(`vercel.json` → `/api/cron/reports`) evaluates them against the **live data**
+(Supabase tasks/projects/versions/evaluations, live GitHub repos, Vercel/
+Firebase deployments with health checks) and emails you a report:
+
+- **Daily (07:00 UTC):** attention items, overdue + due-today + completed-
+yesterday tasks, failed deployments, unpushed commits, priority queue, and
+"Today's Top Three" actions.
+- **Weekly (07:00 UTC every Monday, or `REPORT_WEEKLY_DAY`):** projects advanced,
+deployment health, model performance breakdown, and winner recommendations.
+
+**Setup:**
+
+```bash
+# 1. Add to Vercel → Project → Settings → Environment Variables:
+CRON_SECRET=<long-random-string>   # Vercel Cron sends this as the auth header
+RESEND_API_KEY=<resend-key>        # https://resend.com
+REPORT_EMAIL=you@example.com       # inbox that receives the reports
+
+# 2. Optional: REPORT_OWNER_ID (default demo-user), REPORT_WEEKLY_DAY (1=Mon),
+#    REPORT_STALE_DAYS (7), REPORT_FROM
+
+# 3. Redeploy — Vercel registers the cron from vercel.json automatically.
+```
+
+The route returns `401` without the `Authorization: Bearer <CRON_SECRET>`
+header, so it can't be triggered by the public. Test a run manually:
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" \
+  "https://portfolio-app-freebuff.vercel.app/api/cron/reports?kind=daily"
+```
+
+It skips emailing while no live sources are wired (nothing to report), and each
+report is also visible in the Vercel cron invocation logs.
 
 ### Local Repository Scanner companion
 
@@ -202,9 +253,13 @@ components/     Layout shell, auth gate, modals, UI kit
 lib/            firebase.ts, auth.tsx, firestore.ts, seed.ts, engine.ts,
                 store.tsx (React context), liveData.ts (live API facade),
                 theme.tsx
-app/api/        Live API routes: tasks, reminders, repos (GitHub),
-                deployments (Vercel + health checks), scanner
-supabase/       schema.sql — tasks + reminders tables with RLS
+app/api/        Live API routes: tasks, reminders, projects, versions,
+                evaluations, repos (GitHub), deployments (Vercel + health
+                checks), scanner, cron/reports (automation engine)
+lib/server/     github.ts, deployments.ts, supabase.ts, rows.ts,
+                reporting/ (data assembly + email)
+supabase/       schema.sql — tasks, reminders, projects, versions,
+                evaluations tables with RLS
 types/          Full domain model + zod schemas + scoring
 scripts/        repo-scanner.mjs (local CLI companion)
 functions/      Firebase Cloud Functions (automation + scheduled reports)

@@ -13,7 +13,7 @@ const notConfigured = () =>
   NextResponse.json({ ok: false, configured: false, error: 'Supabase is not configured.' }, { status: 200 });
 
 const unauthorized = () =>
-  NextResponse.json({ ok: false, error: 'Missing x-app-user header.' }, { status: 401 });
+  NextResponse.json({ ok: false, error: 'Authentication required.' }, { status: 401 });
 
 /** Validated column whitelist: camelCase API key → snake_case column + optional value check. */
 const PATCH_FIELDS: Record<string, { col: string; validate?: (v: unknown) => boolean }> = {
@@ -36,7 +36,7 @@ const PATCH_FIELDS: Record<string, { col: string; validate?: (v: unknown) => boo
 
 // ─── PATCH /api/tasks/[id] ───────────────────────────────────────────────────
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  const userId = getRequestUserId(req);
+  const userId = await getRequestUserId(req);
   if (!userId) return unauthorized();
   if (!isSupabaseConfigured()) return notConfigured();
   try {
@@ -65,7 +65,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
 // ─── DELETE /api/tasks/[id] ──────────────────────────────────────────────────
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
-  const userId = getRequestUserId(_req);
+  const userId = await getRequestUserId(_req);
   if (!userId) return unauthorized();
   if (!isSupabaseConfigured()) return notConfigured();
   try {

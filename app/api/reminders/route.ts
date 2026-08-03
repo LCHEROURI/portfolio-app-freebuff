@@ -12,11 +12,11 @@ const notConfigured = () =>
   NextResponse.json({ ok: false, configured: false, error: 'Supabase is not configured.' }, { status: 200 });
 
 const unauthorized = () =>
-  NextResponse.json({ ok: false, error: 'Missing x-app-user header.' }, { status: 401 });
+  NextResponse.json({ ok: false, error: 'Authentication required.' }, { status: 401 });
 
 // ─── GET /api/reminders ──────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
-  const userId = getRequestUserId(req);
+  const userId = await getRequestUserId(req);
   if (!userId) return unauthorized();
   if (!isSupabaseConfigured()) return notConfigured();
   try {
@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
 
 // ─── POST /api/reminders ─────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
-  const userId = getRequestUserId(req);
+  const userId = await getRequestUserId(req);
   if (!userId) return unauthorized();
   if (!isSupabaseConfigured()) return notConfigured();
   try {

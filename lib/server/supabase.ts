@@ -90,3 +90,21 @@ export const supabaseDelete = async (
   });
   if (!res.ok && res.status !== 204) await throwHttp(res, 'delete');
 };
+
+/** DELETE every row owned by ownerId matching extra filters (e.g. project_id). */
+export const supabaseDeleteWhere = async (
+  table: string,
+  ownerId: string,
+  filters: Record<string, unknown>,
+): Promise<void> => {
+  const q = new URLSearchParams({ owner_id: `eq.${ownerId}` });
+  for (const [key, value] of Object.entries(filters)) {
+    q.set(key, `eq.${String(value)}`);
+  }
+  const res = await fetch(rest(table, q.toString()), {
+    method: 'DELETE',
+    headers: headers(),
+    cache: 'no-store',
+  });
+  if (!res.ok && res.status !== 204) await throwHttp(res, 'delete');
+};
