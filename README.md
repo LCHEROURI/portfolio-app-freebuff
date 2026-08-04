@@ -31,15 +31,18 @@ desktop-first view.
 
 ## Screenshots
 
-| Command Center | Command Center (dark) |
-| :---: | :---: |
-| ![Command Center dashboard](screenshots/command-center.png) | ![Command Center dark mode](screenshots/command-center-dark.png) |
+The same screens in light and dark — the sidebar's connection-status widget
+(per-var console links + copy buttons) is visible on every route.
 
-| Project portfolio | Model comparison |
-| :---: | :---: |
-| ![Projects grid](screenshots/projects.png) | ![Model comparison matrix](screenshots/model-comparison.png) |
+| Route | Light | Dark |
+| :--- | :---: | :---: |
+| **Command Center** | ![Command Center light](screenshots/command-center.png) | ![Command Center dark](screenshots/command-center-dark.png) |
+| **Repositories** | ![Repositories light](screenshots/repositories.png) | ![Repositories dark](screenshots/repositories-dark.png) |
+| **Integrations** | ![Integrations light](screenshots/integrations.png) | ![Integrations dark](screenshots/integrations-dark.png) |
+| **Portfolio & comparison** | ![Projects grid](screenshots/projects.png) | ![Model comparison matrix](screenshots/model-comparison.png) |
 
-> Try the live demo in dark mode: `https://portfolio-app-freebuff.vercel.app/command-center?theme=dark`
+> Try the live demo in either theme: `?theme=light` / `?theme=dark` — e.g.
+> `https://portfolio-app-freebuff.vercel.app/command-center?theme=dark`
 
 ## Why it's a portfolio piece
 
@@ -112,6 +115,46 @@ npx firebase deploy --only firestore:rules
 
 In **Demo Mode** (no env vars) everything still works: seeded data persists to
 localStorage and the app never asks for credentials.
+
+### 🌐 Production environment on Vercel
+
+As of the current deploy, the Vercel project's **Production** environment
+carries exactly these eight variables (names only — values are encrypted in
+Vercel and never committed):
+
+```bash
+# Firebase identity + data (flips every API route from demo to verified auth)
+NEXT_PUBLIC_FIREBASE_API_KEY=…
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=…
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=…
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=…
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=…
+NEXT_PUBLIC_FIREBASE_APP_ID=…
+
+# OpenRouter (activates AI features: report summaries, winner picks, top-three briefings)
+OPENROUTER_API_KEY=…
+OPENROUTER_MODEL=…   # optional; the per-user Settings picker overrides it in the UI
+```
+
+**Why this list matters:** these six Firebase vars are the on/off switch for
+the whole live-data layer. When `NEXT_PUBLIC_FIREBASE_PROJECT_ID` is set,
+every live API route (`/api/tasks`, `/api/repos`, `/api/deployments`, all
+`/api/ai/*`, …) resolves the acting user from a **cryptographically verified
+Firebase ID token** and ignores the legacy `x-app-user` header. If a future
+deploy silently drops one of these six, the app falls back to **demo mode**:
+the auth gate disappears, data lives in per-browser localStorage, and the API
+routes trust the spoofable `x-app-user` header again. Keep the full set on
+Vercel in every environment that should behave as a real account.
+
+**Demo-mode identity caveat:** the local dev server deliberately runs in demo
+mode unless you copy the same six Firebase vars into `.env.local` — the
+preview keeps working without sign-in, but AI-generated content on `localhost`
+still works because `OPENROUTER_API_KEY` is read from `.env.local`. A fresh
+fork or a redeploy missing `OPENROUTER_API_KEY` degrades gracefully: AI
+surfaces fall back to the deterministic rule-based text (no crash, no missing
+sections). To verify the AI layer is live in production, open the
+**Integrations** page — the status panel reports which vars are set and which
+endpoints respond.
 
 ### 🔌 Live integrations — Supabase · GitHub · Vercel
 
