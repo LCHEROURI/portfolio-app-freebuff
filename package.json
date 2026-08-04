@@ -11,7 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "next lint --max-warnings 0",
-    "scanner": "node scripts/repo-scanner.mjs"
+    "scanner": "node scripts/repo-scanner.mjs",
+    "capture:screenshots": "bash scripts/capture-screenshots.sh"
   },
   "dependencies": {
     "firebase": "^11.1.0",

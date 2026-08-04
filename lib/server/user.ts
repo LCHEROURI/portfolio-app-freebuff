@@ -16,6 +16,14 @@ import { verifyFirebaseIdToken } from '@/lib/server/firebase-token';
 // ============================================================================
 
 export const getRequestUserId = async (req: NextRequest): Promise<string | null> => {
+  // NEXT_PUBLIC_DEMO_OVERRIDE=1 forces demo identity even when Firebase env
+  // vars are present — mirrors the client-side isFirebaseConfigured override so
+  // the demo-mode build's live routes (/api/status, /api/tasks, …) keep
+  // trusting the local x-app-user header instead of 401-ing the demo client.
+  if (process.env.NEXT_PUBLIC_DEMO_OVERRIDE === '1') {
+    return req.headers.get('x-app-user');
+  }
+
   const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
 
   if (projectId) {

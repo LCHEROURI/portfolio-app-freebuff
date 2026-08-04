@@ -1,0 +1,93 @@
+name: Gallery
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: gallery-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  capture:
+    name: Capture README gallery from preview
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    # Fork PRs cannot access secrets; skip (not fail) so the check stays green
+    # for forks and only runs where a Vercel preview can actually be created.
+    if: ${{ secrets.VERCEL_TOKEN != '' && secrets.VERCEL_ORG_ID != '' && secrets.VERCEL_PROJECT_ID != '' }}
+
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        # The CDP driver uses native fetch + WebSocket (global in Node 22).
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chrome for headless capture
+        id: chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: Deploy preview of this branch
+        id: deploy
+        run: |
+          npx --yes vercel pull --yes --environment=preview --token="$VERCEL_TOKEN"
+          npx --yes vercel build --yes --token="$VERCEL_TOKEN"
+          URL="$(npx --yes vercel deploy --prebuilt --yes --token="$VERCEL_TOKEN" | tail -1)"
+          echo "Preview URL: $URL"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+      - name: Wait for preview to answer HTTP 200
+        run: |
+          args=(-s -o /dev/null -m 15 -w '%{http_code}' -L)
+          if [ -n "$BYPASS" ]; then
+            args+=(-H "x-vercel-protection-bypass: $BYPASS")
+          fi
+          for i in $(seq 1 30); do
+            code="$(curl "${args[@]}" "$PREVIEW_URL/command-center" || true)"
+            echo "attempt $i: HTTP $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 10
+          done
+          echo "Preview did not answer HTTP 200 within 300s." >&2
+          exit 1
+        env:
+          PREVIEW_URL: ${{ steps.deploy.outputs.url }}
+          BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
+
+      - name: Capture gallery (fails if any cell does not render the app shell)
+        run: |
+          args=(--url "$PREVIEW_URL")
+          if [ -n "$BYPASS" ]; then
+            args+=(--header "x-vercel-protection-bypass: $BYPASS")
+            echo "Using Vercel protection-bypass header for capture."
+          fi
+          npm run capture:screenshots -- "${args[@]}"
+        env:
+          PREVIEW_URL: ${{ steps.deploy.outputs.url }}
+          BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+
+      - name: Upload captured screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gallery-screenshots
+          path: screenshots/
+          if-no-files-found: ignore

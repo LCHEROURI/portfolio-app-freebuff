@@ -37,6 +37,11 @@ export const readFirebaseConfig = (): FirebaseConfig | null => {
 
 export const isFirebaseConfigured = (): boolean => {
   if (typeof window === 'undefined') return false;
+  // NEXT_PUBLIC_DEMO_OVERRIDE=1 forces demo mode even when the Firebase env
+  // vars are present — used for the public demo deployment so the live link
+  // serves the seeded demo app (no sign-in gate) exactly as the README's
+  // "No sign-up needed" promise describes. Leave unset for real accounts.
+  if (process.env.NEXT_PUBLIC_DEMO_OVERRIDE === '1') return false;
   return readFirebaseConfig() !== null;
 };
 

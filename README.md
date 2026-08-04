@@ -32,17 +32,41 @@ desktop-first view.
 ## Screenshots
 
 The same screens in light and dark — the sidebar's connection-status widget
-(per-var console links + copy buttons) is visible on every route.
+(per-var console links + copy buttons) is visible on every route. Captured
+from the deployed demo build (`NEXT_PUBLIC_DEMO_OVERRIDE=1`, see below) so
+they match what visitors see at the live link, not a local dev server.
 
 | Route | Light | Dark |
 | :--- | :---: | :---: |
 | **Command Center** | ![Command Center light](screenshots/command-center.png) | ![Command Center dark](screenshots/command-center-dark.png) |
+| **Projects** | ![Projects light](screenshots/projects.png) | ![Projects dark](screenshots/projects-dark.png) |
+| **Versions** | ![Versions light](screenshots/versions.png) | ![Versions dark](screenshots/versions-dark.png) |
+| **Deployments** | ![Deployments light](screenshots/deployments.png) | ![Deployments dark](screenshots/deployments-dark.png) |
 | **Repositories** | ![Repositories light](screenshots/repositories.png) | ![Repositories dark](screenshots/repositories-dark.png) |
+| **Model Comparison** | ![Model comparison light](screenshots/model-comparison.png) | ![Model comparison dark](screenshots/model-comparison-dark.png) |
+| **Reports** | ![Reports light](screenshots/reports.png) | ![Reports dark](screenshots/reports-dark.png) |
 | **Integrations** | ![Integrations light](screenshots/integrations.png) | ![Integrations dark](screenshots/integrations-dark.png) |
-| **Portfolio & comparison** | ![Projects grid](screenshots/projects.png) | ![Model comparison matrix](screenshots/model-comparison.png) |
+| **Settings** | ![Settings light](screenshots/settings.png) | ![Settings dark](screenshots/settings-dark.png) |
 
 > Try the live demo in either theme: `?theme=light` / `?theme=dark` — e.g.
 > `https://portfolio-app-freebuff.vercel.app/command-center?theme=dark`
+>
+> Regenerate the whole gallery whenever the UI changes with one command
+> (captures from the deployed demo build by default, falls back to `localhost`):
+> `npm run capture:screenshots`. Pass `--diff` to only rewrite PNGs whose pixels
+> actually changed (trivial re-runs leave the git tree clean). Every run also
+> refreshes **`docs/screenshots.html`** — a browsable contact sheet with the
+> light/dark pairs side by side, for local viewing without the README.
+>
+> **CI keeps it honest** — `.github/workflows/gallery.yml` runs on every pull
+> request: it deploys a Vercel **preview** of your branch, captures all 18 cells
+> from that URL (not the shared production build), and **fails the check if any
+> cell renders the auth gate or skips the app shell**. Screenshots are uploaded
+> as a `gallery-screenshots` artifact for review. Required repo secrets:
+> `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID` (from `vercel link`), and
+> `VERCEL_PROTECTION_BYPASS` (the project's Deployment Protection bypass secret,
+> sent as `x-vercel-protection-bypass` so the SSO wall doesn't block capture).
+> The job auto-skips for fork PRs, which can't access secrets.
 
 ## Why it's a portfolio piece
 
@@ -134,6 +158,10 @@ NEXT_PUBLIC_FIREBASE_APP_ID=…
 # OpenRouter (activates AI features: report summaries, winner picks, top-three briefings)
 OPENROUTER_API_KEY=…
 OPENROUTER_MODEL=…   # optional; the per-user Settings picker overrides it in the UI
+
+# Public demo build: forces demo mode even with the Firebase vars above, so the
+# live link serves the seeded demo app (no sign-in gate) as the hero promises.
+NEXT_PUBLIC_DEMO_OVERRIDE=1
 ```
 
 **Why this list matters:** these six Firebase vars are the on/off switch for
