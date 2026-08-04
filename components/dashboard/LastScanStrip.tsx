@@ -1,0 +1,129 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { FileDiff, RefreshCw } from 'lucide-react';
+
+import { Card } from '@/components/ui/Card';
+import { Badge } from '@/components/ui/Badge';
+import { ScanFreshnessBadge } from '@/components/ui/ScanFreshnessBadge';
+import { timeAgo } from '@/lib/engine';
+
+const SCAN_STALE_MS = 24 * 3_600_000;
+
+interface ScanRow {
+  id: string;
+  owner: string;
+  repositoryName: string;
+  lastScannedAt: string;
+  hasUncommittedChanges: boolean;
+  hasUnpushedCommits: boolean;
+}
+
+const repoName = (r: ScanRow) => `${r.owner}/${r.repositoryName}`;
+
+/**
+ * 'Last scan' freshness strip for the Command Center metric cards. Reads the
+ * local scanner feed (GET /api/scans — the same data/scans.json the cron
+ * snapshot overlays) and shows the NEWEST and OLDEST lastScannedAt across
+ * repos with the shared fresh/stale badge, so a stale local scan is visible
+ * the moment you land on the dashboard.
+ */
+export const LastScanStrip = () => {
+  const [rows, setRows] = useState<ScanRow[] | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/scans', { cache: 'no-store' });
+      const json = (await res.json()) as { ok: boolean; repos: ScanRow[] };
+      setRows(Array.isArray(json.repos) ? json.repos : []);
+    } catch {
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const newest = rows && rows.length > 0
+    ? rows.reduce((a, b) => (a.lastScannedAt > b.lastScannedAt ? a : b))
+    : null;
+  const oldest = rows && rows.length > 0
+    ? rows.reduce((a, b) => (a.lastScannedAt < b.lastScannedAt ? a : b))
+    : null;
+  const staleCount = (rows ?? []).filter(
+    (r) => Date.now() - new Date(r.lastScannedAt).getTime() > SCAN_STALE_MS,
+  ).length;
+
+  const repo = (r: ScanRow | null) =>
+    r ? (
+      <div className="min-w-0">
+        <p className="truncate text-sm font-medium text-pepper-900 dark:text-flour-50">{repoName(r)}</p>
+        <p className="truncate text-xs text-pepper-400">captured {timeAgo(r.lastScannedAt)}</p>
+      </div>
+    ) : null;
+
+  return (
+    <Card className="mb-6">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+        <div className="flex items-center gap-2">
+          <FileDiff size={16} className="shrink-0 text-tomato-500" aria-hidden="true" />
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-pepper-500 dark:text-pepper-300">Local scan</p>
+            <p className="text-xs text-pepper-400">newest → oldest across repos</p>
+          </div>
+        </div>
+
+        {loading ? (
+          <p className="text-sm text-pepper-400">Loading scan freshness…</p>
+        ) : rows && rows.length === 0 ? (
+          <p className="text-sm text-pepper-500 dark:text-pepper-300">
+            No local scans yet — run <code className="font-mono">npm run scan:all</code> once to seed the feed.
+          </p>
+        ) : (
+          <>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                {repo(newest)}
+                {newest?.lastScannedAt && <ScanFreshnessBadge scannedAt={newest.lastScannedAt} />}
+              </div>
+              <span className="text-xs text-pepper-400" aria-hidden="true">←</span>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                {repo(oldest)}
+                {oldest?.lastScannedAt && <ScanFreshnessBadge scannedAt={oldest.lastScannedAt} />}
+              </div>
+              <span className="text-xs text-pepper-400" aria-hidden="true">→</span>
+            </div>
+
+            {staleCount > 0 && (
+              <Badge tone="turmeric" title={`${staleCount} repo(s) have a scan older than 24h`}>
+                {staleCount} stale
+              </Badge>
+            )}
+
+            <div className="ml-auto flex items-center gap-2">
+              <span className="text-xs text-pepper-400">{rows!.length} repos</span>
+              <button
+                type="button"
+                aria-label="Refresh local scan freshness"
+                className="btn-ghost px-2 py-1 text-xs"
+                onClick={() => void load()}
+                disabled={loading}
+              >
+                <RefreshCw size={13} className={loading ? 'animate-spin' : ''} aria-hidden="true" />
+                Refresh
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </Card>
+  );
+};

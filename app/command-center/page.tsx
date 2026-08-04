@@ -12,6 +12,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { StatCard, Card, CardHeader } from '@/components/ui/Card';
 import { Badge, StatusBadge, PriorityBadge, ModelBadge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { LastScanStrip } from '@/components/dashboard/LastScanStrip';
 import { VercelEnvSettingsLink } from '@/components/integrations/VercelEnvSettingsLink';
 import { isFirebaseConfigured } from '@/lib/firebase';
 import { fetchTopThreeNarration, isAiBriefingsEnabled, readLiveFlags } from '@/lib/liveData';
@@ -277,6 +278,9 @@ export default function CommandCenterPage() {
         <StatCard label="Failed deployments" value={metrics.failedDeployments} icon={<Rocket size={20} aria-hidden="true" />} tone={metrics.failedDeployments > 0 ? 'paprika' : 'basil'} />
         <StatCard label="Healthy deployments" value={metrics.healthyDeployments} icon={<HeartPulse size={20} aria-hidden="true" />} tone="basil" />
       </section>
+
+      {/* Local scan freshness — newest/oldest lastScannedAt across repos */}
+      <LastScanStrip />
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         {/* Priority queue */}

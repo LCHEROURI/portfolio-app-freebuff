@@ -68,9 +68,18 @@ let queue: NarrationBody[];
 let lastRequestModel: string | undefined;
 let lastFetchMock: ReturnType<typeof vi.fn> | undefined;
 
+// The page also mounts the LastScanStrip, which fetches GET /api/scans on
+// mount; route that to an empty feed so the AI stubs below only ever see
+// /api/ai/top-three calls.
+const aiCalls = (mock: ReturnType<typeof vi.fn>) =>
+  mock.mock.calls.filter((c) => String(c[0]).includes('/api/ai/top-three'));
+
 const stubNarrationFetch = () => {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    if (url.includes('/api/scans')) {
+      return { ok: true, status: 200, json: async () => ({ ok: true, repos: [] }) } as Response;
+    }
     if (!url.includes('/api/ai/top-three')) {
       throw new Error(`Unexpected fetch in command-center test: ${url}`);
     }
@@ -202,9 +211,9 @@ describe('CommandCenterPage — AI top-three narration', () => {
     fireEvent.click(screen.getByRole('button', { name: "Explain today's top three with AI" }));
 
     // The overdue task belongs to p-1, so the request carries its identity.
-    await waitFor(() => expect(lastFetchMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(aiCalls(lastFetchMock as ReturnType<typeof vi.fn>)).toHaveLength(1));
     const sentActions = (JSON.parse(
-      String((lastFetchMock as unknown as { mock: { calls: Array<[unknown, RequestInit]> } }).mock.calls[0][1]?.body),
+      String((aiCalls(lastFetchMock as ReturnType<typeof vi.fn>)[0][1] as RequestInit | undefined)?.body),
     ) as { actions: Array<{ projectId?: string; projectName?: string }> }).actions;
     expect(sentActions.length).toBeGreaterThan(0);
     expect(sentActions.every((a) => a.projectId === 'p-1' && a.projectName === 'Weeknight Meal Planner')).toBe(true);
@@ -274,9 +283,9 @@ describe('CommandCenterPage — regenerate and per-project drill-down', () => {
     fireEvent.click(chip);
 
     expect(await screen.findByText('Meal planner only.')).toBeInTheDocument();
-    // Only the scoped project's actions go in the request (the first call).
+    // Only the scoped project's actions go in the request (the first AI call).
     const sent = (JSON.parse(
-      String((lastFetchMock as unknown as { mock: { calls: Array<[unknown, RequestInit]> } }).mock.calls[0][1]?.body),
+      String((aiCalls(lastFetchMock as ReturnType<typeof vi.fn>)[0][1] as RequestInit | undefined)?.body),
     ) as { actions: Array<{ projectId?: string }> }).actions;
     expect(sent.length).toBeGreaterThan(0);
     expect(sent.every((a) => a.projectId === 'p-1')).toBe(true);
@@ -436,13 +445,19 @@ describe('CommandCenterPage — auto-briefing on load', () => {
   });
 
   it('does not auto-fire when the flag is unset', async () => {
-    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) }));
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/scans')) {
+        return { ok: true, status: 200, json: async () => ({ ok: true, repos: [] }) } as Response;
+      }
+      return { ok: true, status: 200, json: async () => ({}) } as Response;
+    });
     vi.stubGlobal('fetch', fetchMock);
 
     render(<CommandCenterPage />);
 
-    // The fetch stub records calls; nothing should hit the AI route on mount.
-    expect(fetchMock).not.toHaveBeenCalled();
+    // The strip's /api/scans feed may load, but no AI route is hit on mount.
+    expect(aiCalls(fetchMock)).toHaveLength(0);
     expect(screen.queryByLabelText('Loading AI briefing')).toBeNull();
     expect(screen.queryByText('Why these three matter today')).toBeNull();
   });
@@ -468,7 +483,8 @@ describe('CommandCenterPage — auto-briefing on load', () => {
     tasksOverride = []; // Empty store on first mount, like a live fetch in flight.
     const { rerender } = render(<CommandCenterPage />);
     expect(screen.queryByLabelText('Loading AI briefing')).toBeNull();
-    expect(lastFetchMock).not.toHaveBeenCalled();
+    // The strip may fetch /api/scans, but no AI call fires while the store is empty.
+    expect(aiCalls(lastFetchMock as ReturnType<typeof vi.fn>)).toHaveLength(0);
 
     // Data arrives → re-render with the overdue task, the signature changes and
     // the auto-brief fires without a click.
@@ -476,8 +492,8 @@ describe('CommandCenterPage — auto-briefing on load', () => {
     rerender(<CommandCenterPage />);
 
     expect(await screen.findByText('Why these three matter today')).toBeInTheDocument();
-    // Exactly one AI call for the whole lifecycle.
-    expect(lastFetchMock).toHaveBeenCalledTimes(1);
+    // Exactly one AI call for the whole lifecycle (ignoring the /api/scans feed).
+    expect(aiCalls(lastFetchMock as ReturnType<typeof vi.fn>)).toHaveLength(1);
   });
 });
 
@@ -502,7 +518,7 @@ describe('CommandCenterPage — briefing persistence across remounts', () => {
     expect(await screen.findByText('Persisted briefing text.')).toBeInTheDocument();
     expect(screen.getByText('Why these three matter today')).toBeInTheDocument();
     // Only the original generation fired; the remount restored, not re-ran.
-    expect(lastFetchMock).toHaveBeenCalledTimes(1);
+    expect(aiCalls(lastFetchMock as ReturnType<typeof vi.fn>)).toHaveLength(1);
   });
 
   it('restores the scoped brief chip and its single-project narration after remount', async () => {
@@ -558,6 +574,6 @@ describe('CommandCenterPage — briefing persistence across remounts', () => {
 
     // Restored from storage, and the auto-brief ref guard stops a duplicate call.
     expect(await screen.findByText('Stored narration, no refire.')).toBeInTheDocument();
-    expect(lastFetchMock).toHaveBeenCalledTimes(1);
+    expect(aiCalls(lastFetchMock as ReturnType<typeof vi.fn>)).toHaveLength(1);
   });
 });
