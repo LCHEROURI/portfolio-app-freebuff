@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, FolderKanban, GitFork, CalendarClock, ListTodo, Rocket,
   GitBranch, Scale, FileText, History, Plug, Settings, X, Sun, Moon, Monitor,
-  Sparkles,
+  Sparkles, Images,
 } from 'lucide-react';
 
 import { useTheme } from '@/lib/theme';
@@ -25,6 +25,7 @@ const NAV = [
   { href: '/reports', label: 'Reports', icon: FileText },
   { href: '/activity', label: 'Activity', icon: History },
   { href: '/integrations', label: 'Integrations', icon: Plug },
+  { href: '/gallery', label: 'Gallery', icon: Images },
   { href: '/settings', label: 'Settings', icon: Settings },
 ] as const;
 

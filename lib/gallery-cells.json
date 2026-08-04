@@ -1,0 +1,11 @@
+[
+  { "route": "command-center", "label": "Command Center" },
+  { "route": "projects", "label": "Projects" },
+  { "route": "versions", "label": "Versions" },
+  { "route": "deployments", "label": "Deployments" },
+  { "route": "repositories", "label": "Repositories" },
+  { "route": "model-comparison", "label": "Model Comparison" },
+  { "route": "reports", "label": "Reports" },
+  { "route": "integrations", "label": "Integrations" },
+  { "route": "settings", "label": "Settings" }
+]

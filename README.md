@@ -323,6 +323,7 @@ Scheduled functions: `runAutomation` (every 6h), `generateDailyReports` (daily
 | `/reports` | Generate/save daily & weekly reports |
 | `/activity` | Event feed with kind filters |
 | `/integrations` | GitHub / Vercel / Calendar / Gemini connection UI |
+| `/gallery` | Every module's screenshot pair (light/dark) on the live site |
 | `/settings` | Profile, report schedule, stale threshold, demo reset |
 
 ## Model Evaluation scoring

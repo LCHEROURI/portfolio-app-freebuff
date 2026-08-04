@@ -17,6 +17,11 @@ import { spawn } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
 
+// Single source of truth shared with app/gallery/page.tsx and
+// app/screenshots/[file]/route.ts so the pages, the allowlist, and the
+// captured cells can never drift apart.
+import galleryCells from '../lib/gallery-cells.json' with { type: 'json' };
+
 const CHROME = process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const PORT = 9444;
 const VIEWPORT_W = 1440;
@@ -57,10 +62,7 @@ for (let i = 0; i < args.length; i++) {
 
 const BASE = urlArg.replace(/\/$/, '');
 
-const ROUTES = [
-  'command-center', 'projects', 'versions', 'deployments', 'repositories',
-  'model-comparison', 'reports', 'integrations', 'settings',
-];
+const ROUTES = galleryCells.map((c) => c.route);
 
 const chrome = spawn(CHROME, [
   '--headless=new',
