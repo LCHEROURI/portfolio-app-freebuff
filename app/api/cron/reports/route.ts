@@ -141,7 +141,9 @@ export async function GET(req: NextRequest) {
         attentionCount: r.attentionCount,
         body,
         model: ai?.model ?? null,
-        narrationModel: narration?.model ?? null,
+        // Structured narration (daily only) so verifiers can assert the exact
+        // paragraph and model without parsing the composed body text.
+        narration,
       };
     }),
   );
@@ -154,10 +156,13 @@ export async function GET(req: NextRequest) {
     });
     reports.push({
       kind: s.kind, title: s.title, attentionCount: s.attentionCount, email,
-      aiModel: s.model, narrationModel: s.narrationModel,
+      aiModel: s.model, narrationModel: s.narration?.model ?? null,
       // Only surfaced with ?previewBody=1 (CRON_SECRET-authed), so the exact
-      // emailed text is verifiable without opening an inbox.
-      ...(previewBody ? { body: s.body } : {}),
+      // emailed text is verifiable without opening an inbox. The structured
+      // narration (paragraph, model, cited project ids) rides along for daily
+      // reports so the verification script can assert both the composed body
+      // and the raw fields.
+      ...(previewBody ? { body: s.body, narration: s.narration } : {}),
     });
   }
 

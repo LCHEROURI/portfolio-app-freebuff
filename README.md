@@ -284,6 +284,47 @@ curl -H "Authorization: Bearer $CRON_SECRET" \
 It skips emailing while no live sources are wired (nothing to report), and each
 report is also visible in the Vercel cron invocation logs.
 
+**Verifying the emailed bodies without an inbox:** the route accepts a dev-only
+`?previewBody=1` flag (still CRON_SECRET-authed) that includes each composed
+email body — plus the structured top-three narration — in the JSON response.
+The packaged smoke test asserts the auth gate, the friendly model heading, and
+the raw-id footer for both daily and weekly bodies:
+
+```bash
+npm run verify:cron-email                 # against the production URL
+node scripts/verify-cron-email.mjs \
+  --base http://localhost:3000 \
+  --secret "$CRON_SECRET"                 # against a local dev server
+```
+
+It reads `CRON_SECRET` from `--secret`, then the `CRON_SECRET` env var, then
+`.env.local`, and exits nonzero on any failed assertion. CI runs it against the
+live deploy after every push to `main` (the `verify-deployed-cron` job,
+gated on the `CRON_SECRET` GitHub Actions secret).
+
+**Rotating `CRON_SECRET`** (do this whenever it may have leaked, or to keep the
+local `.env.local` and the Vercel/GitHub values in lockstep):
+
+```bash
+# 1. Generate a fresh value and update it everywhere the old one lives. Use
+#    sed (not perl) so the shell expands the value before it touches the file:
+NEW_SECRET="$(openssl rand -hex 32)"
+sed -i.bak "s|^CRON_SECRET=.*|CRON_SECRET=${NEW_SECRET}|" .env.local && rm .env.local.bak
+printf '%s' "$NEW_SECRET" | vercel env rm CRON_SECRET production -y >/dev/null 2>&1 || true
+printf '%s' "$NEW_SECRET" | vercel env add CRON_SECRET production
+
+# 2. GitHub Actions: update the CRON_SECRET secret (Settings → Secrets → Actions)
+#    so the verify-deployed-cron job keeps running.
+
+# 3. Redeploy — Vercel Cron reads the new value from the fresh deployment.
+vercel --prod
+```
+
+**Keep the two in sync:** the cron only authenticates when the header matches
+the `CRON_SECRET` in the deployed environment, and the smoke test only passes
+when that value matches the one in `.env.local`. If a `401` shows up in the
+cron logs or the CI job, re-run the rotation steps above in both places.
+
 ### Local Repository Scanner companion
 
 ```bash

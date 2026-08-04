@@ -227,11 +227,29 @@ describe('GET /api/cron/reports — previewBody=1', () => {
   it('returns the composed daily email body including the narration heading and footer', async () => {
     const res = await GET(makePreviewReq('daily'));
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { reports: Array<{ body?: string }> };
+    const json = (await res.json()) as {
+      reports: Array<{ body?: string; narration?: { paragraph: string; model: string; projectIds: string[] } }>;
+    };
     const body = json.reports[0].body ?? '';
     expect(body).toContain('## 🎯 Why these three matter today (DeepSeek Chat)');
     expect(body).toContain('## ✨ AI executive summary (DeepSeek Chat)');
     expect(body).toContain('Model: `deepseek/deepseek-chat`');
+
+    // The structured narration rides along so verifiers don't need to parse prose.
+    expect(json.reports[0].narration?.paragraph).toBe(
+      'Fix the failing deploy first, then push your work and close the overdue task.',
+    );
+    expect(json.reports[0].narration?.model).toBe('deepseek/deepseek-chat');
+    expect(json.reports[0].narration?.projectIds).toEqual(['p-1']);
+  });
+
+  it('omits the structured narration when the daily narration is unavailable', async () => {
+    vi.mocked(narrateTopThree).mockResolvedValue(null);
+    const res = await GET(makePreviewReq('daily'));
+    const json = (await res.json()) as {
+      reports: Array<{ narration?: { paragraph: string; model: string } | null }>;
+    };
+    expect(json.reports[0].narration).toBeNull();
   });
 
   it('omits the body from the JSON response without the flag', async () => {

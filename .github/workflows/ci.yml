@@ -40,3 +40,29 @@ jobs:
 
       - name: Production build
         run: npm run build
+
+  # Deployed cron-email smoke test. Runs the live /api/cron/reports endpoint
+  # (which requires ?previewBody=1 + CRON_SECRET) and asserts the composed
+  # email bodies carry the friendly model heading and raw-id footer. Gated on
+  # the CRON_SECRET secret so forks / unconfigured repos stay green and only
+  # run where a real deploy exists.
+  verify-deployed-cron:
+    name: Verify deployed cron email
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: validate
+    if: ${{ github.event_name == 'push' && secrets.CRON_SECRET != '' }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Verify deployed cron email bodies
+        run: node scripts/verify-cron-email.mjs
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
