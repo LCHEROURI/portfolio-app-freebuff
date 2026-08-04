@@ -106,6 +106,12 @@ const makeReq = (kind: string) =>
     headers: { authorization: 'Bearer test-secret' },
   });
 
+/** Same as makeReq but with the dev-only ?previewBody=1 verification flag. */
+const makePreviewReq = (kind: string) =>
+  new NextRequest(`http://localhost/api/cron/reports?kind=${kind}&previewBody=1`, {
+    headers: { authorization: 'Bearer test-secret' },
+  });
+
 beforeEach(() => {
   process.env.CRON_SECRET = 'test-secret';
   vi.mocked(loadLiveSnapshot).mockResolvedValue(snapshotWithTopThree);
@@ -200,5 +206,37 @@ describe('GET /api/cron/reports — weekly report', () => {
     expect(body).not.toContain('Why these three matter today');
     expect(body).toContain('AI executive summary');
     expect(body).toContain('# Weekly Command Center Report');
+  });
+});
+
+// ─── Preview body (?previewBody=1, dev-only) ────────────────────────────────
+
+describe('GET /api/cron/reports — previewBody=1', () => {
+  it('returns the composed weekly email body with the friendly heading and raw footer', async () => {
+    const res = await GET(makePreviewReq('weekly'));
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { reports: Array<{ body?: string }> };
+    const body = json.reports[0].body ?? '';
+    // Friendly label in the heading (matches the in-app badges)…
+    expect(body).toContain('## ✨ AI executive summary (DeepSeek Chat)');
+    // …and the exact raw id in the footer line.
+    expect(body).toContain('Model: `deepseek/deepseek-chat`');
+    expect(body).toContain('# Weekly Command Center Report');
+  });
+
+  it('returns the composed daily email body including the narration heading and footer', async () => {
+    const res = await GET(makePreviewReq('daily'));
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { reports: Array<{ body?: string }> };
+    const body = json.reports[0].body ?? '';
+    expect(body).toContain('## 🎯 Why these three matter today (DeepSeek Chat)');
+    expect(body).toContain('## ✨ AI executive summary (DeepSeek Chat)');
+    expect(body).toContain('Model: `deepseek/deepseek-chat`');
+  });
+
+  it('omits the body from the JSON response without the flag', async () => {
+    const res = await GET(makeReq('weekly'));
+    const json = (await res.json()) as { reports: Array<Record<string, unknown>> };
+    expect(json.reports[0].body).toBeUndefined();
   });
 });

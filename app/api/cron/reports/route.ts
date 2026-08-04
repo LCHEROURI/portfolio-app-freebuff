@@ -19,6 +19,10 @@ import { sendReportEmail } from '@/lib/server/reporting/email';
 //   ?kind=auto   (default) → daily report every run; weekly report when the
 //                            UTC weekday matches REPORT_WEEKLY_DAY (default 1=Mon)
 //   ?kind=daily / ?kind=weekly → force just that report (for manual testing)
+//   ?previewBody=1 → dev-only: include each report's composed email body in the
+//                    JSON response (still requires the CRON_SECRET bearer), so
+//                    the exact emailed text can be verified without opening an
+//                    inbox. Omitted by default to keep the response lean.
 //
 // The 14 automation rules run against a live snapshot (Supabase tasks/projects/
 // versions/evaluations + live GitHub repos + Vercel/Firebase deployments) using
@@ -54,6 +58,8 @@ export async function GET(req: NextRequest) {
   const rawKind = req.nextUrl.searchParams.get('kind') ?? 'auto';
   const kind: 'auto' | 'daily' | 'weekly' =
     rawKind === 'daily' || rawKind === 'weekly' ? rawKind : 'auto';
+  // Dev-only verification aid: include the composed email body in the response.
+  const previewBody = req.nextUrl.searchParams.get('previewBody') === '1';
   const weeklyDay = Number(process.env.REPORT_WEEKLY_DAY ?? 1);
   const todayUtc = new Date().getUTCDay();
 
@@ -146,7 +152,13 @@ export async function GET(req: NextRequest) {
       body: s.body,
       attentionCount: s.attentionCount, alerts,
     });
-    reports.push({ kind: s.kind, title: s.title, attentionCount: s.attentionCount, email, aiModel: s.model, narrationModel: s.narrationModel });
+    reports.push({
+      kind: s.kind, title: s.title, attentionCount: s.attentionCount, email,
+      aiModel: s.model, narrationModel: s.narrationModel,
+      // Only surfaced with ?previewBody=1 (CRON_SECRET-authed), so the exact
+      // emailed text is verifiable without opening an inbox.
+      ...(previewBody ? { body: s.body } : {}),
+    });
   }
 
   return NextResponse.json({
