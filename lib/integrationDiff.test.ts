@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
 
-import { computeChangedIds, integrationChanged, LATENCY_SPIKE_MS } from './integrationDiff';
+import {
+  computeChangedIds,
+  computeChangedSummaries,
+  describeIntegrationChange,
+  integrationChanged,
+  LATENCY_SPIKE_MS,
+} from './integrationDiff';
 import type { IntegrationStatus } from './liveData';
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
@@ -84,6 +90,140 @@ describe('integrationChanged', () => {
     const a = base();
     const b = base({ endpoint: { ok: false, status: null, ms: null, detail: 'Unreachable' } });
     expect(integrationChanged(a, b)).toBe(true);
+  });
+});
+
+// ─── describeIntegrationChange ─────────────────────────────────────────────
+
+describe('describeIntegrationChange', () => {
+  it('returns [] when nothing observable changed', () => {
+    expect(describeIntegrationChange(base(), base())).toEqual([]);
+  });
+
+  it('ignores a detail-string reword (same state)', () => {
+    const a = base();
+    const b = base({ endpoint: { ok: true, status: 200, ms: 120, detail: 'different wording' } });
+    expect(describeIntegrationChange(a, b)).toEqual([]);
+  });
+
+  it('names an env var that got set', () => {
+    const a = base({ env: [{ name: 'GITHUB_TOKEN', set: false, required: true }] });
+    const b = base({ env: [{ name: 'GITHUB_TOKEN', set: true, required: true }] });
+    expect(describeIntegrationChange(a, b)).toEqual(['GITHUB_TOKEN set']);
+  });
+
+  it('names an env var that got cleared', () => {
+    const a = base({ env: [{ name: 'GITHUB_TOKEN', set: true, required: true }] });
+    const b = base({ env: [{ name: 'GITHUB_TOKEN', set: false, required: true }] });
+    expect(describeIntegrationChange(a, b)).toEqual(['GITHUB_TOKEN cleared']);
+  });
+
+  it('names an env var that was added to the set', () => {
+    const a = base({ env: [] });
+    const b = base({ env: [{ name: 'GITHUB_TOKEN', set: true, required: true }] });
+    expect(describeIntegrationChange(a, b)).toEqual(['GITHUB_TOKEN added']);
+  });
+
+  it('names an env var that was removed from the set', () => {
+    const a = base({ env: [{ name: 'GITHUB_TOKEN', set: true, required: true }] });
+    const b = base({ env: [] });
+    expect(describeIntegrationChange(a, b)).toEqual(['GITHUB_TOKEN removed']);
+  });
+
+  it('describes a configured flip', () => {
+    expect(describeIntegrationChange(base(), base({ configured: false }))).toEqual([
+      'No longer configured',
+    ]);
+  });
+
+  it('describes a live-flag flip', () => {
+    expect(describeIntegrationChange(base(), base({ enabled: false }))).toEqual([
+      'Live flag turned off',
+    ]);
+  });
+
+  it('describes an endpoint status flip with both codes', () => {
+    const a = base();
+    const b = base({ endpoint: { ok: false, status: 503, ms: 90, detail: 'Service Unavailable' } });
+    expect(describeIntegrationChange(a, b)).toEqual([
+      'Endpoint OK → error',
+      'HTTP 200 → 503',
+    ]);
+  });
+
+  it('describes a latency spike with before → after ms', () => {
+    const a = base();
+    const b = base({ endpoint: { ok: true, status: 200, ms: 120 + LATENCY_SPIKE_MS, detail: 'ok' } });
+    expect(describeIntegrationChange(a, b)).toEqual([
+      `Latency 120ms → ${120 + LATENCY_SPIKE_MS}ms`,
+    ]);
+  });
+
+  it('ignores sub-threshold latency jitter', () => {
+    const a = base();
+    const b = base({ endpoint: { ok: true, status: 200, ms: 125, detail: 'ok' } });
+    expect(describeIntegrationChange(a, b)).toEqual([]);
+  });
+
+  it('describes an endpoint appearing (null → ping)', () => {
+    expect(describeIntegrationChange(base({ endpoint: null }), base())).toEqual([
+      'Endpoint now responding',
+    ]);
+  });
+
+  it('describes an endpoint disappearing (ping → null)', () => {
+    expect(describeIntegrationChange(base(), base({ endpoint: null }))).toEqual([
+      'Endpoint no longer reported',
+    ]);
+  });
+
+  it('describes latency going null → non-null (timeout ending)', () => {
+    const a = base({ endpoint: { ok: false, status: null, ms: null, detail: 'Unreachable' } });
+    const b = base();
+    expect(describeIntegrationChange(a, b)).toEqual([
+      'Endpoint error → OK',
+      'Status now 200',
+      'Latency now 120ms',
+    ]);
+  });
+});
+
+// ─── computeChangedSummaries ───────────────────────────────────────────────
+
+describe('computeChangedSummaries', () => {
+  const gh = (over: Partial<IntegrationStatus> = {}): IntegrationStatus => ({
+    id: 'github',
+    name: 'GitHub',
+    enabled: false,
+    configured: false,
+    env: [{ name: 'GITHUB_TOKEN', set: false, required: true }],
+    endpoint: null,
+    ...over,
+  });
+
+  it('returns [] on the first check (no previous snapshot)', () => {
+    expect(computeChangedSummaries(null, [base()])).toEqual([]);
+  });
+
+  it('returns id plus the flipped-field descriptions', () => {
+    const prev = [base()];
+    const next = [base({ endpoint: { ok: false, status: 503, ms: 90, detail: 'Service Unavailable' } })];
+    expect(computeChangedSummaries(prev, next)).toEqual([
+      { id: 'supabase', changes: ['Endpoint OK → error', 'HTTP 200 → 503'] },
+    ]);
+  });
+
+  it('returns multiple summaries when several integrations changed', () => {
+    const prev = [base(), gh()];
+    const next = [base({ enabled: false }), gh({ configured: true })];
+    expect(computeChangedSummaries(prev, next)).toEqual([
+      { id: 'supabase', changes: ['Live flag turned off'] },
+      { id: 'github', changes: ['Now configured'] },
+    ]);
+  });
+
+  it('returns [] when nothing changed', () => {
+    expect(computeChangedSummaries([base(), gh()], [base(), gh()])).toEqual([]);
   });
 });
 

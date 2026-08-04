@@ -9,12 +9,15 @@ import {
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Badge, type Tone } from '@/components/ui/Badge';
+import { VarCopyButton } from '@/components/integrations/VarCopyButton';
 import { VercelEnvSettingsLink } from '@/components/integrations/VercelEnvSettingsLink';
-import { firstVarSource, varEnvLine, varSourceUrl } from '@/lib/integrationVarLinks';
+import { firstVarSource, varSourceUrl } from '@/lib/integrationVarLinks';
+import { copyToClipboard } from '@/lib/clipboard';
 import { isFirebaseConfigured } from '@/lib/firebase';
 import { readLiveFlags, type IntegrationStatus } from '@/lib/liveData';
 import { useStore } from '@/lib/store';
 import { useIntegrationStatus } from '@/lib/useIntegrationStatus';
+import type { IntegrationChange } from '@/lib/integrationDiff';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Live connection-status panel — polls /api/status every 30s.
@@ -130,32 +133,6 @@ const REDEPLOY_STEP: SetupStep = {
   note: 'Env changes only apply on the next deployment. Pushing triggers a new one automatically (or use Redeploy in the Vercel dashboard).',
 };
 
-/** Copy text with a legacy execCommand fallback for non-secure contexts. */
-const copyToClipboard = async (text: string): Promise<boolean> => {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-  } catch {
-    // fall through to the legacy path
-  }
-  const ta = document.createElement('textarea');
-  ta.value = text;
-  ta.style.position = 'fixed';
-  ta.style.opacity = '0';
-  document.body.appendChild(ta);
-  try {
-    ta.select();
-    return document.execCommand('copy');
-  } catch {
-    return false;
-  } finally {
-    // Always clean up the helper textarea, even if select/copy throws.
-    document.body.removeChild(ta);
-  }
-};
-
 const stateOf = (s: IntegrationStatus): { tone: Tone; label: string } => {
   if (!s.configured) return { tone: 'pepper', label: 'Not configured' };
   if (s.endpoint) {
@@ -167,19 +144,42 @@ const stateOf = (s: IntegrationStatus): { tone: Tone; label: string } => {
     : { tone: 'turmeric', label: 'Configured · flag off' };
 };
 
-function StatusCard({ status, updated }: { status: IntegrationStatus; updated: boolean }) {
+function StatusCard({ status, change }: { status: IntegrationStatus; change?: IntegrationChange }) {
   const Icon = STATUS_ICONS[status.id] ?? Plug;
   const { tone, label } = stateOf(status);
   const ep = status.endpoint;
 
   return (
     <div className="relative rounded-xl2 border border-butter-200 bg-butter-50 p-4 dark:border-pepper-700 dark:bg-pepper-800">
-      {updated && (
-        <span
-          className="animate-[badge-pop_0.3s_ease-out] absolute -right-1.5 -top-1.5 inline-flex items-center gap-1 rounded-full border border-turmeric-300 bg-turmeric-100 px-2 py-0.5 text-[10px] font-semibold text-turmeric-700 shadow-sm dark:border-turmeric-700 dark:bg-turmeric-900/80 dark:text-turmeric-200"
-          aria-hidden="true"
-        >
-          Updated
+      {change && (
+        <span className="group absolute -right-1.5 -top-1.5">
+          <span
+            tabIndex={0}
+            aria-label={`Updated — ${change.changes.join(', ')}`}
+            className="animate-[badge-pop_0.3s_ease-out] inline-flex cursor-help items-center gap-1 rounded-full border border-turmeric-300 bg-turmeric-100 px-2 py-0.5 text-[10px] font-semibold text-turmeric-700 shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-basil-500 dark:border-turmeric-700 dark:bg-turmeric-900/80 dark:text-turmeric-200"
+          >
+            Updated
+          </span>
+          {/* What-changed tooltip: appears on hover AND keyboard focus, listing
+              the exact fields that flipped since the previous poll. */}
+          {/* The badge's aria-label already announces every change, so this
+              visual-only tooltip stays aria-hidden to avoid double-reading. */}
+          <span
+            role="tooltip"
+            aria-hidden="true"
+            className="pointer-events-none invisible absolute right-0 top-full z-30 mt-1.5 w-max max-w-[240px] rounded-lg border border-butter-200 bg-white p-2 text-left shadow-xl opacity-0 transition-opacity duration-150 group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 dark:border-pepper-600 dark:bg-pepper-800"
+          >
+            <span className="block text-[9px] font-semibold uppercase tracking-wide text-pepper-400 dark:text-pepper-500">
+              What changed
+            </span>
+            <ul className="mt-1 space-y-0.5">
+              {change.changes.map((c) => (
+                <li key={c} className="text-[10px] font-medium text-pepper-700 dark:text-flour-100">
+                  {c}
+                </li>
+              ))}
+            </ul>
+          </span>
         </span>
       )}
       <div className="flex items-center justify-between gap-2">
@@ -245,29 +245,6 @@ function CopyButton({ text }: { text: string }) {
     >
       {copied ? <Check size={11} aria-hidden="true" /> : <Copy size={11} aria-hidden="true" />}
       {copied ? 'Copied' : 'Copy'}
-    </button>
-  );
-}
-
-function VarCopyButton({ name }: { name: string }) {
-  const [copied, setCopied] = useState(false);
-  const line = varEnvLine(name);
-  if (!line) return null;
-  const handle = async () => {
-    if (await copyToClipboard(line)) {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    }
-  };
-  return (
-    <button
-      type="button"
-      onClick={handle}
-      aria-label={copied ? `Copied ${line}` : `Copy ${line}`}
-      title={line}
-      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-pepper-400 transition-colors hover:bg-butter-100 hover:text-tomato-600 dark:text-pepper-500 dark:hover:bg-pepper-700 dark:hover:text-tomato-300"
-    >
-      {copied ? <Check size={10} aria-hidden="true" /> : <Copy size={10} aria-hidden="true" />}
     </button>
   );
 }
@@ -498,7 +475,11 @@ function ConnectionStatusPanel() {
           )}
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {statuses.map((s) => (
-              <StatusCard key={s.id} status={s} updated={changed.includes(s.id)} />
+              <StatusCard
+                key={s.id}
+                status={s}
+                change={changed.find((c) => c.id === s.id)}
+              />
             ))}
           </div>
         </>

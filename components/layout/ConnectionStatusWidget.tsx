@@ -1,8 +1,11 @@
 'use client';
 
 import Link from 'next/link';
+import { ExternalLink } from 'lucide-react';
 
+import { VarCopyButton } from '@/components/integrations/VarCopyButton';
 import { VERCEL_ENV_URL, VercelEnvSettingsLink } from '@/components/integrations/VercelEnvSettingsLink';
+import { varSourceUrl } from '@/lib/integrationVarLinks';
 import type { IntegrationStatus } from '@/lib/liveData';
 import { useStore } from '@/lib/store';
 import { useIntegrationStatus } from '@/lib/useIntegrationStatus';
@@ -68,6 +71,20 @@ export const ConnectionStatusWidget = ({ onClose }: { onClose?: () => void }) =>
   // reachable from any page — not just the Integrations page.
   const needsSetup = statuses ? statuses.some((s) => levelOf(s) !== 'ok') : false;
 
+  // Per-var console links + copy affordances: every missing required env var
+  // deep-links to where its value lives (GitHub token page, Supabase API
+  // settings, Firebase console) with a one-click copy of the .env.example
+  // line — same affordances as the Integrations setup checklists, now reachable
+  // from any page without leaving the sidebar.
+  const firebaseProjectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+  const missingVars = statuses
+    ? statuses.flatMap((s) =>
+        s.env
+          .filter((v) => !v.set && v.required)
+          .map((v) => ({ integrationId: s.id, integrationName: s.name, name: v.name })),
+      )
+    : [];
+
   // Tooltip for the main row: per-integration status, plus — when nothing is
   // connected (empty/off state) — the exact env-settings URL so the setup
   // path is discoverable even before the inline link row renders meaningfully.
@@ -110,11 +127,51 @@ export const ConnectionStatusWidget = ({ onClose }: { onClose?: () => void }) =>
         )}
       </Link>
       {needsSetup && (
-        <div className="mt-1.5 flex items-center justify-end border-t border-butter-200 pt-1.5 dark:border-pepper-600">
-          <VercelEnvSettingsLink
-            label="Env settings"
-            className="inline-flex items-center gap-1 text-[10px] font-medium text-pepper-500 transition-colors hover:text-tomato-600 dark:text-pepper-300 dark:hover:text-tomato-300"
-          />
+        <div className="mt-1.5 space-y-1 border-t border-butter-200 pt-1.5 dark:border-pepper-600">
+          {missingVars.length > 0 && (
+            <ul className="space-y-1">
+              {missingVars.map(({ integrationId, integrationName, name }) => {
+                const src = varSourceUrl(name, firebaseProjectId);
+                return (
+                  <li
+                    key={`${integrationId}:${name}`}
+                    className="flex items-center justify-between gap-1"
+                  >
+                    <span className="flex min-w-0 items-center gap-1">
+                      <span
+                        className="shrink-0 truncate text-[9px] uppercase tracking-wide text-pepper-400 dark:text-pepper-500"
+                        title={integrationName}
+                      >
+                        {integrationName}
+                      </span>
+                      {src ? (
+                        <a
+                          href={src.href}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={`Get ${name} — ${src.label}`}
+                          aria-label={`Get ${name} — ${src.label}`}
+                          className="inline-flex min-w-0 items-center gap-0.5 font-mono font-medium text-tomato-600 hover:underline dark:text-tomato-300"
+                        >
+                          <span className="truncate">{name}</span>
+                          <ExternalLink size={9} aria-hidden="true" />
+                        </a>
+                      ) : (
+                        <span className="truncate font-mono text-pepper-500 dark:text-pepper-300">{name}</span>
+                      )}
+                    </span>
+                    <VarCopyButton name={name} />
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          <div className="flex items-center justify-end">
+            <VercelEnvSettingsLink
+              label="Env settings"
+              className="inline-flex items-center gap-1 text-[10px] font-medium text-pepper-500 transition-colors hover:text-tomato-600 dark:text-pepper-300 dark:hover:text-tomato-300"
+            />
+          </div>
         </div>
       )}
     </div>

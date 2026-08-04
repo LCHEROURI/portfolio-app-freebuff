@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { fetchIntegrationStatus, type IntegrationStatus } from '@/lib/liveData';
-import { computeChangedIds } from '@/lib/integrationDiff';
+import { computeChangedSummaries, type IntegrationChange } from '@/lib/integrationDiff';
 
 // ============================================================================
 // Shared /api/status polling hook — used by the Integrations panel (30s) and
@@ -24,11 +24,12 @@ export interface UseIntegrationStatus {
   error: string | null;
   loading: boolean;
   /**
-   * Ids of integrations whose state changed since the previous poll (env var
-   * set, endpoint status flip, latency spike). Stays populated for a short
-   * TTL so the panel can show an "Updated" badge, then clears itself.
+   * Integrations whose state changed since the previous poll, each carrying
+   * the exact fields that flipped (env var set, endpoint status, latency).
+   * Stays populated for a short TTL so the panel can show an "Updated" badge
+   * (and its what-changed tooltip), then clears itself.
    */
-  changed: string[];
+  changed: IntegrationChange[];
   /** Force a fresh check, bypassing the server-side ping cache. */
   refresh: () => void;
 }
@@ -48,7 +49,7 @@ export const useIntegrationStatus = (userId: string, pollMs: number): UseIntegra
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [changed, setChanged] = useState<string[]>([]);
+  const [changed, setChanged] = useState<IntegrationChange[]>([]);
   // Snapshot of the last successful poll, used to diff the next one against.
   const prevStatusesRef = useRef<IntegrationStatus[] | null>(null);
   // Timer that clears the "Updated" badges after TTL. Stored so a later poll
@@ -76,15 +77,20 @@ export const useIntegrationStatus = (userId: string, pollMs: number): UseIntegra
         setStatuses(res.integrations);
         setCheckedAt(res.checkedAt);
         setError(null);
-        // Diff against the last successful poll and surface the changed ids.
-        const diffIds = computeChangedIds(prevStatusesRef.current, res.integrations);
+        // Diff against the last successful poll and surface the changed
+        // integrations with the exact fields that flipped.
+        const diffSummaries = computeChangedSummaries(prevStatusesRef.current, res.integrations);
         prevStatusesRef.current = res.integrations;
-        if (diffIds.length > 0) {
+        if (diffSummaries.length > 0) {
           // Union with any badges still within their TTL so a second poll in
-          // the window doesn't drop an earlier card's badge prematurely. The
-          // single timer re-arms per diff; all badges clear 10s after the
-          // most recent one.
-          setChanged((prev) => [...prev.filter((id) => !diffIds.includes(id)), ...diffIds]);
+          // the window doesn't drop an earlier card's badge prematurely. A
+          // re-detected change keeps the latest description. The single timer
+          // re-arms per diff; all badges clear 10s after the most recent one.
+          setChanged((prev) => {
+            const byId = new Map(prev.map((c) => [c.id, c]));
+            for (const c of diffSummaries) byId.set(c.id, c);
+            return Array.from(byId.values());
+          });
           if (changedTimerRef.current) clearTimeout(changedTimerRef.current);
           changedTimerRef.current = setTimeout(() => setChanged([]), CHANGED_BADGE_TTL_MS);
         }
