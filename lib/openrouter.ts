@@ -259,6 +259,9 @@ export interface TopThreeAction {
   priority: number;
   title: string;
   description: string;
+  /** Project the action belongs to, when known — used for cite-back links. */
+  projectId?: string;
+  projectName?: string;
 }
 
 export interface NarrateTopThreeInput {
@@ -267,21 +270,31 @@ export interface NarrateTopThreeInput {
   model?: string;
 }
 
+export interface TopThreeNarration {
+  paragraph: string;
+  model: string;
+  /** Project ids the paragraph explicitly refers to — a validated subset of the input. */
+  projectIds: string[];
+}
+
 /** Build the prompt for the top-three narration. */
 export const buildTopThreeMessages = (input: NarrateTopThreeInput) => {
-  const lines = input.actions.map((a, i) =>
-    `${i + 1}. ${a.title} — ${a.description}`,
-  );
+  const lines = input.actions.map((a, i) => {
+    const project = a.projectId ? ` | projectId=${a.projectId}${a.projectName ? ` (${a.projectName})` : ''}` : '';
+    return `${i + 1}. ${a.title} — ${a.description}${project}`;
+  });
   return [
     {
       role: 'system' as const,
       content:
         'You are the daily briefing writer for a solo developer\'s App Portfolio ' +
-        'Command Center. Below are the three highest-impact actions computed for ' +
-        'today, in priority order. Rewrite them into ONE plain-language paragraph ' +
-        'that explains in 2-3 sentences why these three matter today and what to do ' +
-        'first. Ground everything strictly in the actions given — never invent new ' +
-        'facts. No markdown, no bullets, no greeting. Start directly with the substance.',
+        'Command Center. Below are the highest-impact actions computed for today, ' +
+        'in priority order. Rewrite them into ONE plain-language paragraph that ' +
+        'explains in 2-3 sentences why these matter today and what to do first. ' +
+        'Ground everything strictly in the actions given — never invent new facts. ' +
+        'Reply with strict JSON only, no markdown, no prose around it:\n' +
+        '{"paragraph": "<the paragraph>", "projectIds": ["<exact projectIds from ' +
+        'the list that the paragraph refers to; empty array if none>"]}',
     },
     {
       role: 'user' as const,
@@ -297,12 +310,12 @@ export const buildTopThreeMessages = (input: NarrateTopThreeInput) => {
 
 /**
  * Generate a plain-language narration of today's top three actions. Returns
- * null (never throws) when OpenRouter is unconfigured or the call fails —
- * callers fall back to the rule-based list unchanged.
+ * null (never throws) when OpenRouter is unconfigured, the call fails, or the
+ * reply isn't usable JSON — callers fall back to the rule-based list unchanged.
  */
 export const narrateTopThree = async (
   input: NarrateTopThreeInput,
-): Promise<{ paragraph: string; model: string } | null> => {
+): Promise<TopThreeNarration | null> => {
   if (!isOpenRouterConfigured() || input.actions.length === 0) return null;
   try {
     const { content, model } = await chatCompletion(buildTopThreeMessages(input), {
@@ -310,9 +323,14 @@ export const narrateTopThree = async (
       temperature: 0.5,
       maxTokens: 220,
     });
-    const paragraph = content.trim();
+    const parsed = parseJsonObject(content);
+    const paragraph = typeof parsed?.paragraph === 'string' ? parsed.paragraph.trim() : '';
     if (!paragraph) return null;
-    return { paragraph, model };
+    // Cite-back links must reference projects we actually sent, never invented.
+    const known = new Set(input.actions.map((a) => a.projectId).filter((id): id is string => Boolean(id)));
+    const raw = Array.isArray(parsed?.projectIds) ? parsed.projectIds : [];
+    const projectIds = Array.from(new Set(raw.filter((id): id is string => typeof id === 'string' && known.has(id))));
+    return { paragraph, model, projectIds };
   } catch (err) {
     console.warn('OpenRouter top-three narration failed, falling back to rule-based text:', err);
     return null;
@@ -327,4 +345,14 @@ export const withExecutiveSummary = (
 ): string => {
   if (!summary) return body;
   return `## ✨ AI executive summary${model ? ` (${model})` : ''}\n\n${summary}\n\n${body}`;
+};
+
+/** Prepend an AI top-three narration to an email body with a clear section heading. */
+export const withTopThreeNarration = (
+  body: string,
+  paragraph: string | null,
+  model: string | null,
+): string => {
+  if (!paragraph) return body;
+  return `## 🎯 Why these three matter today${model ? ` (${model})` : ''}\n\n${paragraph}\n\n${body}`;
 };

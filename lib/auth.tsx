@@ -5,6 +5,7 @@ import {
   createUserWithEmailAndPassword,
   GoogleAuthProvider,
   onAuthStateChanged,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut as firebaseSignOut,
@@ -32,6 +33,7 @@ interface AuthApi {
   signUp: (email: string, password: string, displayName: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
+  sendPasswordReset: (email: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthApi | null>(null);
@@ -95,6 +97,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     await signInWithPopup(auth, provider);
   }, [requireAuth]);
 
+  const sendPasswordReset = useCallback(async (email: string) => {
+    await sendPasswordResetEmail(requireAuth(), email);
+  }, [requireAuth]);
+
   const signOut = useCallback(async () => {
     const auth = getFirebaseAuth();
     if (auth) await firebaseSignOut(auth);
@@ -102,8 +108,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const api = useMemo<AuthApi>(
-    () => ({ mode, user, initializing, signIn, signUp, signInWithGoogle, signOut }),
-    [mode, user, initializing, signIn, signUp, signInWithGoogle, signOut],
+    () => ({
+      mode, user, initializing,
+      signIn, signUp, signInWithGoogle, signOut, sendPasswordReset,
+    }),
+    [mode, user, initializing, signIn, signUp, signInWithGoogle, signOut, sendPasswordReset],
   );
 
   return <AuthContext.Provider value={api}>{children}</AuthContext.Provider>;

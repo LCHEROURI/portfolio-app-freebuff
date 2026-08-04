@@ -33,6 +33,14 @@ export const readLiveFlags = (): LiveFlags => ({
 });
 
 /**
+ * True when the Command Center should auto-generate the AI top-three briefing
+ * on load instead of waiting for the AI Explain click. Build-time inlined like
+ * every NEXT_PUBLIC_ flag, so flipping it requires a redeploy.
+ */
+export const isAiBriefingsEnabled = (): boolean =>
+  process.env.NEXT_PUBLIC_ENABLE_AI_BRIEFINGS === '1';
+
+/**
  * Current Firebase ID token (the SDK auto-refreshes it near expiry), or null
  * when Firebase isn't configured / nobody is signed in (demo mode).
  */
@@ -174,12 +182,20 @@ export interface TopThreeActionInput {
   priority: number;
   title: string;
   description: string;
+  /** Project the action belongs to, when known — powers cite-back links. */
+  projectId?: string;
+  projectName?: string;
 }
 
 export interface TopThreeNarrationResult {
   ok: true;
   configured: boolean;
-  narration: { paragraph: string; model: string } | null;
+  narration: {
+    paragraph: string;
+    model: string;
+    /** Project ids the paragraph explicitly refers to — validated server-side. */
+    projectIds: string[];
+  } | null;
 }
 
 /**

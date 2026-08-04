@@ -18,11 +18,14 @@ const GoogleMark = () => (
 );
 
 export const AuthGate = () => {
-  const { signIn, signUp, signInWithGoogle } = useAuth();
+  const { signIn, signUp, signInWithGoogle, sendPasswordReset } = useAuth();
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const [view, setView] = useState<'auth' | 'reset'>('auth');
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetSent, setResetSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -57,6 +60,30 @@ export const AuthGate = () => {
     }
   };
 
+  const onReset = async (e: FormEvent) => {
+    e.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    setResetSent(false);
+    try {
+      await sendPasswordReset(resetEmail);
+      setResetSent(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message.replace('Firebase: ', '') : 'Could not send the reset link.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Start reset with the email already typed into the sign-in form, when present.
+  const openReset = () => {
+    if (!resetEmail && email) setResetEmail(email);
+    setError(null);
+    setResetSent(false);
+    setView('reset');
+  };
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-flour-50 px-4 py-8 dark:bg-pepper-900">
       <div className="w-full max-w-md">
@@ -73,6 +100,57 @@ export const AuthGate = () => {
         </div>
 
         <Card>
+          {view === 'reset' ? (
+            <form className="space-y-4" onSubmit={onReset} noValidate>
+              <div>
+                <h2 className="text-base font-semibold text-pepper-900 dark:text-flour-50">Reset Password</h2>
+                <p className="mt-1 text-sm text-pepper-500 dark:text-pepper-300">
+                  Enter your account email and we&apos;ll send you a link to set a new password.
+                </p>
+              </div>
+
+              <Field label="Email">
+                <Input
+                  type="email"
+                  value={resetEmail}
+                  onChange={(e) => setResetEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                  autoFocus
+                />
+              </Field>
+
+              {resetSent && (
+                <p
+                  className="rounded-lg border border-basil-200 bg-basil-50 px-3 py-2 text-xs font-medium text-basil-700 dark:border-basil-800 dark:bg-basil-950 dark:text-basil-300"
+                  role="status"
+                >
+                  Password reset link sent! Please check your inbox.
+                </p>
+              )}
+
+              {error && (
+                <p className="rounded-lg border border-paprika-200 bg-paprika-50 px-3 py-2 text-xs font-medium text-paprika-700 dark:border-paprika-800 dark:bg-paprika-950 dark:text-paprika-300" role="alert">
+                  {error}
+                </p>
+              )}
+
+              <button type="submit" className="btn-primary w-full" disabled={busy}>
+                {busy ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : null}
+                Send Reset Link
+              </button>
+
+              <button
+                type="button"
+                className="btn-ghost w-full text-sm"
+                onClick={() => { setView('auth'); setError(null); }}
+                disabled={busy}
+              >
+                ← Back to Sign In
+              </button>
+            </form>
+          ) : (
+          <>
           <div className="mb-4 flex gap-1 rounded-lg bg-butter-100 p-1 dark:bg-pepper-700">
             {([
               { key: 'signin', label: 'Sign in' },
@@ -123,6 +201,18 @@ export const AuthGate = () => {
               />
             </Field>
 
+            {mode === 'signin' && (
+              <div className="-mt-1 text-right">
+                <button
+                  type="button"
+                  className="text-sm font-medium text-sage-700 underline-offset-2 hover:underline dark:text-sage-400"
+                  onClick={openReset}
+                >
+                  Forgot password?
+                </button>
+              </div>
+            )}
+
             {error && (
               <p className="rounded-lg border border-paprika-200 bg-paprika-50 px-3 py-2 text-xs font-medium text-paprika-700 dark:border-paprika-800 dark:bg-paprika-950 dark:text-paprika-300" role="alert">
                 {error}
@@ -152,6 +242,8 @@ export const AuthGate = () => {
           <div className="mt-4 border-t border-butter-200 pt-3 text-center dark:border-pepper-700">
             <VercelEnvSettingsLink label="Wire live integrations — open Vercel env settings" />
           </div>
+          </>
+          )}
         </Card>
       </div>
     </div>

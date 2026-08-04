@@ -13,6 +13,7 @@ import {
   recommendWinner,
   summarizeReport,
   withExecutiveSummary,
+  withTopThreeNarration,
 } from './openrouter';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -268,9 +269,9 @@ describe('recommendWinner', () => {
 describe('narrateTopThree', () => {
   const input = {
     actions: [
-      { priority: 1, title: 'Fix failed production deployment: meal-planner', description: 'Health check failed — 503.' },
-      { priority: 2, title: 'Push LCHEROURI/portfolio-app-freebuff', description: '3 unpushed commits.' },
-      { priority: 3, title: 'Complete overdue task: Ship onboarding', description: 'Project Weeknight Meal Planner — due 2 days ago.' },
+      { priority: 1, title: 'Fix failed production deployment: meal-planner', description: 'Health check failed — 503.', projectId: 'p-meal', projectName: 'Weeknight Meal Planner' },
+      { priority: 2, title: 'Push LCHEROURI/portfolio-app-freebuff', description: '3 unpushed commits.', projectId: 'p-meal', projectName: 'Weeknight Meal Planner' },
+      { priority: 3, title: 'Complete overdue task: Ship onboarding', description: 'Project Weeknight Meal Planner — due 2 days ago.', projectId: 'p-meal', projectName: 'Weeknight Meal Planner' },
     ],
   };
 
@@ -287,27 +288,43 @@ describe('narrateTopThree', () => {
     await expect(narrateTopThree(input)).resolves.toBeNull();
   });
 
-  it('returns the paragraph and model on success', async () => {
+  it('returns the paragraph, model, and cited project ids on success', async () => {
     vi.stubGlobal('fetch', vi.fn(async () =>
-      mockJson({ choices: [{ message: { content: '  The failing production deploy is the priority today: fix it first, then push the unpushed work and close the overdue onboarding task.  ' } }], model: 'deepseek/deepseek-chat' }),
+      mockJson({ choices: [{ message: { content: '  {"paragraph": "The failing production deploy is the priority today: fix it first, then push the unpushed work and close the overdue onboarding task.", "projectIds": ["p-meal"]}  ' } }], model: 'deepseek/deepseek-chat' }),
     ));
     const result = await narrateTopThree(input);
     expect(result).toEqual({
       paragraph: 'The failing production deploy is the priority today: fix it first, then push the unpushed work and close the overdue onboarding task.',
       model: 'deepseek/deepseek-chat',
+      projectIds: ['p-meal'],
     });
   });
 
-  it('returns null when the reply is empty', async () => {
+  it('returns null when the reply is not usable JSON', async () => {
     vi.stubGlobal('fetch', vi.fn(async () =>
-      mockJson({ choices: [{ message: { content: '   ' } }] }),
+      mockJson({ choices: [{ message: { content: 'The deploy is the priority, fix it first.' } }] }),
     ));
     await expect(narrateTopThree(input)).resolves.toBeNull();
   });
 
+  it('returns null when the reply has an empty paragraph', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      mockJson({ choices: [{ message: { content: '{"paragraph": "", "projectIds": []}' } }] }),
+    ));
+    await expect(narrateTopThree(input)).resolves.toBeNull();
+  });
+
+  it('drops invented project ids and keeps only ids present in the actions', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      mockJson({ choices: [{ message: { content: '{"paragraph": "Focus on the meal planner.", "projectIds": ["p-meal", "p-fake", "p-other"]}' } }] }),
+    ));
+    const result = await narrateTopThree(input);
+    expect(result?.projectIds).toEqual(['p-meal']);
+  });
+
   it('passes a per-user model override through to the provider', async () => {
     const fetchMock = vi.fn(async () =>
-      mockJson({ choices: [{ message: { content: 'Fix the deploy first.' } }], model: 'anthropic/claude-3.5-sonnet' }),
+      mockJson({ choices: [{ message: { content: '{"paragraph": "Fix the deploy first.", "projectIds": []}' } }], model: 'anthropic/claude-3.5-sonnet' }),
     );
     vi.stubGlobal('fetch', fetchMock);
     const result = await narrateTopThree({ ...input, model: 'anthropic/claude-3.5-sonnet' });
@@ -316,13 +333,18 @@ describe('narrateTopThree', () => {
     expect(body.model).toBe('anthropic/claude-3.5-sonnet');
   });
 
-  it('embeds the ordered actions in the prompt', () => {
+  it('embeds the ordered actions (with project ids) in the prompt', () => {
     const messages = buildTopThreeMessages(input);
     expect(messages).toHaveLength(2);
     expect(messages[0].role).toBe('system');
     expect(messages[1].content).toContain('1. Fix failed production deployment: meal-planner');
     expect(messages[1].content).toContain('2. Push LCHEROURI/portfolio-app-freebuff');
     expect(messages[1].content).toContain('3. Complete overdue task: Ship onboarding');
+
+    const withProject = buildTopThreeMessages({
+      actions: [{ priority: 1, title: 'Fix deploy', description: '503', projectId: 'p-1', projectName: 'Takeout Voice 2' }],
+    });
+    expect(withProject[1].content).toContain('projectId=p-1 (Takeout Voice 2)');
   });
 });
 
@@ -358,5 +380,22 @@ describe('withExecutiveSummary', () => {
     expect(out).toContain('Short summary.');
     expect(out).toContain('# body');
     expect(out.indexOf('Short summary.')).toBeLessThan(out.indexOf('# body'));
+  });
+});
+
+// ─── withTopThreeNarration ───────────────────────────────────────────────────
+
+describe('withTopThreeNarration', () => {
+  it('returns the body unchanged when there is no narration', () => {
+    expect(withTopThreeNarration('# body', null, null)).toBe('# body');
+    expect(withTopThreeNarration('# body', '', 'deepseek/deepseek-chat')).toBe('# body');
+  });
+
+  it('prepends a headed narration when present', () => {
+    const out = withTopThreeNarration('# body', 'Fix the failing deploy first.', 'deepseek/deepseek-chat');
+    expect(out).toContain('## 🎯 Why these three matter today (deepseek/deepseek-chat)');
+    expect(out).toContain('Fix the failing deploy first.');
+    expect(out).toContain('# body');
+    expect(out.indexOf('Fix the failing deploy first.')).toBeLessThan(out.indexOf('# body'));
   });
 });

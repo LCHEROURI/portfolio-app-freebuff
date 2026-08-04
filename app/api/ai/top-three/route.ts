@@ -22,6 +22,9 @@ const ActionSchema = z.object({
   priority: z.number().int().min(0),
   title: z.string().min(1).max(200),
   description: z.string().max(400),
+  // Project the action belongs to, when known — powers cite-back links.
+  projectId: z.string().max(200).optional(),
+  projectName: z.string().max(200).optional(),
 });
 
 const TopThreeSchema = z.object({
@@ -56,6 +59,8 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     ok: true,
     configured: isOpenRouterConfigured(),
-    narration: narration ? { paragraph: narration.paragraph, model: narration.model } : null,
+    narration: narration
+      ? { paragraph: narration.paragraph, model: narration.model, projectIds: narration.projectIds }
+      : null,
   });
 }

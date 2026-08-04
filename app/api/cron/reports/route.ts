@@ -1,10 +1,10 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
 import {
-  buildDailyReportBody, buildWeeklyReportBody, runAutomationRules,
+  buildDailyReportBody, buildTopThree, buildWeeklyReportBody, runAutomationRules,
   type AppState, type AutomationAlert,
 } from '@/lib/engine';
-import { summarizeReport, withExecutiveSummary } from '@/lib/openrouter';
+import { narrateTopThree, summarizeReport, withExecutiveSummary, withTopThreeNarration } from '@/lib/openrouter';
 import { loadLiveSnapshot, serverProfile } from '@/lib/server/reporting/data';
 import { sendReportEmail } from '@/lib/server/reporting/email';
 
@@ -85,9 +85,10 @@ export async function GET(req: NextRequest) {
   const reports: Array<Record<string, unknown>> = [];
 
   // AI executive summary is an enhancement: when OpenRouter is unconfigured or
-  // the call fails, summarizeReport returns null and the email body is sent
-  // unchanged (deterministic text + alerts). Both summaries run in parallel so
-  // two slow AI calls can't eat the whole cron maxDuration budget.
+  // the call fails, summarizeReport / narrateTopThree return null and the email
+  // body is sent unchanged (deterministic text + alerts). Both AI calls for a
+  // report run in parallel so two slow calls can't eat the whole cron maxDuration
+  // budget.
   const pending: Array<{
     r: { title: string; body: string; attentionCount: number };
     kind: 'daily' | 'weekly';
@@ -95,15 +96,39 @@ export async function GET(req: NextRequest) {
   if (wantDaily) pending.push({ r: buildDailyReportBody(state), kind: 'daily' });
   if (wantWeekly) pending.push({ r: buildWeeklyReportBody(state), kind: 'weekly' });
 
+  // Deterministic top three, computed once — the same actions the dashboard
+  // shows — so the AI narration in the email matches the UI briefing. The
+  // narration, like the executive summary, uses the OPENROUTER_MODEL env default
+  // (the per-user Settings picker applies to the UI only), keeping the two AI
+  // sections of the emailed report consistent with each other.
+  const topThree = wantDaily ? buildTopThree(state) : [];
+  const topThreeActions = topThree.map((a) => ({
+    priority: a.priority,
+    title: a.title,
+    description: a.description,
+  }));
+
   const summarized = await Promise.all(
     pending.map(async ({ r, kind }) => {
-      const ai = await summarizeReport({ kind, title: r.title, body: r.body, attentionCount: r.attentionCount });
+      const [ai, narration] = await Promise.all([
+        summarizeReport({ kind, title: r.title, body: r.body, attentionCount: r.attentionCount }),
+        // The 'why these three matter today' briefing is a daily feature; weekly
+        // reports keep the executive summary only.
+        kind === 'daily'
+          ? narrateTopThree({ actions: topThreeActions })
+          : Promise.resolve(null),
+      ]);
+      let body = withExecutiveSummary(withAlertsSection(r.body, alerts), ai?.summary ?? null, ai?.model ?? null);
+      if (kind === 'daily') {
+        body = withTopThreeNarration(body, narration?.paragraph ?? null, narration?.model ?? null);
+      }
       return {
         kind,
         title: r.title,
         attentionCount: r.attentionCount,
-        body: withExecutiveSummary(withAlertsSection(r.body, alerts), ai?.summary ?? null, ai?.model ?? null),
+        body,
         model: ai?.model ?? null,
+        narrationModel: narration?.model ?? null,
       };
     }),
   );
@@ -114,7 +139,7 @@ export async function GET(req: NextRequest) {
       body: s.body,
       attentionCount: s.attentionCount, alerts,
     });
-    reports.push({ kind: s.kind, title: s.title, attentionCount: s.attentionCount, email, aiModel: s.model });
+    reports.push({ kind: s.kind, title: s.title, attentionCount: s.attentionCount, email, aiModel: s.model, narrationModel: s.narrationModel });
   }
 
   return NextResponse.json({

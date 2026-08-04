@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   FolderKanban, AlertTriangle, CalendarClock, GitBranch, ArrowUpFromLine, Rocket,
   HeartPulse, Clock4, ShieldAlert, ArrowRight, ListChecks, TrendingUp, Plug, Sparkles,
+  RefreshCw,
 } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -13,12 +14,50 @@ import { Badge, StatusBadge, PriorityBadge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { VercelEnvSettingsLink } from '@/components/integrations/VercelEnvSettingsLink';
 import { isFirebaseConfigured } from '@/lib/firebase';
-import { fetchTopThreeNarration, readLiveFlags } from '@/lib/liveData';
+import { fetchTopThreeNarration, isAiBriefingsEnabled, readLiveFlags } from '@/lib/liveData';
 import { useStore } from '@/lib/store';
 import {
   computeMetrics, buildPriorityQueue, buildTopThree, runAutomationRules, timeAgo,
 } from '@/lib/engine';
 import { QUEUE_RULE_LABELS } from '@/lib/labels';
+
+// Session-scoped persistence so the briefing (paragraph, cited projects, active
+// brief chip) survives back navigation and remounts without refiring an AI call.
+// Stored under the signature of the actions it described: if the underlying data
+// changed while away, the stored briefing is discarded instead of shown stale.
+const BRIEFING_STORAGE_KEY = 'freebuff-command-center-briefing';
+
+type StoredBriefing = {
+  paragraph: string;
+  model: string;
+  projectIds: string[];
+  scope: string | 'all';
+  signature: string;
+};
+
+const persistBriefing = (
+  narration: { paragraph: string; model: string; projectIds: string[] } | null,
+  scope: string | 'all',
+  signature: string,
+) => {
+  try {
+    if (!narration) {
+      sessionStorage.removeItem(BRIEFING_STORAGE_KEY);
+      return;
+    }
+    const stored: StoredBriefing = {
+      paragraph: narration.paragraph,
+      model: narration.model,
+      projectIds: narration.projectIds,
+      scope,
+      signature,
+    };
+    sessionStorage.setItem(BRIEFING_STORAGE_KEY, JSON.stringify(stored));
+  } catch {
+    // Storage unavailable (private mode / quota): the briefing still shows for
+    // this session, it just won't survive a remount.
+  }
+};
 
 export default function CommandCenterPage() {
   const store = useStore();
@@ -29,36 +68,129 @@ export default function CommandCenterPage() {
 
   // AI narration of today's top three — an enhancement layer. When OpenRouter
   // is unconfigured or the call fails, narration stays null and the card shows
-  // the rule-based list unchanged.
-  const [narration, setNarration] = useState<{ paragraph: string; model: string } | null>(null);
+  // the rule-based list unchanged. `scopeProjectId` narrows the narration to a
+  // single project's queue items (drill-down); 'all' is the whole top three.
+  const [narration, setNarration] = useState<{
+    paragraph: string;
+    model: string;
+    projectIds: string[];
+  } | null>(null);
   const [narrating, setNarrating] = useState(false);
+  const [scopeProjectId, setScopeProjectId] = useState<string | 'all'>('all');
+
+  const projectNameOf = (id: string | undefined) =>
+    id ? store.projects.find((p) => p.id === id)?.name : undefined;
+
+  // Projects present in the current top three — the drill-down targets. The
+  // name is resolved once per action so the filter and the map agree; Map
+  // dedupes by project id, and Array.from keeps the spread ES5-safe.
+  const involvedProjects = Array.from(new Map(
+    topThree
+      .map((a) => ({ id: a.projectId, name: projectNameOf(a.projectId) }))
+      .filter((a): a is { id: string; name: string } => Boolean(a.id && a.name))
+      .map((a) => [a.id, a.name] as [string, string]),
+  ).entries()).map(([id, name]) => ({ id, name }));
+
+  // The narration request input, optionally narrowed to one project's actions.
+  const buildNarrationActions = (projectId: string | 'all') =>
+    (projectId === 'all' ? topThree : topThree.filter((a) => a.projectId === projectId))
+      .map((a) => ({
+        priority: a.priority,
+        title: a.title,
+        description: a.description,
+        projectId: a.projectId,
+        projectName: projectNameOf(a.projectId),
+      }));
 
   // A narration describes the actions that existed when it was generated. If the
   // underlying data changes (task completed, deploy recovered) the deterministic
   // list is recomputed, so drop the stale paragraph rather than show a story
   // about actions that no longer exist. The AI Explain button stays available as
   // a manual regenerate.
-  const topThreeSignature = topThree.map((a) => `${a.title}::${a.description}`).join('|');
+  // The signature includes the project id so a stored briefing can't be
+  // resurrected against a different project's identical-looking action.
+  const topThreeSignature = topThree.map((a) => `${a.projectId}::${a.title}::${a.description}`).join('|');
   useEffect(() => {
     setNarration(null);
   }, [topThreeSignature]);
 
-  const explainTopThree = async () => {
-    if (narrating || topThree.length === 0) return;
+  const explainTopThree = async (projectId: string | 'all' = scopeProjectId) => {
+    const actions = buildNarrationActions(projectId);
+    if (narrating || actions.length === 0) return;
     setNarrating(true);
     try {
       const result = await fetchTopThreeNarration(store.userId, {
-        actions: topThree.map((a) => ({ priority: a.priority, title: a.title, description: a.description })),
+        actions,
         // Per-user model preference from Settings → AI summaries.
         model: store.profile.aiModel || undefined,
       });
-      setNarration(result.narration ? { paragraph: result.narration.paragraph, model: result.narration.model } : null);
+      const next = result.narration
+        ? { paragraph: result.narration.paragraph, model: result.narration.model, projectIds: result.narration.projectIds ?? [] }
+        : null;
+      setNarration(next);
+      // Persist with the scope the narration was generated for and the signature
+      // of the actions it describes, so back navigation can restore it later.
+      persistBriefing(next, projectId, topThreeSignature);
     } catch {
       setNarration(null);
     } finally {
       setNarrating(false);
     }
   };
+
+  // Drill-down: re-run the narration against a single project's queue items.
+  // The previous scope's paragraph is cleared so the card never shows a stale
+  // briefing (e.g. the 'all' summary) while the scoped call is in flight.
+  const briefProject = (projectId: string) => {
+    setScopeProjectId(projectId);
+    setNarration(null);
+    void explainTopThree(projectId);
+  };
+
+  // Auto-briefing: when NEXT_PUBLIC_ENABLE_AI_BRIEFINGS=1 the narration fires on
+  // load instead of on click. The ref makes it run once per mount (the signature
+  // effect above clears the paragraph on data changes without refiring a fresh
+  // AI call); the manual AI Explain button remains as a regenerate affordance.
+  const autoBriefedRef = useRef(false);
+
+  // Restore a briefing persisted earlier in this tab (back navigation / remount).
+  // Only restores when the stored signature matches the current actions: a data
+  // change while away makes the stored paragraph stale, so it is discarded. The
+  // signature also settles asynchronously with store hydration, so this re-checks
+  // whenever it changes.
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(BRIEFING_STORAGE_KEY);
+      if (!raw) return;
+      const stored = JSON.parse(raw) as StoredBriefing;
+      if (stored.signature !== topThreeSignature) {
+        sessionStorage.removeItem(BRIEFING_STORAGE_KEY);
+        return;
+      }
+      setNarration({ paragraph: stored.paragraph, model: stored.model, projectIds: stored.projectIds });
+      setScopeProjectId(stored.scope);
+      // The restored briefing replaces the auto-brief: don't spend another
+      // OpenRouter call on content the user already has on screen.
+      autoBriefedRef.current = true;
+    } catch {
+      // Malformed or unreadable storage is ignored; the next generation
+      // overwrites it.
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topThreeSignature]);
+
+  // Depends on the signature, not []: the store hydrates asynchronously, so the
+  // mount render may have an empty top three. When the actions arrive the
+  // signature changes and this re-runs — the ref still guarantees a single fire
+  // per mount, and later signature changes (data updates) are ignored.
+  useEffect(() => {
+    if (autoBriefedRef.current || !isAiBriefingsEnabled() || topThree.length === 0) return;
+    autoBriefedRef.current = true;
+    void explainTopThree('all');
+    // The ref guards the re-renders caused by the state updates, so the closure
+    // capture (topThree, store) from the first non-empty render is intentional.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topThreeSignature]);
 
   // Landing surface for a missing integration: when no live data source is
   // connected, surface a one-click path to wire one up (Integrations page +
@@ -190,7 +322,7 @@ export default function CommandCenterPage() {
                         className="btn-ghost text-xs"
                         disabled={narrating}
                         aria-label="Explain today's top three with AI"
-                        onClick={explainTopThree}
+                        onClick={() => void explainTopThree()}
                       >
                         <Sparkles size={14} className={narrating ? 'animate-pulse' : ''} aria-hidden="true" />
                         {narrating ? 'Thinking…' : 'AI Explain'}
@@ -200,16 +332,85 @@ export default function CommandCenterPage() {
                   </div>
                 }
               />
-              {narration && (
+              {(narration || (narrating && !narration)) && (
                 <div className="mb-3 rounded-xl2 border border-eggplant-200 bg-eggplant-50 p-3 dark:border-eggplant-800 dark:bg-eggplant-950/60">
-                  <div className="mb-1 flex items-center gap-2">
-                    <Sparkles size={13} className="text-eggplant-600 dark:text-eggplant-300" aria-hidden="true" />
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-eggplant-700 dark:text-eggplant-300">
-                      Why these three matter today
-                    </span>
-                    {narration.model && <Badge tone="eggplant">{narration.model}</Badge>}
-                  </div>
-                  <p className="text-sm leading-relaxed text-pepper-700 dark:text-pepper-200">{narration.paragraph}</p>
+                  {narration ? (
+                    <>
+                      <div className="mb-1 flex items-center gap-2">
+                        <Sparkles size={13} className="text-eggplant-600 dark:text-eggplant-300" aria-hidden="true" />
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-eggplant-700 dark:text-eggplant-300">
+                          Why these three matter today
+                        </span>
+                        {narration.model && <Badge tone="eggplant">{narration.model}</Badge>}
+                        <button
+                          type="button"
+                          aria-label="Regenerate briefing"
+                          disabled={narrating}
+                          className="ml-auto rounded-md p-1 text-eggplant-500 transition-colors hover:bg-eggplant-100 hover:text-eggplant-700 disabled:opacity-50 dark:hover:bg-eggplant-900"
+                          onClick={() => void explainTopThree()}
+                        >
+                          <RefreshCw size={13} className={narrating ? 'animate-spin' : ''} aria-hidden="true" />
+                        </button>
+                      </div>
+                      <p className="text-sm leading-relaxed text-pepper-700 dark:text-pepper-200">{narration.paragraph}</p>
+                      {/* Cite-back links: the projects the paragraph explicitly refers to */}
+                      {narration.projectIds.length > 0 && (
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-eggplant-500 dark:text-eggplant-400">Cited:</span>
+                          {narration.projectIds.map((pid) => {
+                            const name = projectNameOf(pid);
+                            return name ? (
+                              <Link key={pid} href={`/projects/${pid}`} className="chip text-xs">
+                                {name} <ArrowRight size={11} aria-hidden="true" />
+                              </Link>
+                            ) : null;
+                          })}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    /* Skeleton shimmer while the auto-briefing loads */
+                    <div
+                      role="status"
+                      aria-label="Loading AI briefing"
+                      aria-live="polite"
+                      className="animate-pulse space-y-2"
+                    >
+                      <div className="h-2.5 w-32 rounded bg-eggplant-200 dark:bg-eggplant-800" />
+                      <div className="h-2.5 w-full rounded bg-eggplant-200 dark:bg-eggplant-800" />
+                      <div className="h-2.5 w-3/4 rounded bg-eggplant-200 dark:bg-eggplant-800" />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Per-project drill-down: re-run the narration against one project's queue items */}
+              {topThree.length > 0 && involvedProjects.length > 0 && (
+                <div className="mb-3 flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-pepper-400">Brief one project:</span>
+                  <button
+                    type="button"
+                    aria-pressed={scopeProjectId === 'all'}
+                    className={`chip text-xs ${scopeProjectId === 'all' ? 'chip-active' : ''}`}
+                    onClick={() => {
+                      setScopeProjectId('all');
+                      setNarration(null);
+                      void explainTopThree('all');
+                    }}
+                  >
+                    All
+                  </button>
+                  {involvedProjects.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      aria-pressed={scopeProjectId === p.id}
+                      className={`chip text-xs ${scopeProjectId === p.id ? 'chip-active' : ''}`}
+                      onClick={() => briefProject(p.id)}
+                    >
+                      {p.name}
+                    </button>
+                  ))}
                 </div>
               )}
               {topThree.length === 0 ? (

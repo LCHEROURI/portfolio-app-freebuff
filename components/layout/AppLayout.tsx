@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { Database, Menu, Sparkles, X } from 'lucide-react';
 
 import { Sidebar } from '@/components/layout/Sidebar';
@@ -9,8 +10,19 @@ import { useStore } from '@/lib/store';
 
 export const AppLayout = ({ children }: { children: React.ReactNode }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const pathname = usePathname();
   const store = useStore();
   const userName = store?.profile.name ?? '';
+
+  // Close the mobile drawer on every route change. Only the sidebar's own nav
+  // links call onClose; links rendered elsewhere (project detail pages, cited
+  // links, queue items, "New Project") don't, so without this the drawer can
+  // stay open — with its backdrop and mid-transition panel stranded — over the
+  // newly navigated page. On desktop the drawer is always inline, so closing
+  // the state here has no visual effect.
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [pathname]);
 
   // Phase 3: offer to import local demo data into the signed-in Firestore account.
   const showMigrateBanner = store?.mode === 'firestore' && store.hasLocalDemoData && !store.migrationDismissed;

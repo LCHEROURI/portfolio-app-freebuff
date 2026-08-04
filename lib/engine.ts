@@ -250,6 +250,13 @@ export interface ActionItem {
 export const buildTopThree = (state: AppState): ActionItem[] => {
   const actions: ActionItem[] = [];
 
+  // Deployments/repositories link to a project through their version, so the
+  // narration can cite-back to the project's detail page.
+  const projectOfVersion = (versionId: string | undefined): string | undefined => {
+    if (!versionId) return undefined;
+    return state.versions.find((v) => v.id === versionId)?.projectId;
+  };
+
   // 1. Critical deployment failures first.
   state.deployments
     .filter((d) => d.environment === 'production' && (d.status === 'ERROR' || d.healthStatus === 'FAILED'))
@@ -257,6 +264,7 @@ export const buildTopThree = (state: AppState): ActionItem[] => {
       priority: 1,
       title: `Fix failed production deployment: ${d.projectName}`,
       description: `Health check failed${d.lastFailureMessage ? ` — ${d.lastFailureMessage}` : ''}.`,
+      projectId: projectOfVersion(d.projectVersionId),
     }));
 
   // 2. Unpushed local work.
@@ -264,6 +272,7 @@ export const buildTopThree = (state: AppState): ActionItem[] => {
     priority: 2,
     title: `Push ${r.owner}/${r.repositoryName}`,
     description: `${r.commitsAhead} unpushed commit(s)${r.hasUncommittedChanges ? ' + uncommitted changes' : ''}.`,
+    projectId: projectOfVersion(r.projectVersionId),
   }));
 
   // 3. Overdue tasks (highest priority first).
