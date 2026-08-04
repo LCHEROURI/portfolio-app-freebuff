@@ -335,6 +335,48 @@ The CLI reads `git status --porcelain`, `git remote -v`, `git branch
 --show-current`, `git log -1` and `git rev-list --left-right --count`, then
 POSTs **metadata only** (never source code) to the Command Center API.
 
+Sweep every local repo in one shot with the scan-all command, which runs the
+scanner against each `.git` folder under a root (default `~/Documents`), prints
+a summary table, and — with `--notify` — regenerates the daily report email
+immediately after a clean sweep so fresh local facts reach the inbox without
+waiting for the scheduled run:
+
+```bash
+npm run scan:all                          # sweep ~/Documents → local API
+npm run scan:all -- --root ~/dev          # custom root
+npm run scan:all -- --notify              # also fire the daily cron report
+node scripts/scan-all.mjs --api https://portfolio-app-freebuff.vercel.app/api/scanner \
+  --token <pat> --notify                  # sweep into the deployed API
+```
+
+The scan-all command exits nonzero if any repo fails to ingest, so it can gate
+CI or be chained (`data/` is gitignored — the per-repo facts land in
+`data/scans.json`, the same file the cron snapshot overlays onto the live
+GitHub feed).
+
+#### Daily scheduled scan (launchd / cron)
+
+To keep local facts fresh every morning **before** the 07:00 daily report,
+install the launchd agent (or use its cron alternative) — it runs
+`scan-all --notify` at **06:30 local time** by default and logs to
+`.freebuff/scan-all.log`:
+
+```bash
+npm run scan:schedule install      # write ~/Library/LaunchAgents plist + load
+npm run scan:schedule status       # agent state + last log lines
+npm run scan:schedule uninstall    # stop + remove the agent
+npm run scan:schedule cron         # print the crontab alternative line
+```
+
+Override the run time with `SCAN_HOUR` / `SCAN_MINUTE` (e.g.
+`SCAN_HOUR=5 SCAN_MINUTE=45 npm run scan:schedule install`), and point the
+scheduled sweep at a non-default API via `SCAN_ALL_API` (see
+`scripts/scan-all-scheduled.sh`). The **Settings → Local scan schedule** card
+documents these commands and shows the last scan per repo (read from
+`data/scans.json` via `GET /api/scans`) with the same fresh/stale badge the
+Repositories page uses — so a missing or stale scan is visible right next to
+the documented schedule.
+
 ### Cloud Functions (optional)
 
 ```bash

@@ -6,6 +6,7 @@ import { Database, LogOut, Save, RotateCcw, Sparkles, User } from 'lucide-react'
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Field, Input, Select } from '@/components/ui/Field';
+import { LocalScanScheduleCard } from '@/components/settings/LocalScanScheduleCard';
 import { VercelEnvSettingsLink } from '@/components/integrations/VercelEnvSettingsLink';
 import { useStore } from '@/lib/store';
 import { useAuth } from '@/lib/auth';
@@ -140,6 +141,8 @@ export default function SettingsPage() {
             </Field>
           </div>
         </Card>
+
+        <LocalScanScheduleCard />
 
         <Card>
           <CardHeader title="Weekly report" subtitle="Projects advanced, deployment health, model performance breakdown, winner recommendations." />
