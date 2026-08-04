@@ -390,6 +390,15 @@ export const narrateTopThree = async (
   }
 };
 
+/**
+ * Append the exact raw model id as a small footer line to an emailed AI section.
+ * The heading shows the friendly label (matching the in-app badges); this footer
+ * keeps the precise provider id recoverable from the inbox, since an email has
+ * no hover tooltip. Empty when no model is known.
+ */
+const withRawModelFooter = (section: string, model: string | null): string =>
+  model ? `${section}\n\nModel: \`${model}\`` : section;
+
 /** Prepend an AI summary to an email body with a clear section heading. */
 export const withExecutiveSummary = (
   body: string,
@@ -397,9 +406,10 @@ export const withExecutiveSummary = (
   model: string | null,
 ): string => {
   if (!summary) return body;
-  // Friendly model label so the email matches the in-app badges; the raw id is
-  // not exposed here.
-  return `## ✨ AI executive summary${model ? ` (${modelLabel(model)})` : ''}\n\n${summary}\n\n${body}`;
+  // Friendly model label in the heading; the exact raw id rides along in a
+  // footer line so the emailed report stays fully traceable.
+  const heading = `## ✨ AI executive summary${model ? ` (${modelLabel(model)})` : ''}`;
+  return `${withRawModelFooter(`${heading}\n\n${summary}`, model)}\n\n${body}`;
 };
 
 /** Prepend an AI top-three narration to an email body with a clear section heading. */
@@ -409,7 +419,8 @@ export const withTopThreeNarration = (
   model: string | null,
 ): string => {
   if (!paragraph) return body;
-  // Friendly model label so the email matches the in-app badges; the raw id is
-  // not exposed here.
-  return `## 🎯 Why these three matter today${model ? ` (${modelLabel(model)})` : ''}\n\n${paragraph}\n\n${body}`;
+  // Friendly model label in the heading; the exact raw id rides along in a
+  // footer line so the emailed briefing stays fully traceable.
+  const heading = `## 🎯 Why these three matter today${model ? ` (${modelLabel(model)})` : ''}`;
+  return `${withRawModelFooter(`${heading}\n\n${paragraph}`, model)}\n\n${body}`;
 };

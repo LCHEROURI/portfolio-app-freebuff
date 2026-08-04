@@ -411,6 +411,19 @@ describe('withExecutiveSummary', () => {
     const out = withExecutiveSummary('# body', 'Short summary.', 'some-vendor/unknown-model');
     expect(out).toContain('## ✨ AI executive summary (some-vendor/unknown-model)');
   });
+
+  it('appends the exact raw model id as a footer line for inbox traceability', () => {
+    const out = withExecutiveSummary('# body', 'Short summary.', 'deepseek/deepseek-chat');
+    // The friendly label is in the heading, the raw id survives in a footer line.
+    expect(out).toContain('Model: `deepseek/deepseek-chat`');
+    expect(out.indexOf('Model: `deepseek/deepseek-chat`')).toBeGreaterThan(out.indexOf('Short summary.'));
+    expect(out.indexOf('Model: `deepseek/deepseek-chat`')).toBeLessThan(out.indexOf('# body'));
+  });
+
+  it('omits the footer line when no model is known', () => {
+    const out = withExecutiveSummary('# body', 'Short summary.', null);
+    expect(out).not.toContain('Model:');
+  });
 });
 
 // ─── withTopThreeNarration ───────────────────────────────────────────────────
@@ -432,5 +445,17 @@ describe('withTopThreeNarration', () => {
   it('shows the raw model id in the heading when the id is unknown', () => {
     const out = withTopThreeNarration('# body', 'Fix the failing deploy first.', 'some-vendor/unknown-model');
     expect(out).toContain('## 🎯 Why these three matter today (some-vendor/unknown-model)');
+  });
+
+  it('appends the exact raw model id as a footer line for inbox traceability', () => {
+    const out = withTopThreeNarration('# body', 'Fix the failing deploy first.', 'deepseek/deepseek-chat');
+    expect(out).toContain('Model: `deepseek/deepseek-chat`');
+    expect(out.indexOf('Model: `deepseek/deepseek-chat`')).toBeGreaterThan(out.indexOf('Fix the failing deploy first.'));
+    expect(out.indexOf('Model: `deepseek/deepseek-chat`')).toBeLessThan(out.indexOf('# body'));
+  });
+
+  it('omits the footer line when no model is known', () => {
+    const out = withTopThreeNarration('# body', 'Fix the failing deploy first.', null);
+    expect(out).not.toContain('Model:');
   });
 });
