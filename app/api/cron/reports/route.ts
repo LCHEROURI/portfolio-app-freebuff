@@ -4,6 +4,7 @@ import {
   buildDailyReportBody, buildWeeklyReportBody, runAutomationRules,
   type AppState, type AutomationAlert,
 } from '@/lib/engine';
+import { summarizeReport, withExecutiveSummary } from '@/lib/openrouter';
 import { loadLiveSnapshot, serverProfile } from '@/lib/server/reporting/data';
 import { sendReportEmail } from '@/lib/server/reporting/email';
 
@@ -83,23 +84,37 @@ export async function GET(req: NextRequest) {
   const wantWeekly = kind === 'auto' ? todayUtc === weeklyDay : kind === 'weekly';
   const reports: Array<Record<string, unknown>> = [];
 
-  if (wantDaily) {
-    const r = buildDailyReportBody(state);
+  // AI executive summary is an enhancement: when OpenRouter is unconfigured or
+  // the call fails, summarizeReport returns null and the email body is sent
+  // unchanged (deterministic text + alerts). Both summaries run in parallel so
+  // two slow AI calls can't eat the whole cron maxDuration budget.
+  const pending: Array<{
+    r: { title: string; body: string; attentionCount: number };
+    kind: 'daily' | 'weekly';
+  }> = [];
+  if (wantDaily) pending.push({ r: buildDailyReportBody(state), kind: 'daily' });
+  if (wantWeekly) pending.push({ r: buildWeeklyReportBody(state), kind: 'weekly' });
+
+  const summarized = await Promise.all(
+    pending.map(async ({ r, kind }) => {
+      const ai = await summarizeReport({ kind, title: r.title, body: r.body, attentionCount: r.attentionCount });
+      return {
+        kind,
+        title: r.title,
+        attentionCount: r.attentionCount,
+        body: withExecutiveSummary(withAlertsSection(r.body, alerts), ai?.summary ?? null, ai?.model ?? null),
+        model: ai?.model ?? null,
+      };
+    }),
+  );
+
+  for (const s of summarized) {
     const email = await sendReportEmail({
-      kind: 'daily', title: r.title,
-      body: withAlertsSection(r.body, alerts),
-      attentionCount: r.attentionCount, alerts,
+      kind: s.kind, title: s.title,
+      body: s.body,
+      attentionCount: s.attentionCount, alerts,
     });
-    reports.push({ kind: 'daily', title: r.title, attentionCount: r.attentionCount, email });
-  }
-  if (wantWeekly) {
-    const r = buildWeeklyReportBody(state);
-    const email = await sendReportEmail({
-      kind: 'weekly', title: r.title,
-      body: withAlertsSection(r.body, alerts),
-      attentionCount: r.attentionCount, alerts,
-    });
-    reports.push({ kind: 'weekly', title: r.title, attentionCount: r.attentionCount, email });
+    reports.push({ kind: s.kind, title: s.title, attentionCount: s.attentionCount, email, aiModel: s.model });
   }
 
   return NextResponse.json({

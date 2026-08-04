@@ -110,6 +110,8 @@ create table if not exists public.projects (
   next_action_due_date  text,
   blocker               text,
   notes                 text,
+  winner_recommendation text,
+  winner_recommendation_model text,
   archived              boolean not null default false,
   created_at            text not null,
   updated_at            text not null,
@@ -118,6 +120,10 @@ create table if not exists public.projects (
 
 create index if not exists projects_owner_idx on public.projects (owner_id);
 create index if not exists projects_updated_idx on public.projects (updated_at);
+
+-- Columns added after initial provisioning; safe to run again.
+alter table public.projects add column if not exists winner_recommendation text;
+alter table public.projects add column if not exists winner_recommendation_model text;
 
 -- ─── Versions (per-model implementations) ───────────────────────────────────
 create table if not exists public.versions (

@@ -1,13 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { FileText, RefreshCw, Clock4 } from 'lucide-react';
+import { FileText, RefreshCw, Clock4, Sparkles } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useStore } from '@/lib/store';
+import { fetchAiSummary } from '@/lib/liveData';
 import { buildDailyReportBody, buildWeeklyReportBody, timeAgo } from '@/lib/engine';
 
 export default function ReportsPage() {
@@ -19,6 +20,29 @@ export default function ReportsPage() {
     const built = kind === 'daily'
       ? buildDailyReportBody(store)
       : buildWeeklyReportBody(store);
+    // AI executive summary is an enhancement: when OpenRouter is unconfigured
+    // or the call fails, the deterministic report body is saved unchanged.
+    let aiSummary: string | undefined;
+    let aiModel: string | undefined;
+    try {
+      const ai = await fetchAiSummary(store.userId, {
+        kind,
+        title: built.title,
+        body: built.body,
+        attentionCount: built.attentionCount,
+        // Per-user model preference from Settings → AI summaries. The route falls
+        // back to OPENROUTER_MODEL when empty, so the model badge on each saved
+        // report reflects exactly which model wrote that summary. Normalize the
+        // cleared preference to undefined so no meaningless empty field is sent.
+        model: store.profile.aiModel || undefined,
+      });
+      if (ai.summary) {
+        aiSummary = ai.summary;
+        aiModel = ai.model ?? undefined;
+      }
+    } catch {
+      // Fall back to the deterministic body.
+    }
     await store.saveReport({
       id: `r-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
       userId: store.userId,
@@ -27,6 +51,8 @@ export default function ReportsPage() {
       body: built.body,
       attentionCount: built.attentionCount,
       createdAt: new Date().toISOString(),
+      aiSummary,
+      aiModel,
     });
     setGenerating(null);
   };
@@ -76,6 +102,18 @@ export default function ReportsPage() {
                 <span className="flex-1 font-semibold">{r.title}</span>
                 <span className="text-xs text-pepper-400">{r.attentionCount} attention items · {timeAgo(r.createdAt)}</span>
               </summary>
+              {r.aiSummary && (
+                <div className="mt-4 rounded-xl2 border border-eggplant-200 bg-eggplant-50 p-4 dark:border-eggplant-800 dark:bg-eggplant-950/60">
+                  <div className="mb-1 flex items-center gap-2">
+                    <Sparkles size={14} className="text-eggplant-600 dark:text-eggplant-300" aria-hidden="true" />
+                    <span className="text-xs font-semibold uppercase tracking-wide text-eggplant-700 dark:text-eggplant-300">
+                      AI executive summary
+                    </span>
+                    {r.aiModel && <Badge tone="eggplant">{r.aiModel}</Badge>}
+                  </div>
+                  <p className="text-sm leading-relaxed text-pepper-700 dark:text-pepper-200">{r.aiSummary}</p>
+                </div>
+              )}
               <pre className="mt-4 overflow-x-auto rounded-xl2 bg-pepper-900 p-4 font-mono text-xs leading-relaxed text-flour-50 scrollbar-thin">{r.body}</pre>
             </details>
           ))}

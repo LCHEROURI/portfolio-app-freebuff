@@ -141,6 +141,95 @@ export const deleteLiveVersion = (userId: string, id: string) =>
 export const fetchLiveEvaluations = (userId: string) =>
   call<{ evaluations: ModelEvaluation[]; configured: boolean }>('/api/evaluations', userId);
 
+// ─── AI report summaries (OpenRouter via /api/ai/summarize) ──────────────────
+export interface AiSummaryInput {
+  kind: 'daily' | 'weekly';
+  title: string;
+  body: string;
+  attentionCount: number;
+  /** Per-user model override (Settings → AI summaries). Empty → env default. */
+  model?: string;
+}
+
+export interface AiSummaryResult {
+  ok: true;
+  configured: boolean;
+  summary: string | null;
+  model: string | null;
+}
+
+/**
+ * Request an AI executive summary for a generated report. The route returns
+ * `summary: null` when OpenRouter is unconfigured or the call failed, so
+ * callers fall back to the deterministic report text unchanged.
+ */
+export const fetchAiSummary = (userId: string, input: AiSummaryInput) =>
+  call<AiSummaryResult>('/api/ai/summarize', userId, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+
+// ─── AI top-three narration (OpenRouter via /api/ai/top-three) ──────────────
+export interface TopThreeActionInput {
+  priority: number;
+  title: string;
+  description: string;
+}
+
+export interface TopThreeNarrationResult {
+  ok: true;
+  configured: boolean;
+  narration: { paragraph: string; model: string } | null;
+}
+
+/**
+ * Request a plain-language narration of today's top three actions. The route
+ * returns `narration: null` when OpenRouter is unconfigured or the call
+ * failed, so callers fall back to the rule-based list unchanged.
+ */
+export const fetchTopThreeNarration = (
+  userId: string,
+  input: { actions: TopThreeActionInput[]; model?: string },
+) =>
+  call<TopThreeNarrationResult>('/api/ai/top-three', userId, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+
+// ─── AI winner recommendation (OpenRouter via /api/ai/recommend-winner) ─────
+export interface WinnerCandidateInput {
+  versionId: string;
+  versionName: string;
+  builder: string;
+  model: string;
+  overallScore: number;
+  scores: Record<string, number>;
+}
+
+export interface WinnerRecommendationResult {
+  ok: true;
+  configured: boolean;
+  recommendation: {
+    recommendedVersionId: string;
+    note: string;
+    model: string;
+  } | null;
+}
+
+/**
+ * Request an AI "why this version wins" recommendation for a project. The
+ * route returns `recommendation: null` when OpenRouter is unconfigured or the
+ * call failed, so callers fall back to the deterministic top score.
+ */
+export const fetchWinnerRecommendation = (
+  userId: string,
+  input: { projectName: string; candidates: WinnerCandidateInput[] },
+) =>
+  call<WinnerRecommendationResult>('/api/ai/recommend-winner', userId, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+
 // ─── Integration connection status ──────────────────────────────────────────
 export interface IntegrationEnvVar {
   name: string;

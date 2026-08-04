@@ -1,18 +1,19 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   FolderKanban, AlertTriangle, CalendarClock, GitBranch, ArrowUpFromLine, Rocket,
-  HeartPulse, Clock4, ShieldAlert, ArrowRight, ListChecks, TrendingUp, Plug,
+  HeartPulse, Clock4, ShieldAlert, ArrowRight, ListChecks, TrendingUp, Plug, Sparkles,
 } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
 import { StatCard, Card, CardHeader } from '@/components/ui/Card';
-import { StatusBadge, PriorityBadge } from '@/components/ui/Badge';
+import { Badge, StatusBadge, PriorityBadge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { VercelEnvSettingsLink } from '@/components/integrations/VercelEnvSettingsLink';
 import { isFirebaseConfigured } from '@/lib/firebase';
-import { readLiveFlags } from '@/lib/liveData';
+import { fetchTopThreeNarration, readLiveFlags } from '@/lib/liveData';
 import { useStore } from '@/lib/store';
 import {
   computeMetrics, buildPriorityQueue, buildTopThree, runAutomationRules, timeAgo,
@@ -25,6 +26,39 @@ export default function CommandCenterPage() {
   const queue = buildPriorityQueue(store);
   const topThree = buildTopThree(store);
   const alerts = runAutomationRules(store);
+
+  // AI narration of today's top three — an enhancement layer. When OpenRouter
+  // is unconfigured or the call fails, narration stays null and the card shows
+  // the rule-based list unchanged.
+  const [narration, setNarration] = useState<{ paragraph: string; model: string } | null>(null);
+  const [narrating, setNarrating] = useState(false);
+
+  // A narration describes the actions that existed when it was generated. If the
+  // underlying data changes (task completed, deploy recovered) the deterministic
+  // list is recomputed, so drop the stale paragraph rather than show a story
+  // about actions that no longer exist. The AI Explain button stays available as
+  // a manual regenerate.
+  const topThreeSignature = topThree.map((a) => `${a.title}::${a.description}`).join('|');
+  useEffect(() => {
+    setNarration(null);
+  }, [topThreeSignature]);
+
+  const explainTopThree = async () => {
+    if (narrating || topThree.length === 0) return;
+    setNarrating(true);
+    try {
+      const result = await fetchTopThreeNarration(store.userId, {
+        actions: topThree.map((a) => ({ priority: a.priority, title: a.title, description: a.description })),
+        // Per-user model preference from Settings → AI summaries.
+        model: store.profile.aiModel || undefined,
+      });
+      setNarration(result.narration ? { paragraph: result.narration.paragraph, model: result.narration.model } : null);
+    } catch {
+      setNarration(null);
+    } finally {
+      setNarrating(false);
+    }
+  };
 
   // Landing surface for a missing integration: when no live data source is
   // connected, surface a one-click path to wire one up (Integrations page +
@@ -148,8 +182,36 @@ export default function CommandCenterPage() {
               <CardHeader
                 title="Today's Top Three"
                 subtitle="Highest-impact actions computed automatically."
-                action={<TrendingUp size={18} className="text-tomato-500" aria-hidden="true" />}
+                action={
+                  <div className="flex items-center gap-2">
+                    {topThree.length > 0 && (
+                      <button
+                        type="button"
+                        className="btn-ghost text-xs"
+                        disabled={narrating}
+                        aria-label="Explain today's top three with AI"
+                        onClick={explainTopThree}
+                      >
+                        <Sparkles size={14} className={narrating ? 'animate-pulse' : ''} aria-hidden="true" />
+                        {narrating ? 'Thinking…' : 'AI Explain'}
+                      </button>
+                    )}
+                    <TrendingUp size={18} className="text-tomato-500" aria-hidden="true" />
+                  </div>
+                }
               />
+              {narration && (
+                <div className="mb-3 rounded-xl2 border border-eggplant-200 bg-eggplant-50 p-3 dark:border-eggplant-800 dark:bg-eggplant-950/60">
+                  <div className="mb-1 flex items-center gap-2">
+                    <Sparkles size={13} className="text-eggplant-600 dark:text-eggplant-300" aria-hidden="true" />
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-eggplant-700 dark:text-eggplant-300">
+                      Why these three matter today
+                    </span>
+                    {narration.model && <Badge tone="eggplant">{narration.model}</Badge>}
+                  </div>
+                  <p className="text-sm leading-relaxed text-pepper-700 dark:text-pepper-200">{narration.paragraph}</p>
+                </div>
+              )}
               {topThree.length === 0 ? (
                 <p className="text-sm text-pepper-500 dark:text-pepper-300">Nothing urgent. Revisit comparisons and roadmap instead.</p>
               ) : (

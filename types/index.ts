@@ -68,6 +68,9 @@ export interface UserProfile {
   weeklyReportDay: number; // 0-6 (0 = Sunday)
   weeklyReportTime: string;
   defaultStaleDays: number; // e.g. 7
+  /** Preferred OpenRouter model id for AI summaries (e.g. deepseek/deepseek-chat).
+   *  Empty means "use the OPENROUTER_MODEL env default". */
+  aiModel?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -91,6 +94,10 @@ export interface Project {
   nextActionDueDate?: string;
   blocker?: string;
   notes?: string;
+  /** Optional AI-drafted "why this version wins" recommendation (OpenRouter). */
+  winnerRecommendation?: string;
+  /** Model id that produced winnerRecommendation. */
+  winnerRecommendationModel?: string;
   archived: boolean;
   createdAt: string;
   updatedAt: string;
@@ -261,6 +268,11 @@ export interface Report {
   body: string; // markdown-ish plain text
   attentionCount: number;
   createdAt: string;
+  /** Optional AI-written executive summary (OpenRouter). Absent when the AI
+   *  integration is unconfigured or the call failed — deterministic fallback. */
+  aiSummary?: string;
+  /** Model id that produced aiSummary (e.g. deepseek/deepseek-chat). */
+  aiModel?: string;
 }
 
 export interface Reminder {
@@ -304,6 +316,7 @@ export const UserProfileSchema = z.object({
   weeklyReportDay: z.number().int().min(0).max(6),
   weeklyReportTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
   defaultStaleDays: z.number().int().min(1).max(90),
+  aiModel: z.string().max(120).optional(),
   createdAt: timestamp,
   updatedAt: timestamp,
 });
@@ -327,6 +340,8 @@ export const ProjectSchema = z.object({
   nextActionDueDate: z.string().optional(),
   blocker: z.string().optional(),
   notes: z.string().optional(),
+  winnerRecommendation: z.string().optional(),
+  winnerRecommendationModel: z.string().optional(),
   archived: z.boolean(),
   createdAt: timestamp,
   updatedAt: timestamp,
@@ -486,6 +501,8 @@ export const ReportSchema = z.object({
   body: z.string(),
   attentionCount: z.number().int().min(0),
   createdAt: timestamp,
+  aiSummary: z.string().optional(),
+  aiModel: z.string().optional(),
 });
 
 export const ReminderSchema = z.object({

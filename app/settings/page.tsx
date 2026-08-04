@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
-import { Database, LogOut, Save, RotateCcw, User } from 'lucide-react';
+import { Database, LogOut, Save, RotateCcw, Sparkles, User } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader } from '@/components/ui/Card';
@@ -24,6 +24,7 @@ export default function SettingsPage() {
     weeklyReportDay: store.profile.weeklyReportDay,
     weeklyReportTime: store.profile.weeklyReportTime,
     defaultStaleDays: store.profile.defaultStaleDays,
+    aiModel: store.profile.aiModel ?? '',
   }));
   const [saved, setSaved] = useState(false);
 
@@ -115,6 +116,27 @@ export default function SettingsPage() {
             </label>
             <Field label="Send time">
               <Input type="time" value={form.dailyReportTime} onChange={(e) => setForm({ ...form, dailyReportTime: e.target.value })} />
+            </Field>
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader
+            title="AI summaries"
+            subtitle="Which OpenRouter model writes your report executive summaries. Leave empty to use the OPENROUTER_MODEL server default."
+            action={<Sparkles size={18} className="text-eggplant-500" aria-hidden="true" />}
+          />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field
+              label="OpenRouter model id"
+              hint="Any model id OpenRouter serves — e.g. deepseek/deepseek-chat or anthropic/claude-3.5-sonnet. Swap freely to A/B the very models you track here."
+            >
+              <Input
+                value={form.aiModel}
+                maxLength={120}
+                onChange={(e) => setForm({ ...form, aiModel: e.target.value })}
+                placeholder="deepseek/deepseek-chat"
+              />
             </Field>
           </div>
         </Card>
