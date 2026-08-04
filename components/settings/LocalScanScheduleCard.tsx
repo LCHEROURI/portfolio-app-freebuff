@@ -59,7 +59,7 @@ export const LocalScanScheduleCard = () => {
   };
 
   return (
-    <Card>
+    <Card id="scan-schedule">
       <CardHeader
         title="Local scan schedule"
         subtitle="Automate the local repo scanner so unpushed/uncommitted facts are fresh when the morning report sends."

@@ -2,8 +2,7 @@ import { FileDiff } from 'lucide-react';
 
 import { Badge } from '@/components/ui/Badge';
 import { timeAgo } from '@/lib/engine';
-
-const SCAN_STALE_MS = 24 * 3_600_000;
+import { SCAN_STALE_MS } from '@/lib/scan';
 
 /** Exact clock time of a scan, e.g. "2026-08-04 6:30:05 AM". */
 const formatClock = (scannedAt: string) => {

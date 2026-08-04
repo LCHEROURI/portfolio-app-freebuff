@@ -2,6 +2,7 @@ import {
   type Project, type ProjectVersion, type Repository, type Deployment,
   type Task, type ModelEvaluation, type UserProfile, type ActivityEntry,
 } from '@/types';
+import { LOCAL_SCAN_EMAIL_HEADING, SCAN_STALE_MS } from './scan';
 
 // ============================================================================
 // DATE HELPERS
@@ -234,8 +235,6 @@ export const buildPriorityQueue = (state: AppState): QueueItem[] =>
     .map((p) => buildQueueItem(state, p))
     .filter((x): x is QueueItem => x !== null)
     .sort((a, b) => a.ruleNumber - b.ruleNumber || a.project.priority.localeCompare(b.project.priority));
-
-const SCAN_STALE_MS = 24 * 3_600_000;
 
 /** Resolve the repository a queue item's unpushed/uncommitted facts refer to. */
 export const repoOfQueueItem = (item: QueueItem, repos: Repository[]): Repository | undefined =>
@@ -574,7 +573,7 @@ export const buildDailyReportBody = (state: AppState): { title: string; body: st
     '',
     `**Attention items:** ${metrics.needingAttention}  ·  **Overdue:** ${metrics.overdueTasks}  ·  **Due today:** ${dueToday.length}  ·  **Failed deploys:** ${metrics.failedDeployments}  ·  **Unpushed:** ${metrics.unpushedCommits}`,
     '',
-    '## Local scan freshness',
+    `## ${LOCAL_SCAN_EMAIL_HEADING}`,
     ...(scan.scannedCount === 0
       ? ['- No local scans yet — run `npm run scan:all` to seed the feed.']
       : [
@@ -617,7 +616,7 @@ export const buildWeeklyReportBody = (state: AppState): { title: string; body: s
     '',
     `**Active projects:** ${metrics.activeProjects}  ·  **Healthy deployments:** ${healthy}/${state.deployments.length}  ·  **Attention items:** ${metrics.needingAttention}`,
     '',
-    '## Local scan freshness',
+    `## ${LOCAL_SCAN_EMAIL_HEADING}`,
     ...(scan.scannedCount === 0
       ? ['- No local scans yet — run `npm run scan:all` to seed the feed.']
       : [

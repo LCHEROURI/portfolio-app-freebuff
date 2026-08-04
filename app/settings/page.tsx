@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Database, LogOut, Save, RotateCcw, Sparkles, User } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -15,6 +15,15 @@ import { isFirebaseConfigured } from '@/lib/firebase';
 export default function SettingsPage() {
   const store = useStore();
   const { user } = useAuth();
+
+  // Deep link target: the Reports page's 'Schedule' link beside LOCAL SCAN
+  // jumps to /settings#scan-schedule and scrolls the scan-schedule card into
+  // view.
+  useEffect(() => {
+    if (window.location.hash === '#scan-schedule') {
+      document.getElementById('scan-schedule')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, []);
   const [form, setForm] = useState(() => ({
     name: store.profile.name,
     email: store.profile.email,

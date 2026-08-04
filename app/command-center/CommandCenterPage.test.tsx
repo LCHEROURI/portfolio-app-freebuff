@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import CommandCenterPage from './page';
-import type { Project, Task } from '@/types';
+import type { Project, ProjectVersion, Repository, Task } from '@/types';
 
 // ─── Mocks ──────────────────────────────────────────────────────────────────
 // The page only needs a store facade; stub it instead of mounting StoreProvider.
@@ -28,6 +28,10 @@ let profileOverride: { aiModel?: string } = {};
 // Simulates async store hydration: tests can start with no tasks, then flip
 // this and re-render to mimic live data arriving after mount.
 let tasksOverride: Task[] = [overdueTask];
+// Repository scanner facts: a queue item built on unpushed/uncommitted data
+// needs a version wired to a repo so repoOfQueueItem resolves it.
+let versionsOverride: ProjectVersion[] = [];
+let reposOverride: Repository[] = [];
 
 vi.mock('@/lib/store', () => ({
   useStore: () => ({
@@ -41,8 +45,8 @@ vi.mock('@/lib/store', () => ({
       createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(),
     },
     projects: [project],
-    versions: [],
-    repositories: [],
+    versions: versionsOverride,
+    repositories: reposOverride,
     deployments: [],
     tasks: tasksOverride,
     reminders: [],
@@ -100,6 +104,8 @@ beforeEach(() => {
   lastFetchMock = undefined;
   profileOverride = {};
   tasksOverride = [overdueTask];
+  versionsOverride = [];
+  reposOverride = [];
   delete process.env.NEXT_PUBLIC_ENABLE_AI_BRIEFINGS;
   sessionStorage.clear();
   lastFetchMock = stubNarrationFetch();
@@ -497,7 +503,44 @@ describe('CommandCenterPage — auto-briefing on load', () => {
   });
 });
 
-// ─── sessionStorage persistence (back-nav survival) ─────────────────────────
+// ─── Stale-scan badge tooltip on the priority queue ─────────────────────────
+
+describe('CommandCenterPage — stale-scan queue badge tooltip', () => {
+  it('shows the exact capture time and hours-old figure on a stale unpushed item', () => {
+    // Wire a version to a repo whose scanner facts are 3 days old and carry
+    // unpushed commits — this produces an UNPUSHED queue item with a stale
+    // scan, exactly the Repositories-grid surface the tooltip must match.
+    versionsOverride = [{
+      id: 'v-1', projectId: 'p-1', userId: 'e2e-user', versionName: 'V1',
+      builder: 'Codex', model: 'GPT-4o Codex', developmentPlatform: 'web',
+      status: 'TESTING', progress: 60, deploymentIds: [], branch: 'main',
+      lastActivityAt: new Date(0).toISOString(), estimatedCost: 0, actualCost: 0,
+      developmentHours: 0, isWinner: false, isArchived: false,
+      createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(),
+    }];
+    reposOverride = [{
+      id: 'r-1', userId: 'e2e-user', projectVersionId: 'v-1', provider: 'github',
+      owner: 'LCHEROURI', repositoryName: 'portfolio-app-freebuff',
+      repositoryUrl: 'https://github.com/LCHEROURI/portfolio-app-freebuff',
+      defaultBranch: 'main', currentBranch: 'main', private: true,
+      openPullRequests: 0, openIssues: 0, commitsAhead: 3, commitsBehind: 0,
+      hasUncommittedChanges: true, hasUnpushedCommits: true,
+      lastScannedAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+      connectionStatus: 'CONNECTED',
+      createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(),
+    }];
+    render(<CommandCenterPage />);
+
+    // The queue item carries the shared freshness badge (same text as the
+    // grid), and its tooltip is the enhanced exact-clock one — not the coarse
+    // 'Local scanner captured this repo …' inline title.
+    const badge = screen.getByText(/stale scan · 3d ago/);
+    const title = badge.closest('span')?.getAttribute('title') ?? '';
+    expect(title).toContain('Scanned');
+    expect(title).toContain('72h old');
+    expect(title).toContain('local facts may be out of date');
+  });
+});
 
 describe('CommandCenterPage — briefing persistence across remounts', () => {
   it('restores the narration on remount without a new AI call', async () => {

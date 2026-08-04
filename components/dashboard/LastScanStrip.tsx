@@ -1,15 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { ArrowRight, FileDiff, RefreshCw } from 'lucide-react';
+import { ArrowRight, RefreshCw } from 'lucide-react';
 
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { ScanFreshnessBadge } from '@/components/ui/ScanFreshnessBadge';
+import { LocalScanHeader } from '@/components/dashboard/LocalScanHeader';
 import { timeAgo } from '@/lib/engine';
-
-const SCAN_STALE_MS = 24 * 3_600_000;
+import { SCAN_STALE_MS } from '@/lib/scan';
 
 interface ScanRow {
   id: string;
@@ -28,8 +28,11 @@ const repoName = (r: ScanRow) => `${r.owner}/${r.repositoryName}`;
  * snapshot overlays) and shows the NEWEST and OLDEST lastScannedAt across
  * repos with the shared fresh/stale badge. Each row is a link to the
  * Repositories page scrolled to that repo, so the strip doubles as a nav hub.
+ *
+ * `headerAction` renders an optional link beside the 'Local scan' label
+ * (e.g. the launchd schedule on the Reports page).
  */
-export const LastScanStrip = () => {
+export const LastScanStrip = ({ headerAction }: { headerAction?: ReactNode }) => {
   const [rows, setRows] = useState<ScanRow[] | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -87,13 +90,7 @@ export const LastScanStrip = () => {
   return (
     <Card className="mb-6">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-        <div className="flex items-center gap-2">
-          <FileDiff size={16} className="shrink-0 text-tomato-500" aria-hidden="true" />
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-pepper-500 dark:text-pepper-300">Local scan</p>
-            <p className="text-xs text-pepper-400">newest → oldest across repos</p>
-          </div>
-        </div>
+        <LocalScanHeader action={headerAction} />
 
         {loading ? (
           <p className="text-sm text-pepper-400">Loading scan freshness…</p>

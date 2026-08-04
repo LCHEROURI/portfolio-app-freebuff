@@ -5,13 +5,14 @@ import Link from 'next/link';
 import {
   FolderKanban, AlertTriangle, CalendarClock, GitBranch, ArrowUpFromLine, Rocket,
   HeartPulse, Clock4, ShieldAlert, ArrowRight, ListChecks, TrendingUp, Plug, Sparkles,
-  RefreshCw, FileDiff,
+  RefreshCw,
 } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
 import { StatCard, Card, CardHeader } from '@/components/ui/Card';
-import { Badge, StatusBadge, PriorityBadge, ModelBadge } from '@/components/ui/Badge';
+import { StatusBadge, PriorityBadge, ModelBadge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { ScanFreshnessBadge } from '@/components/ui/ScanFreshnessBadge';
 import { LastScanStrip } from '@/components/dashboard/LastScanStrip';
 import { VercelEnvSettingsLink } from '@/components/integrations/VercelEnvSettingsLink';
 import { isFirebaseConfigured } from '@/lib/firebase';
@@ -22,6 +23,7 @@ import {
   type QueueItem,
 } from '@/lib/engine';
 import { QUEUE_RULE_LABELS } from '@/lib/labels';
+import { SCAN_STALE_MS } from '@/lib/scan';
 import type { Repository } from '@/types';
 
 // Session-scoped persistence so the briefing (paragraph, cited projects, active
@@ -29,8 +31,6 @@ import type { Repository } from '@/types';
 // Stored under the signature of the actions it described: if the underlying data
 // changed while away, the stored briefing is discarded instead of shown stale.
 const BRIEFING_STORAGE_KEY = 'freebuff-command-center-briefing';
-
-const SCAN_STALE_MS = 24 * 3_600_000;
 
 /** Resolve the repository a queue item's unpushed/uncommitted facts refer to. */
 const repoOfQueueItem = (item: QueueItem, repos: Repository[]): Repository | undefined =>
@@ -307,7 +307,9 @@ export default function CommandCenterPage() {
                   // A queue item built on scanner-reported facts (unpushed /
                   // uncommitted) is only as current as its last scan. When that
                   // scan is 24h+ old, flag the item so stale local facts never
-                  // masquerade as current next to the live feed.
+                  // masquerade as current next to the live feed. The shared
+                  // freshness badge's tooltip carries the exact capture time
+                  // and hours-old figure, matching the Repositories grid.
                   const repo = repoOfQueueItem(item, store.repositories);
                   const staleScan = Boolean(
                     repo?.lastScannedAt
@@ -329,10 +331,7 @@ export default function CommandCenterPage() {
                         </div>
                         <div className="flex shrink-0 flex-col items-end gap-1.5">
                           {staleScan && repo?.lastScannedAt && (
-                            <Badge tone="turmeric" title={`Local scanner captured this repo ${timeAgo(repo.lastScannedAt)}`}>
-                              <FileDiff size={11} aria-hidden="true" />
-                              stale scan · {timeAgo(repo.lastScannedAt)}
-                            </Badge>
+                            <ScanFreshnessBadge scannedAt={repo.lastScannedAt} />
                           )}
                           <StatusBadge status={item.project.overallStatus} />
                           <PriorityBadge priority={item.project.priority} />

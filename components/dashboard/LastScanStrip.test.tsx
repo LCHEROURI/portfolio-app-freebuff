@@ -102,6 +102,17 @@ describe('LastScanStrip', () => {
     expect(screen.getByText(/No local scans yet/)).toBeInTheDocument();
   });
 
+  it('renders a header action link beside the Local scan label', async () => {
+    stubScansFetch([]);
+
+    render(<LastScanStrip headerAction={<a href="/settings#scan-schedule">Schedule</a>} />);
+    await act(async () => { await vi.runAllTimersAsync(); });
+
+    expect(screen.getByRole('link', { name: 'Schedule' })).toHaveAttribute('href', '/settings#scan-schedule');
+    // The shared header composable still labels the block 'Local scan'.
+    expect(screen.getByText('Local scan')).toBeInTheDocument();
+  });
+
   it('refreshes the feed when Refresh is clicked', async () => {
     const now = Date.now();
     const fetchMock = stubScansFetch([
