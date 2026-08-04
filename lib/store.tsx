@@ -24,6 +24,7 @@ import {
   type Deployment, type Task, type Reminder, type ModelEvaluation,
   type ActivityEntry, type Report,
 } from '@/types';
+import { mergeScannerOverlay } from '@/lib/scannerOverlay';
 
 export interface CommandCenterData {
   mode: 'firestore' | 'demo';
@@ -552,27 +553,8 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
 // Merge helpers
 // ============================================================================
 
-/** Overlay local scanner facts (uncommitted/unpushed, branch) onto the live GitHub feed. */
-const mergeScannerOverlay = (live: Repository[], local: Repository[]): Repository[] => {
-  if (local.length === 0) return live;
-  const localByKey = new Map(
-    local.map((r) => [`${r.owner}/${r.repositoryName}`.toLowerCase(), r]),
-  );
-  return live.map((repo) => {
-    const key = `${repo.owner}/${repo.repositoryName}`.toLowerCase();
-    const localMatch = localByKey.get(key);
-    if (!localMatch) return repo;
-    return {
-      ...repo,
-      projectVersionId: localMatch.projectVersionId ?? repo.projectVersionId,
-      hasUncommittedChanges: localMatch.hasUncommittedChanges,
-      hasUnpushedCommits: localMatch.hasUnpushedCommits,
-      commitsAhead: localMatch.hasUnpushedCommits ? localMatch.commitsAhead : repo.commitsAhead,
-      commitsBehind: localMatch.commitsBehind,
-      lastScannedAt: localMatch.lastScannedAt,
-    };
-  });
-};
+/** Overlay local scanner facts (uncommitted/unpushed, branch) onto the live
+ *  GitHub feed. Shared with the server cron loader via lib/scannerOverlay.ts. */
 
 export const useStore = (): StoreApi => {
   const ctx = useContext(StoreContext);

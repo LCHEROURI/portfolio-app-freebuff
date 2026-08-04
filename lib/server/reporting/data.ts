@@ -2,6 +2,7 @@ import { fetchGitHubRepos } from '@/lib/server/github';
 import { fetchLiveDeployments } from '@/lib/server/deployments';
 import { fromEvaluationRow, fromProjectRow, fromTaskRow, fromVersionRow, type Row } from '@/lib/server/rows';
 import { isSupabaseConfigured, supabaseSelect } from '@/lib/server/supabase';
+import { mergeScannerOverlay } from '@/lib/scannerOverlay';
 import type { AppState } from '@/lib/engine';
 import type { UserProfile } from '@/types';
 
@@ -71,6 +72,23 @@ export const loadLiveSnapshot = async (ownerId: string): Promise<LiveSnapshot> =
     safe(() => fetchLiveDeployments(ownerId)),
   ]);
 
+  // Overlay local scanner facts (uncommitted/unpushed, branch, ahead/behind)
+  // onto the live GitHub feed using the SAME merge the client store applies,
+  // so the emailed report shows the same 'push these repos' items as the
+  // dashboard. Scanner metadata is written server-side by /api/scanner in demo
+  // mode (data/scans.json); when the file is absent or unreadable (e.g. a
+  // read-only serverless filesystem) this degrades to the live feed untouched.
+  const scanned = await safe(async () => {
+    const { readFile } = await import('node:fs/promises');
+    const { join } = await import('node:path');
+    const raw = await readFile(join(process.cwd(), 'data', 'scans.json'), 'utf8');
+    const parsed = JSON.parse(raw) as unknown[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((s): s is import('@/types').Repository =>
+      typeof s === 'object' && s !== null && typeof (s as { id?: unknown }).id === 'string');
+  });
+  const merged = mergeScannerOverlay(repositories ?? [], scanned ?? []);
+
   return {
     userId: ownerId,
     configured: {
@@ -83,7 +101,7 @@ export const loadLiveSnapshot = async (ownerId: string): Promise<LiveSnapshot> =
       projects: projects ?? [],
       versions: versions ?? [],
       evaluations: evaluations ?? [],
-      repositories: repositories ?? [],
+      repositories: merged,
       deployments: deployments ?? [],
     },
   };
