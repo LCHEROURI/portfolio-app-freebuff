@@ -11,6 +11,25 @@ import { useStore } from '@/lib/store';
 import { timeAgo } from '@/lib/engine';
 import { PROVIDER_LABELS } from '@/lib/labels';
 
+const SCAN_STALE_MS = 24 * 3_600_000;
+
+/**
+ * Freshness badge for scanner-reported facts. Reads lastScannedAt from the
+ * scanner overlay so local uncommitted/unpushed flags are visibly marked as
+ * fresh ('scanned just now') or stale ('stale scan · 3d ago') next to the live
+ * GitHub feed — a stale badge means the local facts may be out of date.
+ */
+const ScanFreshnessBadge = ({ scannedAt }: { scannedAt: string }) => {
+  const age = Date.now() - new Date(scannedAt).getTime();
+  const stale = age > SCAN_STALE_MS;
+  return (
+    <Badge tone={stale ? 'turmeric' : 'basil'} title={`Local scanner last captured this repo ${timeAgo(scannedAt)}`}>
+      <FileDiff size={11} aria-hidden="true" />
+      {stale ? `stale scan · ${timeAgo(scannedAt)}` : `scanned ${timeAgo(scannedAt)}`}
+    </Badge>
+  );
+};
+
 export default function RepositoriesPage() {
   const store = useStore();
   const [refreshing, setRefreshing] = useState(false);
@@ -93,9 +112,14 @@ export default function RepositoriesPage() {
                   <h3 className="truncate font-display text-base font-bold">{r.owner}/{r.repositoryName}</h3>
                   <p className="text-xs text-pepper-400">{PROVIDER_LABELS[r.provider]} · {r.currentBranch}</p>
                 </div>
-                <Badge tone={r.connectionStatus === 'CONNECTED' ? 'basil' : r.connectionStatus === 'AUTH_ERROR' ? 'paprika' : 'turmeric'}>
-                  {r.connectionStatus.replace(/_/g, ' ')}
-                </Badge>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <Badge tone={r.connectionStatus === 'CONNECTED' ? 'basil' : r.connectionStatus === 'AUTH_ERROR' ? 'paprika' : 'turmeric'}>
+                    {r.connectionStatus.replace(/_/g, ' ')}
+                  </Badge>
+                  {r.lastScannedAt && (
+                    <ScanFreshnessBadge scannedAt={r.lastScannedAt} />
+                  )}
+                </div>
               </div>
 
               <p className="mt-1 text-xs text-pepper-500 dark:text-pepper-300">
