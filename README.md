@@ -148,8 +148,13 @@ endpoint ping with HTTP status + latency (Supabase PostgREST, GitHub
 `rate_limit`, Vercel `v2/user`, Firebase projects API, and the automation
 engine). Pings are cached server-side for 2 minutes (successful responses
 only — failures retry immediately), so polling never hammers provider APIs;
-the Refresh button bypasses the cache with `?refresh=1`. Same Firebase-token
-auth as every other live route.
+the Refresh button bypasses the cache with `?refresh=1`. Both surfaces also
+poll *immediately* when the window or tab regains focus, so setup feedback
+shows up the moment you return after pasting env lines and redeploying. Each
+integration card carries an **"Open Vercel project env settings"** link that
+deep-links straight to the project's Environment Variables page (overridable
+via `NEXT_PUBLIC_VERCEL_TEAM_SLUG` / `NEXT_PUBLIC_VERCEL_PROJECT_SLUG` for
+forks). Same Firebase-token auth as every other live route.
 
 > **Auth model:** every live API route is owner-scoped by a **cryptographically
 > verified Firebase ID token** (`Authorization: Bearer <idToken>`, RS256-verified

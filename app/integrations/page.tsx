@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   Activity, Check, ChevronDown, Copy, Cpu, Database, ExternalLink, Github,
   HeartPulse, Plug, RefreshCw, Rocket, Wrench, X, type LucideIcon,
@@ -127,6 +127,27 @@ const REDEPLOY_STEP: SetupStep = {
   code: 'git push origin main',
   note: 'Env changes only apply on the next deployment. Pushing triggers a new one automatically (or use Redeploy in the Vercel dashboard).',
 };
+
+// Deep-link target for the "Open Vercel project env settings" action shown on
+// every integration card. Overridable per deployment via NEXT_PUBLIC_ env vars
+// (e.g. when a fork lives under a different team/project); defaults match this
+// repo's own Vercel project.
+const VERCEL_ENV_URL = `https://vercel.com/${
+  process.env.NEXT_PUBLIC_VERCEL_TEAM_SLUG || 'laredj-chehrouris-projects'
+}/${process.env.NEXT_PUBLIC_VERCEL_PROJECT_SLUG || 'portfolio-app-freebuff'}/settings/environment-variables`;
+
+function VercelEnvSettingsLink({ label = 'Open Vercel project env settings' }: { label?: string }) {
+  return (
+    <a
+      href={VERCEL_ENV_URL}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center gap-1 font-medium text-pepper-500 transition-colors hover:text-tomato-600 dark:text-pepper-300 dark:hover:text-tomato-300"
+    >
+      {label} <ExternalLink size={11} aria-hidden="true" />
+    </a>
+  );
+}
 
 /** Copy text with a legacy execCommand fallback for non-secure contexts. */
 const copyToClipboard = async (text: string): Promise<boolean> => {
@@ -274,69 +295,75 @@ function SetupChecklist({ status }: { status: IntegrationStatus }) {
   const missing = status.env.filter((v) => !v.set && v.required);
   const [open, setOpen] = useState(missing.length > 0);
 
+  let body: ReactNode;
   if (missing.length === 0) {
     const flagOff = status.env.find((v) => v.name.startsWith('NEXT_PUBLIC_LIVE_') && !v.set);
-    if (flagOff) {
-      return (
-        <p className="mt-3 border-t border-butter-200 pt-2 text-xs text-turmeric-700 dark:border-pepper-700 dark:text-turmeric-300">
-          Required vars are set — flip{' '}
-          <code className="rounded bg-butter-100 px-1 py-0.5 font-mono dark:bg-pepper-700">{flagOff.name}=1</code>{' '}
-          to activate this integration.
-        </p>
-      );
-    }
-    return (
-      <p className="mt-3 border-t border-butter-200 pt-2 text-xs font-medium text-basil-700 dark:border-pepper-700 dark:text-basil-300">
+    body = flagOff ? (
+      <p className="text-xs text-turmeric-700 dark:text-turmeric-300">
+        Required vars are set — flip{' '}
+        <code className="rounded bg-butter-100 px-1 py-0.5 font-mono dark:bg-pepper-700">{flagOff.name}=1</code>{' '}
+        to activate this integration.
+      </p>
+    ) : (
+      <p className="text-xs font-medium text-basil-700 dark:text-basil-300">
         <Check size={12} className="mr-1 inline" aria-hidden="true" /> All required env vars are set
       </p>
     );
-  }
+  } else {
+    const guide = SETUP_GUIDES[status.id] ?? [];
+    const steps = [...guide, REDEPLOY_STEP];
+    // Copy-all carries only the env lines — the redeploy `git push` step is
+    // intentionally excluded so the blob is safe to paste into Vercel's env UI.
+    const allLines = guide.flatMap((s) => (s.code ? [s.code] : [])).join('\n');
+    body = (
+      <>
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          aria-controls={`${status.id}-checklist`}
+          className="flex w-full items-center justify-between gap-2 text-left text-xs font-semibold text-turmeric-700 dark:text-turmeric-300"
+        >
+          <span className="inline-flex items-center gap-1.5">
+            <ChevronDown size={14} className={`transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
+            Setup checklist · {missing.length} missing required {missing.length === 1 ? 'var' : 'vars'}
+          </span>
+          <span className="font-normal text-pepper-400 dark:text-pepper-500">{open ? 'Hide steps' : 'Show steps'}</span>
+        </button>
+        <p className="mt-1 pl-[22px] font-mono text-[10px] text-paprika-600 dark:text-paprika-400">
+          {missing.map((v) => v.name).join(' · ')}
+        </p>
 
-  const guide = SETUP_GUIDES[status.id] ?? [];
-  const steps = [...guide, REDEPLOY_STEP];
-  // Copy-all carries only the env lines — the redeploy `git push` step is
-  // intentionally excluded so the blob is safe to paste into Vercel's env UI.
-  const allLines = guide.flatMap((s) => (s.code ? [s.code] : [])).join('\n');
+        {open && (
+          <ol id={`${status.id}-checklist`} className="mt-3 space-y-3">
+            {steps.map((step, i) => (
+              <li key={`${status.id}-step-${i}`} className="flex gap-2.5">
+                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-turmeric-100 text-[11px] font-bold text-turmeric-800 dark:bg-turmeric-900 dark:text-turmeric-200">
+                  {i + 1}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium text-pepper-800 dark:text-flour-100">{step.label}</p>
+                  {step.note && <p className="mt-0.5 text-[11px] leading-snug text-pepper-400 dark:text-pepper-400">{step.note}</p>}
+                  {step.code && <CodeBlock code={step.code} />}
+                </div>
+              </li>
+            ))}
+            <li className="flex items-center justify-between rounded-lg bg-butter-100 py-1.5 pl-3 pr-1.5 dark:bg-pepper-700">
+              <span className="text-[11px] text-pepper-500 dark:text-pepper-300">Copy every env line above</span>
+              <CopyButton text={allLines} />
+            </li>
+          </ol>
+        )}
+      </>
+    );
+  }
 
   return (
     <div className="mt-3 border-t border-butter-200 pt-2 dark:border-pepper-700">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        aria-controls={`${status.id}-checklist`}
-        className="flex w-full items-center justify-between gap-2 text-left text-xs font-semibold text-turmeric-700 dark:text-turmeric-300"
-      >
-        <span className="inline-flex items-center gap-1.5">
-          <ChevronDown size={14} className={`transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
-          Setup checklist · {missing.length} missing required {missing.length === 1 ? 'var' : 'vars'}
-        </span>
-        <span className="font-normal text-pepper-400 dark:text-pepper-500">{open ? 'Hide steps' : 'Show steps'}</span>
-      </button>
-      <p className="mt-1 pl-[22px] font-mono text-[10px] text-paprika-600 dark:text-paprika-400">
-        {missing.map((v) => v.name).join(' · ')}
-      </p>
-
-      {open && (
-        <ol id={`${status.id}-checklist`} className="mt-3 space-y-3">
-          {steps.map((step, i) => (
-            <li key={`${status.id}-step-${i}`} className="flex gap-2.5">
-              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-turmeric-100 text-[11px] font-bold text-turmeric-800 dark:bg-turmeric-900 dark:text-turmeric-200">
-                {i + 1}
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-medium text-pepper-800 dark:text-flour-100">{step.label}</p>
-                {step.note && <p className="mt-0.5 text-[11px] leading-snug text-pepper-400 dark:text-pepper-400">{step.note}</p>}
-                {step.code && <CodeBlock code={step.code} />}
-              </div>
-            </li>
-          ))}
-          <li className="flex items-center justify-between rounded-lg bg-butter-100 py-1.5 pl-3 pr-1.5 dark:bg-pepper-700">
-            <span className="text-[11px] text-pepper-500 dark:text-pepper-300">Copy every env line above</span>
-            <CopyButton text={allLines} />
-          </li>
-        </ol>
-      )}
+      {body}
+      <div className="mt-2.5 flex items-center justify-end">
+        <VercelEnvSettingsLink />
+      </div>
     </div>
   );
 }
@@ -493,14 +520,17 @@ export default function IntegrationsPage() {
                 <span className="inline-flex items-center gap-1.5 text-pepper-500 dark:text-pepper-300">
                   <Wrench size={12} aria-hidden="true" /> <code className="font-mono">{integration.env}</code>
                 </span>
-                <a
-                  href="https://github.com/LCHEROURI/portfolio-app-freebuff#-live-integrations-supabase-github-vercel"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 font-medium text-tomato-600 hover:underline dark:text-tomato-300"
-                >
-                  Setup guide <ExternalLink size={11} aria-hidden="true" />
-                </a>
+                <span className="flex items-center gap-3">
+                  <a
+                    href="https://github.com/LCHEROURI/portfolio-app-freebuff#-live-integrations-supabase-github-vercel"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 font-medium text-tomato-600 hover:underline dark:text-tomato-300"
+                  >
+                    Setup guide <ExternalLink size={11} aria-hidden="true" />
+                  </a>
+                  <VercelEnvSettingsLink label="Env settings" />
+                </span>
               </div>
             </Card>
           );
