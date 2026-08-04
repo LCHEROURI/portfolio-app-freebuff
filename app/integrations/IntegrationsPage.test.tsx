@@ -51,6 +51,14 @@ const flipped = (overrides: Record<string, IntegrationStatus['endpoint']> = {}):
 
 const gh503 = { ok: false, status: 503, ms: 2400, detail: 'Service Unavailable' };
 
+/** Unset the named env vars on one integration; everything else stays as-is. */
+const withEnvUnset = (id: string, names: string[]): IntegrationStatus[] =>
+  baseline().map((s) =>
+    s.id === id
+      ? { ...s, env: s.env.map((v) => (names.includes(v.name) ? { ...v, set: false } : v)) }
+      : s,
+  );
+
 // ─── Fetch stub: one queued /api/status body per poll ───────────────────────
 
 let queue: IntegrationStatus[][];
@@ -86,6 +94,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+  delete process.env.NEXT_PUBLIC_ENABLE_SIMULATIONS;
 });
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -139,6 +148,64 @@ describe('IntegrationsPage — mocked /api/status E2E', () => {
 
     // Summary line reflects the single flip.
     expect(await screen.findByText(/1 card just updated/)).toBeInTheDocument();
+  });
+
+  it('reports a cleared env var in the badge tooltip when a token is unset between polls', async () => {
+    queue = [baseline(), withEnvUnset('github', ['GITHUB_TOKEN'])];
+    render(<IntegrationsPage />);
+    await screen.findByRole('heading', { name: 'GitHub' });
+    expect(screen.queryByLabelText(/^Updated —/)).toBeNull();
+
+    await refresh();
+
+    const badge = await screen.findByLabelText(/^Updated —/);
+    expect(badge).toHaveAttribute('aria-label', 'Updated — GITHUB_TOKEN cleared');
+
+    // The badge sits on the GitHub card — and only there.
+    const githubCard = cardOf('GitHub');
+    expect(within(githubCard).getByLabelText(/^Updated —/)).toBeInTheDocument();
+    const supabaseCard = cardOf('Supabase');
+    expect(within(supabaseCard).queryByLabelText(/^Updated —/)).toBeNull();
+
+    // The what-changed tooltip carries the env-var description.
+    expect(within(githubCard).getByText('GITHUB_TOKEN cleared')).toBeInTheDocument();
+
+    // Summary line reflects the single flip.
+    expect(await screen.findByText(/1 card just updated/)).toBeInTheDocument();
+  });
+
+  it('renders a simulate-flip control when the dev flag is on, and it drives the badge through the real polling hook', async () => {
+    // Dev-only flag: shows the simulate button; the wrapper flips GitHub on
+    // the NEXT /api/status poll after the button is clicked.
+    process.env.NEXT_PUBLIC_ENABLE_SIMULATIONS = '1';
+    // Three polls: initial baseline, armed flip, then disarm reversal.
+    queue = [baseline(), baseline(), baseline()];
+    render(<IntegrationsPage />);
+    await screen.findByRole('heading', { name: 'GitHub' });
+    expect(screen.queryByLabelText(/^Updated —/)).toBeNull();
+
+    const simulate = screen.getByRole('button', { name: 'Simulate a status flip' });
+    fireEvent.click(simulate);
+
+    // The armed wrapper reports GitHub as down on the forced refresh poll.
+    const badge = await screen.findByLabelText(/^Updated —/);
+    expect(badge).toHaveAttribute(
+      'aria-label',
+      'Updated — Endpoint OK → error, HTTP 200 → 503, Latency 40ms → 2400ms',
+    );
+    expect(within(cardOf('GitHub')).getByLabelText(/^Updated —/)).toBeInTheDocument();
+    expect(within(cardOf('Supabase')).queryByLabelText(/^Updated —/)).toBeNull();
+
+    // Toggling off restores real status — which is itself a change, so the
+    // badge flips to describe the reversal on the next refresh.
+    const stop = screen.getByRole('button', { name: 'Stop simulated outage' });
+    fireEvent.click(stop);
+    const reversed = await screen.findByLabelText(/^Updated — Endpoint error → OK, HTTP 503 → 200/);
+    expect(reversed).toHaveAttribute(
+      'aria-label',
+      'Updated — Endpoint error → OK, HTTP 503 → 200, Latency 2400ms → 40ms',
+    );
+    expect(within(cardOf('GitHub')).getByLabelText(/^Updated —/)).toBeInTheDocument();
   });
 
   it('badges each flipped card when several integrations change in one poll', async () => {

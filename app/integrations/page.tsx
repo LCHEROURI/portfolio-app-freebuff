@@ -1,9 +1,9 @@
 'use client';
 
-import { Fragment, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import {
-  Activity, Check, ChevronDown, Copy, Cpu, Database, ExternalLink, Github,
-  HeartPulse, Plug, RefreshCw, Rocket, Wrench, X, type LucideIcon,
+  Activity, Check, ChevronDown, Copy, Cpu, Database, ExternalLink, FlaskConical,
+  Github, HeartPulse, Plug, RefreshCw, Rocket, Wrench, X, type LucideIcon,
 } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -15,6 +15,10 @@ import { firstVarSource, varSourceUrl } from '@/lib/integrationVarLinks';
 import { copyToClipboard } from '@/lib/clipboard';
 import { isFirebaseConfigured } from '@/lib/firebase';
 import { readLiveFlags, type IntegrationStatus } from '@/lib/liveData';
+import {
+  armStatusSimulation, disarmStatusSimulation, installStatusSimulationFetch,
+  isStatusSimulationEnabled,
+} from '@/lib/statusSimulation';
 import { useStore } from '@/lib/store';
 import { useIntegrationStatus } from '@/lib/useIntegrationStatus';
 import type { IntegrationChange } from '@/lib/integrationDiff';
@@ -427,6 +431,30 @@ function ConnectionStatusPanel() {
   // the server-side ping cache absorbing provider API calls between polls.
   const { statuses, checkedAt, error, loading, changed, refresh } = useIntegrationStatus(userId, POLL_MS);
 
+  // Dev-only status-flip simulator: when NEXT_PUBLIC_ENABLE_SIMULATIONS=1,
+  // wrap the global fetch so armed polls report GitHub as down. This lets the
+  // what-changed badge + tooltip be demonstrated without a real outage.
+  const simulationEnabled = isStatusSimulationEnabled();
+  const [simArmed, setSimArmed] = useState(false);
+  useEffect(() => {
+    if (!simulationEnabled) return;
+    const origFetch = window.fetch.bind(window);
+    const wrapped = installStatusSimulationFetch(origFetch);
+    window.fetch = wrapped;
+    return () => {
+      // Only restore the one wrapper this page installed.
+      if (window.fetch === wrapped) window.fetch = origFetch;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [simulationEnabled]);
+
+  const toggleSimulation = () => {
+    const next = !simArmed;
+    setSimArmed(next);
+    if (next) armStatusSimulation(); else disarmStatusSimulation();
+    refresh(); // force a poll so the flip lands immediately
+  };
+
   const connected = statuses?.filter((s) => s.enabled && (s.endpoint?.ok ?? true)).length ?? 0;
   const changedSummary = changed.length > 0
     ? ` ${changed.length} card${changed.length === 1 ? '' : 's'} just updated.`
@@ -448,6 +476,19 @@ function ConnectionStatusPanel() {
         action={
           <div className="flex items-center gap-2">
             <Badge tone="basil">{connected} connected</Badge>
+            {simulationEnabled && (
+              <button
+                type="button"
+                onClick={toggleSimulation}
+                aria-pressed={simArmed}
+                aria-label={simArmed ? 'Stop simulated outage' : 'Simulate a status flip'}
+                title={simArmed ? 'Restore real status — the badge will flip back' : 'Report GitHub as down so the Updated badge + tooltip appear'}
+                className="btn-ghost text-xs"
+              >
+                <FlaskConical size={13} className={simArmed ? 'text-paprika-500' : ''} aria-hidden="true" />
+                {simArmed ? 'Stop simulated outage' : 'Simulate status flip'}
+              </button>
+            )}
             <button
               type="button"
               className="btn-ghost text-xs"
