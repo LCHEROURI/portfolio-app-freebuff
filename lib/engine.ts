@@ -235,6 +235,28 @@ export const buildPriorityQueue = (state: AppState): QueueItem[] =>
     .filter((x): x is QueueItem => x !== null)
     .sort((a, b) => a.ruleNumber - b.ruleNumber || a.project.priority.localeCompare(b.project.priority));
 
+const SCAN_STALE_MS = 24 * 3_600_000;
+
+/** Resolve the repository a queue item's unpushed/uncommitted facts refer to. */
+export const repoOfQueueItem = (item: QueueItem, repos: Repository[]): Repository | undefined =>
+  item.version?.repositoryId
+    ? repos.find((r) => r.id === item.version!.repositoryId)
+    : repos.find((r) => r.projectVersionId === item.version?.id);
+
+/**
+ * Stale-scan marker for a queue item. A queue item built on scanner-reported
+ * facts (unpushed/uncommitted) is only as current as its last scan; when that
+ * scan is 24h+ old, the emailed priority queue appends a '⚠ stale scan' note so
+ * stale local facts never masquerade as current. Returns '' when current.
+ */
+export const staleScanMarker = (state: AppState, item: QueueItem): string => {
+  const repo = repoOfQueueItem(item, state.repositories);
+  if (!repo?.lastScannedAt) return '';
+  if (!repo.hasUnpushedCommits && !repo.hasUncommittedChanges) return '';
+  if (Date.now() - new Date(repo.lastScannedAt).getTime() <= SCAN_STALE_MS) return '';
+  return ` ⚠ stale scan · ${timeAgo(repo.lastScannedAt)}`;
+};
+
 // ============================================================================
 // TODAY'S TOP THREE
 // ============================================================================
@@ -532,7 +554,9 @@ export const buildDailyReportBody = (state: AppState): { title: string; body: st
     ...(doneYesterday.length ? doneYesterday.map((t) => `- [x] ${t.title}`) : ['- None.']),
     '',
     '## Priority queue',
-    ...(queue.length ? queue.map((q) => `${q.ruleNumber}. [${q.severity.toUpperCase()}] ${q.title}`) : ['- Queue is clear.']),
+    ...(queue.length
+      ? queue.map((q) => `${q.ruleNumber}. [${q.severity.toUpperCase()}] ${q.title}${staleScanMarker(state, q)}`)
+      : ['- Queue is clear.']),
   ];
 
   return { title: `Daily Report ${new Date().toLocaleDateString()}`, body: lines.join('\n'), attentionCount: metrics.needingAttention };
@@ -571,7 +595,9 @@ export const buildWeeklyReportBody = (state: AppState): { title: string; body: s
       : ['- All projects healthy enough; re-run comparisons before choosing.']),
     '',
     '## Priority queue',
-    ...(queue.length ? queue.map((q) => `${q.ruleNumber}. [${q.severity.toUpperCase()}] ${q.title}`) : ['- Queue is clear.']),
+    ...(queue.length
+      ? queue.map((q) => `${q.ruleNumber}. [${q.severity.toUpperCase()}] ${q.title}${staleScanMarker(state, q)}`)
+      : ['- Queue is clear.']),
   ];
 
   return { title: `Weekly Report ${new Date().toLocaleDateString()}`, body: lines.join('\n'), attentionCount: metrics.needingAttention };
