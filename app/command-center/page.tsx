@@ -5,12 +5,12 @@ import Link from 'next/link';
 import {
   FolderKanban, AlertTriangle, CalendarClock, GitBranch, ArrowUpFromLine, Rocket,
   HeartPulse, Clock4, ShieldAlert, ArrowRight, ListChecks, TrendingUp, Plug, Sparkles,
-  RefreshCw,
+  RefreshCw, FileDiff,
 } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
 import { StatCard, Card, CardHeader } from '@/components/ui/Card';
-import { StatusBadge, PriorityBadge, ModelBadge } from '@/components/ui/Badge';
+import { Badge, StatusBadge, PriorityBadge, ModelBadge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { VercelEnvSettingsLink } from '@/components/integrations/VercelEnvSettingsLink';
 import { isFirebaseConfigured } from '@/lib/firebase';
@@ -18,14 +18,24 @@ import { fetchTopThreeNarration, isAiBriefingsEnabled, readLiveFlags } from '@/l
 import { useStore } from '@/lib/store';
 import {
   computeMetrics, buildPriorityQueue, buildTopThree, runAutomationRules, timeAgo,
+  type QueueItem,
 } from '@/lib/engine';
 import { QUEUE_RULE_LABELS } from '@/lib/labels';
+import type { Repository } from '@/types';
 
 // Session-scoped persistence so the briefing (paragraph, cited projects, active
 // brief chip) survives back navigation and remounts without refiring an AI call.
 // Stored under the signature of the actions it described: if the underlying data
 // changed while away, the stored briefing is discarded instead of shown stale.
 const BRIEFING_STORAGE_KEY = 'freebuff-command-center-briefing';
+
+const SCAN_STALE_MS = 24 * 3_600_000;
+
+/** Resolve the repository a queue item's unpushed/uncommitted facts refer to. */
+const repoOfQueueItem = (item: QueueItem, repos: Repository[]): Repository | undefined =>
+  item.version?.repositoryId
+    ? repos.find((r) => r.id === item.version!.repositoryId)
+    : repos.find((r) => r.projectVersionId === item.version?.id);
 
 type StoredBriefing = {
   paragraph: string;
@@ -289,7 +299,18 @@ export default function CommandCenterPage() {
               />
             ) : (
               <ul className="space-y-2.5">
-                {queue.map((item) => (
+                {queue.map((item) => {
+                  // A queue item built on scanner-reported facts (unpushed /
+                  // uncommitted) is only as current as its last scan. When that
+                  // scan is 24h+ old, flag the item so stale local facts never
+                  // masquerade as current next to the live feed.
+                  const repo = repoOfQueueItem(item, store.repositories);
+                  const staleScan = Boolean(
+                    repo?.lastScannedAt
+                    && (repo.hasUnpushedCommits || repo.hasUncommittedChanges)
+                    && Date.now() - new Date(repo.lastScannedAt).getTime() > SCAN_STALE_MS,
+                  );
+                  return (
                   <li key={`${item.project.id}-${item.rule}`} className={`rounded-xl2 border border-butter-200 border-l-4 p-4 ${queueTone(item.severity)}`}>
                     <Link href={`/projects/${item.project.id}`} className="block group">
                       <div className="flex items-start justify-between gap-3">
@@ -303,6 +324,12 @@ export default function CommandCenterPage() {
                           <p className="mt-0.5 text-sm text-pepper-500 dark:text-pepper-300">{item.description}</p>
                         </div>
                         <div className="flex shrink-0 flex-col items-end gap-1.5">
+                          {staleScan && repo?.lastScannedAt && (
+                            <Badge tone="turmeric" title={`Local scanner captured this repo ${timeAgo(repo.lastScannedAt)}`}>
+                              <FileDiff size={11} aria-hidden="true" />
+                              stale scan · {timeAgo(repo.lastScannedAt)}
+                            </Badge>
+                          )}
                           <StatusBadge status={item.project.overallStatus} />
                           <PriorityBadge priority={item.project.priority} />
                         </div>
@@ -313,7 +340,8 @@ export default function CommandCenterPage() {
                       </div>
                     </Link>
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
           </Card>
