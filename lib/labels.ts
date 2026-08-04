@@ -18,6 +18,33 @@ export const PROVIDER_LABELS: Record<string, string> = {
   github: 'GitHub', bitbucket: 'Bitbucket', gitlab: 'GitLab',
 };
 
+// OpenRouter model id → friendly display label for AI-generated content badges
+// (Top Three briefing, Reports executive summary, winner recommendations).
+// Unknown model ids fall back to the raw id via modelLabel().
+export const MODEL_LABELS: Record<string, string> = {
+  'deepseek/deepseek-chat': 'DeepSeek Chat',
+  'deepseek/deepseek-reasoner': 'DeepSeek Reasoner',
+  'anthropic/claude-3.5-sonnet': 'Claude 3.5 Sonnet',
+  'anthropic/claude-3.5-haiku': 'Claude 3.5 Haiku',
+  'anthropic/claude-3.7-sonnet': 'Claude 3.7 Sonnet',
+  'openai/gpt-4o': 'GPT-4o',
+  'openai/gpt-4o-mini': 'GPT-4o mini',
+  'openai/gpt-4.1': 'GPT-4.1',
+  'openai/gpt-4.1-mini': 'GPT-4.1 mini',
+  'google/gemini-1.5-pro': 'Gemini 1.5 Pro',
+  'google/gemini-1.5-flash': 'Gemini 1.5 Flash',
+  'google/gemini-2.0-flash': 'Gemini 2.0 Flash',
+  'google/gemini-2.5-pro': 'Gemini 2.5 Pro',
+  'google/gemini-2.5-flash': 'Gemini 2.5 Flash',
+  'meta-llama/llama-3.3-70b-instruct': 'Llama 3.3 70B',
+  'moonshotai/kimi-k2-instruct': 'Kimi K2',
+  'mistralai/mistral-large': 'Mistral Large',
+};
+
+/** Friendly label for an OpenRouter model id, falling back to the raw id. */
+export const modelLabel = (modelId: string | null | undefined): string =>
+  modelId ? (MODEL_LABELS[modelId] ?? modelId) : '';
+
 export const BUILDER_COLORS: Record<string, string> = {
   Codex: 'text-sky-600 dark:text-sky-300',
   'Google AI Studio': 'text-blue-600 dark:text-blue-300',

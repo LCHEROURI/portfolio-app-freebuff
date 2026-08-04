@@ -3,6 +3,7 @@ import {
   type PriorityLevel, type ProjectStatus, type TaskStatus, type HealthStatus,
   type DeploymentStatus, PRIORITY_LEVELS, PROJECT_STATUSES, TASK_STATUSES,
 } from '@/types';
+import { modelLabel } from '@/lib/labels';
 
 const tone = {
   tomato: 'bg-tomato-100 text-tomato-700 border-tomato-200 dark:bg-tomato-900/60 dark:text-tomato-200 dark:border-tomato-800',
@@ -16,10 +17,10 @@ const tone = {
 
 export type Tone = keyof typeof tone;
 
-export const Badge = ({ tone: t = 'pepper', children, className = '' }: {
-  tone?: Tone; children: ReactNode; className?: string;
+export const Badge = ({ tone: t = 'pepper', children, className = '', title }: {
+  tone?: Tone; children: ReactNode; className?: string; title?: string;
 }) => (
-  <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium ${tone[t]} ${className}`}>
+  <span title={title} className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium ${tone[t]} ${className}`}>
     {children}
   </span>
 );
@@ -60,6 +61,20 @@ export const deploymentTone = (s: DeploymentStatus): Tone =>
 
 export const DeploymentStatusBadge = ({ status }: { status: DeploymentStatus }) => (
   <Badge tone={deploymentTone(status)}>{status.replace(/_/g, ' ')}</Badge>
+);
+
+// AI model badge: shows the friendly label (e.g. 'DeepSeek Chat') with the raw
+// OpenRouter model id (e.g. deepseek/deepseek-chat) as a hover tooltip, so the
+// mapping never hides exactly which model generated the content. Unknown ids
+// fall back to the raw id via modelLabel().
+export const ModelBadge = ({ model, tone: t = 'eggplant', className = '' }: {
+  model: string | null | undefined; tone?: Tone; className?: string;
+}) => (
+  model ? (
+    <Badge tone={t} className={className} title={model}>
+      {modelLabel(model)}
+    </Badge>
+  ) : null
 );
 
 export { PROJECT_STATUSES, TASK_STATUSES, PRIORITY_LEVELS };

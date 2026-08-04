@@ -150,7 +150,8 @@ describe('GET /api/cron/reports — daily top-three narration', () => {
     expect(res.status).toBe(200);
 
     const body = vi.mocked(sendReportEmail).mock.calls[0][0].body;
-    expect(body).toContain('## 🎯 Why these three matter today (deepseek/deepseek-chat)');
+    // The email heading shows the friendly model label, matching the in-app badges.
+    expect(body).toContain('## 🎯 Why these three matter today (DeepSeek Chat)');
     expect(body).toContain('Fix the failing deploy first, then push your work and close the overdue task.');
     // Narration precedes both the executive summary and the deterministic report.
     const narrationIdx = body.indexOf('Why these three matter today');

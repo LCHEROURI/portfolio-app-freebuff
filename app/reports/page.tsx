@@ -5,7 +5,7 @@ import { FileText, RefreshCw, Clock4, Sparkles } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
-import { Badge } from '@/components/ui/Badge';
+import { Badge, ModelBadge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useStore } from '@/lib/store';
 import { fetchAiSummary } from '@/lib/liveData';
@@ -109,7 +109,7 @@ export default function ReportsPage() {
                     <span className="text-xs font-semibold uppercase tracking-wide text-eggplant-700 dark:text-eggplant-300">
                       AI executive summary
                     </span>
-                    {r.aiModel && <Badge tone="eggplant">{r.aiModel}</Badge>}
+                    <ModelBadge model={r.aiModel} />
                   </div>
                   <p className="text-sm leading-relaxed text-pepper-700 dark:text-pepper-200">{r.aiSummary}</p>
                 </div>

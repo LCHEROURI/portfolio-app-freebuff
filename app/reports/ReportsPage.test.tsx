@@ -105,7 +105,7 @@ describe('ReportsPage — AI executive summary', () => {
     expect(details).not.toBeNull();
     const d = details as HTMLElement;
     expect(within(d).getByText('AI executive summary')).toBeInTheDocument();
-    expect(within(d).getByText('deepseek/deepseek-chat')).toBeInTheDocument();
+    expect(within(d).getByText('DeepSeek Chat')).toBeInTheDocument();
     expect(within(d).getByText('Push the unpushed commits first.')).toBeInTheDocument();
   });
 

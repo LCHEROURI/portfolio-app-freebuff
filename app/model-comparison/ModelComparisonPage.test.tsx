@@ -124,7 +124,7 @@ describe('ModelComparisonPage — AI winner recommendation', () => {
     expect(await screen.findByText('AI winner recommendation')).toBeInTheDocument();
     // 'Gemini Build' appears in the table row AND the recommendation line.
     expect(screen.getAllByText('Gemini Build').length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText('deepseek/deepseek-chat')).toBeInTheDocument();
+    expect(screen.getByText('DeepSeek Chat')).toBeInTheDocument();
     expect(screen.queryByText('AI unavailable — top score shown')).toBeNull();
 
     const textarea = screen.getByLabelText('Winner recommendation note for Weeknight Meal Planner');

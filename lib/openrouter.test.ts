@@ -376,10 +376,15 @@ describe('withExecutiveSummary', () => {
 
   it('prepends a headed summary when present', () => {
     const out = withExecutiveSummary('# body', 'Short summary.', 'deepseek/deepseek-chat');
-    expect(out).toContain('## ✨ AI executive summary (deepseek/deepseek-chat)');
+    expect(out).toContain('## ✨ AI executive summary (DeepSeek Chat)');
     expect(out).toContain('Short summary.');
     expect(out).toContain('# body');
     expect(out.indexOf('Short summary.')).toBeLessThan(out.indexOf('# body'));
+  });
+
+  it('shows the raw model id in the heading when the id is unknown', () => {
+    const out = withExecutiveSummary('# body', 'Short summary.', 'some-vendor/unknown-model');
+    expect(out).toContain('## ✨ AI executive summary (some-vendor/unknown-model)');
   });
 });
 
@@ -393,9 +398,14 @@ describe('withTopThreeNarration', () => {
 
   it('prepends a headed narration when present', () => {
     const out = withTopThreeNarration('# body', 'Fix the failing deploy first.', 'deepseek/deepseek-chat');
-    expect(out).toContain('## 🎯 Why these three matter today (deepseek/deepseek-chat)');
+    expect(out).toContain('## 🎯 Why these three matter today (DeepSeek Chat)');
     expect(out).toContain('Fix the failing deploy first.');
     expect(out).toContain('# body');
     expect(out.indexOf('Fix the failing deploy first.')).toBeLessThan(out.indexOf('# body'));
+  });
+
+  it('shows the raw model id in the heading when the id is unknown', () => {
+    const out = withTopThreeNarration('# body', 'Fix the failing deploy first.', 'some-vendor/unknown-model');
+    expect(out).toContain('## 🎯 Why these three matter today (some-vendor/unknown-model)');
   });
 });

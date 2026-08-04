@@ -12,6 +12,8 @@
 // deterministic report text remains the source of truth.
 // ============================================================================
 
+import { modelLabel } from '@/lib/labels';
+
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
 export const DEFAULT_OPENROUTER_MODEL = 'deepseek/deepseek-chat';
@@ -344,7 +346,9 @@ export const withExecutiveSummary = (
   model: string | null,
 ): string => {
   if (!summary) return body;
-  return `## ✨ AI executive summary${model ? ` (${model})` : ''}\n\n${summary}\n\n${body}`;
+  // Friendly model label so the email matches the in-app badges; the raw id is
+  // not exposed here.
+  return `## ✨ AI executive summary${model ? ` (${modelLabel(model)})` : ''}\n\n${summary}\n\n${body}`;
 };
 
 /** Prepend an AI top-three narration to an email body with a clear section heading. */
@@ -354,5 +358,7 @@ export const withTopThreeNarration = (
   model: string | null,
 ): string => {
   if (!paragraph) return body;
-  return `## 🎯 Why these three matter today${model ? ` (${model})` : ''}\n\n${paragraph}\n\n${body}`;
+  // Friendly model label so the email matches the in-app badges; the raw id is
+  // not exposed here.
+  return `## 🎯 Why these three matter today${model ? ` (${modelLabel(model)})` : ''}\n\n${paragraph}\n\n${body}`;
 };

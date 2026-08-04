@@ -121,7 +121,7 @@ describe('CommandCenterPage — AI top-three narration', () => {
 
     // The narration card appears with the model badge inside the Top Three card.
     expect(await screen.findByText('Why these three matter today')).toBeInTheDocument();
-    expect(screen.getByText('deepseek/deepseek-chat')).toBeInTheDocument();
+    expect(screen.getByText('DeepSeek Chat')).toBeInTheDocument();
     expect(screen.getByText(/failing production deploy is the priority today/)).toBeInTheDocument();
 
     // The rule-based list is still rendered underneath.
@@ -153,7 +153,7 @@ describe('CommandCenterPage — AI top-three narration', () => {
     expect(within(button).getByText('Thinking…')).toBeInTheDocument();
 
     await screen.findByText('Why these three matter today');
-    expect(screen.getByText('deepseek/deepseek-chat')).toBeInTheDocument();
+    expect(screen.getByText('DeepSeek Chat')).toBeInTheDocument();
   });
 
   it('sends the per-user OpenRouter model preference with the request', async () => {
@@ -349,7 +349,7 @@ describe('CommandCenterPage — auto-briefing on load', () => {
 
     // No click: the narration card appears on its own.
     expect(await screen.findByText('Why these three matter today')).toBeInTheDocument();
-    expect(screen.getByText('deepseek/deepseek-chat')).toBeInTheDocument();
+    expect(screen.getByText('DeepSeek Chat')).toBeInTheDocument();
     expect(screen.getByText(/failing production deploy is the priority today/)).toBeInTheDocument();
     // The manual regenerate button is still available.
     expect(screen.getByRole('button', { name: "Explain today's top three with AI" })).toBeInTheDocument();

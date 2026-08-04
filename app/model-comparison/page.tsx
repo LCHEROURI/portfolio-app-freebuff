@@ -6,7 +6,7 @@ import { Scale, Trophy, Sparkles, Check } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader } from '@/components/ui/Card';
-import { Badge } from '@/components/ui/Badge';
+import { Badge, ModelBadge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useStore } from '@/lib/store';
 import { buildComparison } from '@/lib/engine';
@@ -199,9 +199,7 @@ export default function ModelComparisonPage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <Sparkles size={14} className="text-eggplant-500" aria-hidden="true" />
                       <span className="text-xs font-semibold uppercase tracking-wide text-pepper-500">AI winner recommendation</span>
-                      {(recs[project.id]?.model ?? project.winnerRecommendationModel) && (
-                        <Badge tone="eggplant">{recs[project.id]?.model ?? project.winnerRecommendationModel}</Badge>
-                      )}
+                      <ModelBadge model={recs[project.id]?.model ?? project.winnerRecommendationModel} />
                       {hint[project.id] && <Badge tone="turmeric">AI unavailable — top score shown</Badge>}
                     </div>
                     {recs[project.id] && (

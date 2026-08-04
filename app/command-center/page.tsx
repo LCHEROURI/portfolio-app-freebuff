@@ -10,7 +10,7 @@ import {
 
 import { PageHeader } from '@/components/ui/PageHeader';
 import { StatCard, Card, CardHeader } from '@/components/ui/Card';
-import { Badge, StatusBadge, PriorityBadge } from '@/components/ui/Badge';
+import { StatusBadge, PriorityBadge, ModelBadge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { VercelEnvSettingsLink } from '@/components/integrations/VercelEnvSettingsLink';
 import { isFirebaseConfigured } from '@/lib/firebase';
@@ -341,7 +341,7 @@ export default function CommandCenterPage() {
                         <span className="text-[10px] font-semibold uppercase tracking-wide text-eggplant-700 dark:text-eggplant-300">
                           Why these three matter today
                         </span>
-                        {narration.model && <Badge tone="eggplant">{narration.model}</Badge>}
+                        <ModelBadge model={narration.model} />
                         <button
                           type="button"
                           aria-label="Regenerate briefing"
