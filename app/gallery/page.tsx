@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
-import { Images } from 'lucide-react';
+import Image from 'next/image';
+import Link from 'next/link';
+import { ArrowUpRight, Images } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
@@ -11,6 +13,10 @@ export const metadata: Metadata = { title: 'Screenshot gallery' };
 // lib/gallery-cells.json, so the page, the allowlist, and the captures can
 // never drift apart.
 const ROUTES = galleryCells as ReadonlyArray<{ route: string; label: string }>;
+
+// Every cell is captured at this fixed viewport by scripts/capture-gallery.mjs.
+const CELL_WIDTH = 1440;
+const CELL_HEIGHT = 1000;
 
 export default function GalleryPage() {
   return (
@@ -28,25 +34,35 @@ export default function GalleryPage() {
       <div className="space-y-6">
         {ROUTES.map(({ route, label }) => (
           <Card key={route} className="p-4">
-            <h2 className="mb-3 font-display text-lg font-semibold text-pepper-900 dark:text-flour-50">{label}</h2>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="font-display text-lg font-semibold text-pepper-900 dark:text-flour-50">{label}</h2>
+              <Link
+                href={`/${route}`}
+                className="inline-flex items-center gap-1 text-sm font-medium text-tomato-600 hover:underline dark:text-tomato-400"
+              >
+                Open /{route} <ArrowUpRight size={14} aria-hidden="true" />
+              </Link>
+            </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <figure>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
+                <Image
                   src={`/screenshots/${route}.png`}
                   alt={`${label} in light theme`}
-                  loading="lazy"
-                  className="w-full rounded-lg border border-butter-200 dark:border-pepper-700"
+                  width={CELL_WIDTH}
+                  height={CELL_HEIGHT}
+                  sizes="(max-width: 640px) 100vw, 50vw"
+                  className="h-auto w-full rounded-lg border border-butter-200 dark:border-pepper-700"
                 />
                 <figcaption className="mt-1 text-xs text-pepper-500 dark:text-pepper-300">Light</figcaption>
               </figure>
               <figure>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
+                <Image
                   src={`/screenshots/${route}-dark.png`}
                   alt={`${label} in dark theme`}
-                  loading="lazy"
-                  className="w-full rounded-lg border border-butter-200 dark:border-pepper-700"
+                  width={CELL_WIDTH}
+                  height={CELL_HEIGHT}
+                  sizes="(max-width: 640px) 100vw, 50vw"
+                  className="h-auto w-full rounded-lg border border-butter-200 dark:border-pepper-700"
                 />
                 <figcaption className="mt-1 text-xs text-pepper-500 dark:text-pepper-300">Dark</figcaption>
               </figure>

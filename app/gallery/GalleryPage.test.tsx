@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 
 import GalleryPage from './page';
 import { GET } from '../screenshots/[file]/route';
 import { GALLERY_FILE_NAMES } from '@/lib/galleryFiles';
 
-// The page renders <img src="/screenshots/..."> and the route handler streams
-// the PNGs from the repo. Mock the fs boundary (via vi.hoisted so the factory
-// never closes over test-scope variables) but exercise the REAL route logic:
-// allowlist enforcement + response shape.
+// The page renders next/image <img> tags pointing at /screenshots/... and the
+// route handler streams the PNGs from the repo. Mock the fs boundary (via
+// vi.hoisted so the factory never closes over test-scope variables) but
+// exercise the REAL route logic: allowlist enforcement + response shape.
 const { PNG_1x1 } = vi.hoisted(() => ({
   PNG_1x1:
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
@@ -22,7 +22,25 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   };
 });
 
-const srcOf = (img: HTMLElement) => img.getAttribute('src') ?? '';
+// next/image renders a /_next/image?url=...&w=...&q=... src; extract the
+// underlying file URL so assertions match the /screenshots contract.
+const srcOf = (img: HTMLElement) => {
+  const src = img.getAttribute('src') ?? '';
+  const url = src.match(/[?&]url=([^&]+)/)?.[1];
+  return url ? decodeURIComponent(url) : src;
+};
+
+const captions = [
+  { route: 'command-center', label: 'Command Center' },
+  { route: 'projects', label: 'Projects' },
+  { route: 'versions', label: 'Versions' },
+  { route: 'deployments', label: 'Deployments' },
+  { route: 'repositories', label: 'Repositories' },
+  { route: 'model-comparison', label: 'Model Comparison' },
+  { route: 'reports', label: 'Reports' },
+  { route: 'integrations', label: 'Integrations' },
+  { route: 'settings', label: 'Settings' },
+] as const;
 
 describe('GET /gallery — full page', () => {
   beforeEach(() => {
@@ -45,6 +63,16 @@ describe('GET /gallery — full page', () => {
       expect(srcs).toContain(`/screenshots/${f}`);
     }
     expect(srcs.filter((s) => s.includes('-dark.png'))).toHaveLength(9);
+  });
+
+  it('links each pair to its live route via an "Open /route" caption', () => {
+    render(<GalleryPage />);
+    for (const { route, label } of captions) {
+      const card = screen.getByRole('heading', { name: label }).closest('div')?.parentElement;
+      expect(card, `card for ${label}`).toBeTruthy();
+      const link = within(card as HTMLElement).getByRole('link', { name: `Open /${route}` });
+      expect(link.getAttribute('href')).toBe(`/${route}`);
+    }
   });
 
   it('serves every rendered src through the /screenshots handler (no broken images)', async () => {
