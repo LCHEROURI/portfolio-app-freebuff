@@ -106,7 +106,10 @@ async function main() {
   const payload = {
     owner,
     repositoryName,
-    repositoryUrl,
+    // No origin remote → omit the URL entirely so the API's validation can
+    // build its fallback (https://github.com/owner/name) instead of rejecting
+    // an empty string with 'Invalid url'.
+    repositoryUrl: repositoryUrl || undefined,
     provider,
     branch,
     defaultBranch: branch === 'main' ? 'main' : 'main',

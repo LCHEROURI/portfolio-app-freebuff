@@ -12,6 +12,7 @@
     "test:watch": "vitest",
     "lint": "next lint --max-warnings 0",
     "scanner": "node scripts/repo-scanner.mjs",
+    "scan:all": "node scripts/scan-all.mjs",
     "verify:cron-email": "node scripts/verify-cron-email.mjs",
     "capture:screenshots": "bash scripts/capture-screenshots.sh"
   },
