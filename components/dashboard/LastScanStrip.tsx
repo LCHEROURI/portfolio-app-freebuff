@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { FileDiff, RefreshCw } from 'lucide-react';
+import Link from 'next/link';
+import { ArrowRight, FileDiff, RefreshCw } from 'lucide-react';
 
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -25,8 +26,8 @@ const repoName = (r: ScanRow) => `${r.owner}/${r.repositoryName}`;
  * 'Last scan' freshness strip for the Command Center metric cards. Reads the
  * local scanner feed (GET /api/scans — the same data/scans.json the cron
  * snapshot overlays) and shows the NEWEST and OLDEST lastScannedAt across
- * repos with the shared fresh/stale badge, so a stale local scan is visible
- * the moment you land on the dashboard.
+ * repos with the shared fresh/stale badge. Each row is a link to the
+ * Repositories page scrolled to that repo, so the strip doubles as a nav hub.
  */
 export const LastScanStrip = () => {
   const [rows, setRows] = useState<ScanRow[] | null>(null);
@@ -59,17 +60,33 @@ export const LastScanStrip = () => {
     (r) => Date.now() - new Date(r.lastScannedAt).getTime() > SCAN_STALE_MS,
   ).length;
 
-  const repo = (r: ScanRow | null) =>
-    r ? (
+  // Clickable row: deep-links to /repositories?repo=owner/name, which the
+  // Repositories page uses to scroll that card into view.
+  const repoLink = (r: ScanRow) => (
+    <Link
+      href={`/repositories?repo=${encodeURIComponent(repoName(r))}`}
+      aria-label={`Open Repositories scrolled to ${repoName(r)}`}
+      className="group flex min-w-0 items-center gap-2 rounded-lg px-2 py-1 transition-colors hover:bg-butter-100 dark:hover:bg-pepper-700"
+      title={`Open Repositories scrolled to ${repoName(r)}`}
+    >
       <div className="min-w-0">
-        <p className="truncate text-sm font-medium text-pepper-900 dark:text-flour-50">{repoName(r)}</p>
+        <p className="truncate text-sm font-medium text-pepper-900 group-hover:text-tomato-600 dark:text-flour-50 dark:group-hover:text-tomato-300">
+          {repoName(r)}
+        </p>
         <p className="truncate text-xs text-pepper-400">captured {timeAgo(r.lastScannedAt)}</p>
       </div>
-    ) : null;
+      {r.lastScannedAt && (
+        <span className="shrink-0">
+          <ScanFreshnessBadge scannedAt={r.lastScannedAt} />
+        </span>
+      )}
+      <ArrowRight size={13} className="shrink-0 text-pepper-300 transition-transform group-hover:translate-x-0.5 group-hover:text-tomato-500 dark:text-pepper-500" aria-hidden="true" />
+    </Link>
+  );
 
   return (
     <Card className="mb-6">
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
         <div className="flex items-center gap-2">
           <FileDiff size={16} className="shrink-0 text-tomato-500" aria-hidden="true" />
           <div>
@@ -87,18 +104,9 @@ export const LastScanStrip = () => {
         ) : (
           <>
             <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                {repo(newest)}
-                {newest?.lastScannedAt && <ScanFreshnessBadge scannedAt={newest.lastScannedAt} />}
-              </div>
+              {newest && repoLink(newest)}
               <span className="text-xs text-pepper-400" aria-hidden="true">←</span>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                {repo(oldest)}
-                {oldest?.lastScannedAt && <ScanFreshnessBadge scannedAt={oldest.lastScannedAt} />}
-              </div>
+              {oldest && repoLink(oldest)}
               <span className="text-xs text-pepper-400" aria-hidden="true">→</span>
             </div>
 

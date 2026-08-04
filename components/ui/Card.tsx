@@ -1,7 +1,9 @@
-import { type ReactNode } from 'react';
+import { type HTMLAttributes, type ReactNode } from 'react';
 
-export const Card = ({ children, className = '' }: { children: ReactNode; className?: string }) => (
-  <div className={`card-base ${className}`}>{children}</div>
+// Extra props are forwarded so callers can attach data attributes / scroll
+// targets (e.g. data-repo-key on the Repositories page for deep links).
+export const Card = ({ children, className = '', ...rest }: { children: ReactNode; className?: string } & HTMLAttributes<HTMLDivElement>) => (
+  <div className={`card-base ${className}`} {...rest}>{children}</div>
 );
 
 export const CardHeader = ({ title, subtitle, action }: {

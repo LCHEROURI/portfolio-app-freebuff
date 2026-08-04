@@ -257,6 +257,38 @@ export const staleScanMarker = (state: AppState, item: QueueItem): string => {
   return ` ⚠ stale scan · ${timeAgo(repo.lastScannedAt)}`;
 };
 
+/**
+ * Newest/oldest lastScannedAt across scanned repos plus the stale count — the
+ * deterministic data behind both the dashboard's LastScanStrip and the emailed
+ * report's 'Local scan freshness' section, so the two always agree.
+ */
+export interface ScanFreshnessSummary {
+  scannedCount: number;
+  staleCount: number;
+  newest?: Repository;
+  newestStale: boolean;
+  oldest?: Repository;
+  oldestStale: boolean;
+}
+
+export const scanFreshnessSummary = (state: AppState): ScanFreshnessSummary => {
+  const scanned = state.repositories.filter((r) => r.lastScannedAt);
+  if (scanned.length === 0) {
+    return { scannedCount: 0, staleCount: 0, newestStale: false, oldestStale: false };
+  }
+  const sorted = [...scanned].sort((a, b) => b.lastScannedAt!.localeCompare(a.lastScannedAt!));
+  const staleOf = (repo: Repository) =>
+    Date.now() - new Date(repo.lastScannedAt!).getTime() > SCAN_STALE_MS;
+  return {
+    scannedCount: scanned.length,
+    staleCount: sorted.filter(staleOf).length,
+    newest: sorted[0],
+    newestStale: staleOf(sorted[0]),
+    oldest: sorted[sorted.length - 1],
+    oldestStale: staleOf(sorted[sorted.length - 1]),
+  };
+};
+
 // ============================================================================
 // TODAY'S TOP THREE
 // ============================================================================
@@ -535,11 +567,21 @@ export const buildDailyReportBody = (state: AppState): { title: string; body: st
   });
   const dueToday = state.tasks.filter((t) => t.status !== 'COMPLETED' && t.status !== 'CANCELED' && isDueToday(t.dueDate));
   const overdue = state.tasks.filter((t) => t.status !== 'COMPLETED' && t.status !== 'CANCELED' && isOverdue(t.dueDate));
+  const scan = scanFreshnessSummary(state);
 
   const lines: string[] = [
     `# Daily Command Center Report — ${new Date().toLocaleDateString()}`,
     '',
     `**Attention items:** ${metrics.needingAttention}  ·  **Overdue:** ${metrics.overdueTasks}  ·  **Due today:** ${dueToday.length}  ·  **Failed deploys:** ${metrics.failedDeployments}  ·  **Unpushed:** ${metrics.unpushedCommits}`,
+    '',
+    '## Local scan freshness',
+    ...(scan.scannedCount === 0
+      ? ['- No local scans yet — run `npm run scan:all` to seed the feed.']
+      : [
+          `- Newest: **${scan.newest!.owner}/${scan.newest!.repositoryName}** — scanned ${timeAgo(scan.newest!.lastScannedAt!)}${scan.newestStale ? ' ⚠ stale' : ''}`,
+          `- Oldest: **${scan.oldest!.owner}/${scan.oldest!.repositoryName}** — scanned ${timeAgo(scan.oldest!.lastScannedAt!)}${scan.oldestStale ? ' ⚠ stale' : ''}`,
+          `- ${scan.staleCount} of ${scan.scannedCount} repo(s) have a scan older than 24h.`,
+        ]),
     '',
     '## Top 3 actions',
     ...(topThree.length ? topThree.map((a, i) => `${i + 1}. **${a.title}** — ${a.description}`) : ['1. Nothing urgent. Enjoy the calm.']),
@@ -568,11 +610,21 @@ export const buildWeeklyReportBody = (state: AppState): { title: string; body: s
   const weekAgo = Date.now() - 7 * 86_400_000;
   const advanced = state.versions.filter((v) => new Date(v.lastActivityAt).getTime() > weekAgo && v.progress > 0);
   const healthy = state.deployments.filter((d) => d.healthStatus === 'HEALTHY').length;
+  const scan = scanFreshnessSummary(state);
 
   const lines: string[] = [
     `# Weekly Command Center Report — week of ${new Date().toLocaleDateString()}`,
     '',
     `**Active projects:** ${metrics.activeProjects}  ·  **Healthy deployments:** ${healthy}/${state.deployments.length}  ·  **Attention items:** ${metrics.needingAttention}`,
+    '',
+    '## Local scan freshness',
+    ...(scan.scannedCount === 0
+      ? ['- No local scans yet — run `npm run scan:all` to seed the feed.']
+      : [
+          `- Newest: **${scan.newest!.owner}/${scan.newest!.repositoryName}** — scanned ${timeAgo(scan.newest!.lastScannedAt!)}${scan.newestStale ? ' ⚠ stale' : ''}`,
+          `- Oldest: **${scan.oldest!.owner}/${scan.oldest!.repositoryName}** — scanned ${timeAgo(scan.oldest!.lastScannedAt!)}${scan.oldestStale ? ' ⚠ stale' : ''}`,
+          `- ${scan.staleCount} of ${scan.scannedCount} repo(s) have a scan older than 24h.`,
+        ]),
     '',
     '## Projects advanced this week',
     ...(advanced.length

@@ -55,6 +55,21 @@ describe('LastScanStrip', () => {
     expect(screen.getByText('2 repos')).toBeInTheDocument();
   });
 
+  it('renders each row as a deep link to /repositories scrolled to that repo', async () => {
+    const now = Date.now();
+    const fresh = makeRow({ id: 'r-fresh', repositoryName: 'fresh-repo', lastScannedAt: new Date(now - 60 * 60_000).toISOString() });
+    const older = makeRow({ id: 'r-old', repositoryName: 'old-repo', lastScannedAt: new Date(now - 5 * 86_400_000).toISOString() });
+    stubScansFetch([older, fresh]);
+
+    render(<LastScanStrip />);
+    await act(async () => { await vi.runAllTimersAsync(); });
+
+    const freshLink = screen.getByRole('link', { name: /Open Repositories scrolled to LCHEROURI\/fresh-repo/ });
+    expect(freshLink).toHaveAttribute('href', `/repositories?repo=${encodeURIComponent('LCHEROURI/fresh-repo')}`);
+    const oldLink = screen.getByRole('link', { name: /Open Repositories scrolled to LCHEROURI\/old-repo/ });
+    expect(oldLink).toHaveAttribute('href', `/repositories?repo=${encodeURIComponent('LCHEROURI/old-repo')}`);
+  });
+
   it('highlights every repo stale and shows the total count', async () => {
     const now = Date.now();
     const a = makeRow({ id: 'r-a', repositoryName: 'a', lastScannedAt: new Date(now - 2 * 86_400_000).toISOString() });
