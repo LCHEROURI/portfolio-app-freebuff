@@ -53,14 +53,24 @@ type SummaryBody = { ok: boolean; configured: boolean; summary: string | null; m
 let queue: SummaryBody[];
 let lastRequestModel: string | undefined;
 
+// /api/reports/send (Save and email now) responses, consumed in order.
+let sendQueue: Array<{ sent: boolean; reason?: string | null }>;
+
 // The page also mounts the LastScanStrip, which fetches GET /api/scans on
 // mount; route that to an empty feed so the AI stubs below only ever see
-// /api/ai/summarize calls.
+// /api/ai/summarize and /api/reports/send calls.
 const stubSummarizeFetch = () => {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.includes('/api/scans')) {
       return { ok: true, status: 200, json: async () => ({ ok: true, repos: [] }) } as Response;
+    }
+    if (url.includes('/api/reports/send')) {
+      const next = sendQueue.shift() ?? { sent: true };
+      return {
+        ok: true, status: 200,
+        json: async () => ({ ok: true, ...next, emailId: next.sent ? 'email-1' : null }),
+      } as Response;
     }
     if (!url.includes('/api/ai/summarize')) {
       throw new Error(`Unexpected fetch in reports test: ${url}`);
@@ -80,6 +90,7 @@ beforeEach(() => {
   savedReports.length = 0;
   queue = [];
   lastRequestModel = undefined;
+  sendQueue = [];
   profileOverride = {};
   stubSummarizeFetch();
 });
@@ -198,17 +209,69 @@ describe('ReportsPage — AI executive summary', () => {
     expect(screen.queryByText('AI executive summary')).toBeNull();
   });
 
-  it('discards a generated preview without saving', async () => {
+  it('asks once before discarding a generated (unsaved) preview', async () => {
     queue = [{ ok: true, configured: true, summary: 'Discard me.', model: 'deepseek/deepseek-chat' }];
     render(<ReportsPage />);
 
     await generateDaily();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
 
+    // First Discard click: nothing closes, a confirm banner appears instead.
     fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByText("Discard this generated report? It hasn't been saved.")).toBeInTheDocument();
+    expect(savedReports).toHaveLength(0);
 
+    // 'Keep editing' cancels and stays in the preview.
+    fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.queryByText("Discard this generated report? It hasn't been saved.")).toBeNull();
+
+    // Second Discard click re-arms the confirm; the explicit red button throws it away.
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Discard report' }));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(savedReports).toHaveLength(0);
+  });
+
+  it('saves and emails now, then flips the preview to view-only so it cannot be saved twice', async () => {
+    queue = [{ ok: true, configured: true, summary: 'Send me.', model: 'deepseek/deepseek-chat' }];
+    sendQueue = [{ sent: true }];
+    render(<ReportsPage />);
+
+    await generateDaily();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save and email now' }));
+
+    // One report row saved and delivered.
+    const saved = await waitFor(() => {
+      expect(savedReports).toHaveLength(1);
+      return savedReports[0];
+    });
+    expect(saved.aiSummary).toBe('Send me.');
+    expect(await screen.findByText('Emailed ✓')).toBeInTheDocument();
+
+    // The preview is now view-only (Close, no Save) so a second click can't duplicate.
+    const dialog = screen.getByRole('dialog');
+    expect(within(dialog).queryByRole('button', { name: 'Save report' })).toBeNull();
+    expect(within(dialog).queryByRole('button', { name: 'Save and email now' })).toBeNull();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(savedReports).toHaveLength(1);
+  });
+
+  it('still saves when the send is skipped (email unconfigured) and reports the reason', async () => {
+    queue = [{ ok: true, configured: true, summary: 'Save anyway.', model: 'deepseek/deepseek-chat' }];
+    sendQueue = [{ sent: false, reason: 'RESEND_API_KEY not set' }];
+    render(<ReportsPage />);
+
+    await generateDaily();
+    fireEvent.click(screen.getByRole('button', { name: 'Save and email now' }));
+
+    await waitFor(() => expect(savedReports).toHaveLength(1));
+    expect(await screen.findByText(/Saved — email skipped: RESEND_API_KEY not set/)).toBeInTheDocument();
+    // View-only after the attempt, so the report can't be double-saved.
+    expect(within(screen.getByRole('dialog')).queryByRole('button', { name: 'Save report' })).toBeNull();
   });
 });
 

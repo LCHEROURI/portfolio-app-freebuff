@@ -5,6 +5,7 @@ import {
   type AppState, type AutomationAlert,
 } from '@/lib/engine';
 import { narrateTopThree, summarizeReport, withExecutiveSummary, withTopThreeNarration } from '@/lib/openrouter';
+import type { ReportPreviewPayload } from '@/lib/reportPreview';
 import { loadLiveSnapshot, serverProfile } from '@/lib/server/reporting/data';
 import { sendReportEmail } from '@/lib/server/reporting/email';
 
@@ -88,7 +89,13 @@ export async function GET(req: NextRequest) {
 
   const wantDaily = kind === 'auto' || kind === 'daily';
   const wantWeekly = kind === 'auto' ? todayUtc === weeklyDay : kind === 'weekly';
-  const reports: Array<Record<string, unknown>> = [];
+  // Each report entry carries the shared preview payload (kind/title/body/
+  // attentionCount/aiModel/narration) so the ?previewBody=1 response and the
+  // Reports page preview modal agree on structure by construction.
+  const reports: Array<ReportPreviewPayload & {
+    email: { sent: boolean; emailId?: string; reason?: string };
+    narrationModel: string | null;
+  }> = [];
 
   // AI executive summary is an enhancement: when OpenRouter is unconfigured or
   // the call fails, summarizeReport / narrateTopThree return null and the email
@@ -157,14 +164,25 @@ export async function GET(req: NextRequest) {
     reports.push({
       kind: s.kind, title: s.title, attentionCount: s.attentionCount, email,
       aiModel: s.model, narrationModel: s.narration?.model ?? null,
-      // Only surfaced with ?previewBody=1 (CRON_SECRET-authed), so the exact
-      // emailed text is verifiable without opening an inbox. The structured
-      // narration (paragraph, model, cited project ids) rides along for daily
-      // reports so the verification script can assert both the composed body
-      // and the raw fields.
-      ...(previewBody ? { body: s.body, narration: s.narration } : {}),
+      // The full preview payload (body + structured narration) rides along so
+      // the shared ReportPreviewPayload type is always satisfied; the response
+      // below strips the heavy fields unless ?previewBody=1 asks for them.
+      body: s.body,
+      narration: s.narration,
     });
   }
+
+  // Each report entry carries the shared preview payload (kind/title/body/
+  // attentionCount/aiModel/narration) so the ?previewBody=1 response and the
+  // Reports page preview modal agree on structure by construction. Without the
+  // dev-only flag the body + narration are stripped from the response (they're
+  // heavy and verifiable only via an inbox), keeping the default JSON lean.
+  const responseReports = previewBody
+    ? reports
+    : reports.map((r) => ({
+        kind: r.kind, title: r.title, attentionCount: r.attentionCount,
+        aiModel: r.aiModel, narrationModel: r.narrationModel, email: r.email,
+      }));
 
   return NextResponse.json({
     ok: true,
@@ -180,6 +198,6 @@ export async function GET(req: NextRequest) {
       evaluations: snapshot.collections.evaluations.length,
     },
     alerts: alerts.map((a) => ({ rule: a.ruleNumber, severity: a.severity, title: a.title })),
-    reports,
+    reports: responseReports,
   });
 }
