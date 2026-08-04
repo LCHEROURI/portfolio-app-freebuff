@@ -102,10 +102,17 @@ export async function GET(req: NextRequest) {
   // (the per-user Settings picker applies to the UI only), keeping the two AI
   // sections of the emailed report consistent with each other.
   const topThree = wantDaily ? buildTopThree(state) : [];
+  // Pass the same project identity the dashboard briefing uses (cite-backs),
+  // resolving names from the snapshot so the emailed narration can be as
+  // specific as the UI one.
+  const projectNameOf = (id: string | undefined) =>
+    id ? state.projects.find((p) => p.id === id)?.name : undefined;
   const topThreeActions = topThree.map((a) => ({
     priority: a.priority,
     title: a.title,
     description: a.description,
+    projectId: a.projectId,
+    projectName: projectNameOf(a.projectId),
   }));
 
   const summarized = await Promise.all(

@@ -145,6 +145,15 @@ describe('GET /api/cron/reports — daily top-three narration', () => {
     expect(actions[2].title).toContain('Ship onboarding');
   });
 
+  it('carries project identity into the narration so the email can cite projects', async () => {
+    await GET(makeReq('daily'));
+    const actions = vi.mocked(narrateTopThree).mock.calls[0][0].actions;
+    // The deployment, repo, and task all trace to p-1 (Takeout Voice 2) through
+    // their version or task project id, so every action must carry the identity.
+    expect(actions.every((a) => a.projectId === 'p-1')).toBe(true);
+    expect(actions.every((a) => a.projectName === 'Takeout Voice 2')).toBe(true);
+  });
+
   it('prepends the narration section to the emailed daily body', async () => {
     const res = await GET(makeReq('daily'));
     expect(res.status).toBe(200);

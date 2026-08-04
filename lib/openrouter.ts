@@ -209,19 +209,67 @@ export const buildRecommendationMessages = (input: RecommendWinnerInput) => {
   ];
 };
 
-/**
- * Extract a JSON object from a model reply, tolerating stray text or code fences.
- * Returns null when no parseable JSON object is found.
- */
-export const parseJsonObject = (content: string): Record<string, unknown> | null => {
-  const fenced = content.match(/\{[\s\S]*\}/);
-  if (!fenced) return null;
+/** Parse a string as a JSON object, rejecting arrays and non-objects. */
+const parseObject = (text: string): Record<string, unknown> | null => {
   try {
-    const parsed = JSON.parse(fenced[0]) as unknown;
-    return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : null;
+    const parsed = JSON.parse(text) as unknown;
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
   } catch {
     return null;
   }
+};
+
+/**
+ * First balanced `{ ... }` object in the text, ignoring braces inside string
+ * literals, or null when none exists. Unlike a greedy brace-range match this
+ * stops at the object's own closing brace, so trailing prose (even prose that
+ * contains a stray brace) can never swallow part of the JSON and break the
+ * parse.
+ */
+const extractJsonObject = (text: string): string | null => {
+  const start = text.indexOf('{');
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === '{') depth += 1;
+    else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return null;
+};
+
+/**
+ * Extract a JSON object from a model reply, tolerating stray text or code fences.
+ * Tries the reply as bare JSON first, then inside a ```json fence, then the first
+ * balanced object anywhere in the text. Returns null when no parseable JSON
+ * object is found.
+ */
+export const parseJsonObject = (content: string): Record<string, unknown> | null => {
+  const direct = parseObject(content.trim());
+  if (direct) return direct;
+
+  const fenced = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fenced) {
+    const fromFence = parseObject(fenced[1].trim());
+    if (fromFence) return fromFence;
+  }
+
+  const balanced = extractJsonObject(content);
+  return balanced ? parseObject(balanced) : null;
 };
 
 /**
@@ -323,7 +371,10 @@ export const narrateTopThree = async (
     const { content, model } = await chatCompletion(buildTopThreeMessages(input), {
       model: input.model,
       temperature: 0.5,
-      maxTokens: 220,
+      // A JSON reply (paragraph + project id array) needs room: 220 tokens can
+      // truncate a long paragraph mid-JSON and drop the whole narration, so give
+      // the model the same budget the summary and recommendation calls use.
+      maxTokens: 300,
     });
     const parsed = parseJsonObject(content);
     const paragraph = typeof parsed?.paragraph === 'string' ? parsed.paragraph.trim() : '';

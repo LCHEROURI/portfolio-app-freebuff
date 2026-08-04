@@ -114,9 +114,17 @@ export default function CommandCenterPage() {
     setNarration(null);
   }, [topThreeSignature]);
 
+  // Latest-wins guard for the narration. A drill-down chip (or All) click during
+  // an in-flight call must win: the newest request supersedes older ones, and a
+  // stale response is discarded instead of overwriting the newer scope's
+  // paragraph. Each call records its own id; a call only applies its result and
+  // only clears the narrating state when it is still the latest.
+  const latestNarrationRequestRef = useRef(0);
+
   const explainTopThree = async (projectId: string | 'all' = scopeProjectId) => {
     const actions = buildNarrationActions(projectId);
-    if (narrating || actions.length === 0) return;
+    if (actions.length === 0) return;
+    const requestId = ++latestNarrationRequestRef.current;
     setNarrating(true);
     try {
       const result = await fetchTopThreeNarration(store.userId, {
@@ -124,6 +132,9 @@ export default function CommandCenterPage() {
         // Per-user model preference from Settings → AI summaries.
         model: store.profile.aiModel || undefined,
       });
+      // A newer scope was requested while this call was in flight — drop this
+      // stale paragraph rather than show a briefing for the wrong scope.
+      if (latestNarrationRequestRef.current !== requestId) return;
       const next = result.narration
         ? { paragraph: result.narration.paragraph, model: result.narration.model, projectIds: result.narration.projectIds ?? [] }
         : null;
@@ -132,9 +143,11 @@ export default function CommandCenterPage() {
       // of the actions it describes, so back navigation can restore it later.
       persistBriefing(next, projectId, topThreeSignature);
     } catch {
-      setNarration(null);
+      // Only the latest request owns the error state; a stale failure must not
+      // clear a newer request's in-flight or resolved paragraph.
+      if (latestNarrationRequestRef.current === requestId) setNarration(null);
     } finally {
-      setNarrating(false);
+      if (latestNarrationRequestRef.current === requestId) setNarrating(false);
     }
   };
 

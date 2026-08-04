@@ -333,6 +333,16 @@ describe('narrateTopThree', () => {
     expect(body.model).toBe('anthropic/claude-3.5-sonnet');
   });
 
+  it('gives the JSON reply a generous token budget so it cannot truncate mid-parse', async () => {
+    const fetchMock = vi.fn(async () =>
+      mockJson({ choices: [{ message: { content: '{"paragraph": "Fix it.", "projectIds": []}' } }] }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    await narrateTopThree(input);
+    const body = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+    expect(body.max_tokens).toBe(300);
+  });
+
   it('embeds the ordered actions (with project ids) in the prompt', () => {
     const messages = buildTopThreeMessages(input);
     expect(messages).toHaveLength(2);
@@ -359,10 +369,25 @@ describe('parseJsonObject', () => {
     expect(parseJsonObject('Here you go:\n```json\n{"a": 1}\n```')).toEqual({ a: 1 });
   });
 
+  it('tolerates trailing prose even when it contains stray braces', () => {
+    // A greedy brace-range match would swallow ' (see {note})' into the JSON and
+    // fail to parse; the balanced extractor must stop at the object's own close.
+    expect(parseJsonObject('{"a": 1} hope this helps {note}')).toEqual({ a: 1 });
+    expect(parseJsonObject('{"paragraph": "Done.", "projectIds": []} — cheers')).toEqual({
+      paragraph: 'Done.', projectIds: [],
+    });
+  });
+
+  it('handles nested objects and braces inside string values', () => {
+    expect(parseJsonObject('{"a": {"b": {"c": 3}}} trailing')).toEqual({ a: { b: { c: 3 } } });
+    expect(parseJsonObject('{"msg": "a {brace} inside a string"}')).toEqual({ msg: 'a {brace} inside a string' });
+  });
+
   it('returns null for non-object content', () => {
     expect(parseJsonObject('just words')).toBeNull();
     expect(parseJsonObject('[1, 2]')).toBeNull();
     expect(parseJsonObject('')).toBeNull();
+    expect(parseJsonObject('no braces but { an unbalanced open')).toBeNull();
   });
 });
 

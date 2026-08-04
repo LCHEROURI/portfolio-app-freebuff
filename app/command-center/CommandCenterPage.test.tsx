@@ -329,6 +329,64 @@ describe('CommandCenterPage — regenerate and per-project drill-down', () => {
     resolveScoped?.();
     expect(await screen.findByText('Meal planner scoped.')).toBeInTheDocument();
   });
+
+  it('lets a newer drill-down click win over an in-flight narration (latest request wins)', async () => {
+    // Call 1 (AI Explain, all scope) stays in flight; call 2 (drill-down chip)
+    // is issued while call 1 is pending and resolves first. When call 1 finally
+    // resolves, its stale 'all' paragraph must be discarded, not shown.
+    let releaseAllCall: (() => void) | undefined;
+    let allCallStarted = false;
+    let scopedStarted = false;
+    // With only one action in the store, the 'all' and scoped request bodies are
+    // identical, so distinguish the two calls by invocation order: call 1 is the
+    // held-open all-scope request, call 2 is the immediate drill-down request.
+    let callCount = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes('/api/ai/top-three')) throw new Error(`Unexpected fetch: ${url}`);
+      callCount += 1;
+      if (callCount === 1) {
+        // The all-scope call stays in flight until the test releases it.
+        allCallStarted = true;
+        await new Promise<void>((r) => { releaseAllCall = r; });
+        return {
+          ok: true, status: 200,
+          json: async () => ({
+            ok: true, configured: true,
+            narration: { paragraph: 'Stale all briefing.', model: 'deepseek/deepseek-chat', projectIds: [] },
+          }),
+        } as Response;
+      }
+      scopedStarted = true;
+      return {
+        ok: true, status: 200,
+        json: async () => ({
+          ok: true, configured: true,
+          narration: { paragraph: 'Meal planner wins.', model: 'deepseek/deepseek-chat', projectIds: ['p-1'] },
+        }),
+      } as Response;
+    }));
+    render(<CommandCenterPage />);
+
+    // Start the all-scope narration, then immediately drill down while it is
+    // in flight. The chip is NOT disabled during narrating, so this is the
+    // exact race the review flagged.
+    fireEvent.click(screen.getByRole('button', { name: "Explain today's top three with AI" }));
+    await waitFor(() => expect(allCallStarted).toBe(true));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Weeknight Meal Planner' }));
+    await waitFor(() => expect(scopedStarted).toBe(true));
+
+    // The newer scoped call wins and its paragraph shows with the chip pressed.
+    expect(await screen.findByText('Meal planner wins.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Weeknight Meal Planner' })).toHaveAttribute('aria-pressed', 'true');
+
+    // The stale all-scope response lands last — it must NOT overwrite the
+    // scoped briefing.
+    releaseAllCall?.();
+    await waitFor(() => expect(screen.queryByText('Stale all briefing.')).toBeNull());
+    expect(screen.getByText('Meal planner wins.')).toBeInTheDocument();
+  });
 });
 
 // ─── Auto-briefing (NEXT_PUBLIC_ENABLE_AI_BRIEFINGS=1) ───────────────────────
