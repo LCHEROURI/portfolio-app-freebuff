@@ -6,6 +6,7 @@ import { Loader2, Sparkles } from 'lucide-react';
 import { useAuth } from '@/lib/auth';
 import { Card } from '@/components/ui/Card';
 import { Field, Input } from '@/components/ui/Field';
+import { VercelEnvSettingsLink } from '@/components/integrations/VercelEnvSettingsLink';
 
 const GoogleMark = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
@@ -147,6 +148,10 @@ export const AuthGate = () => {
           <p className="mt-4 text-center text-xs text-pepper-400 dark:text-pepper-400">
             Your data is isolated per account and synced to Firestore.
           </p>
+
+          <div className="mt-4 border-t border-butter-200 pt-3 text-center dark:border-pepper-700">
+            <VercelEnvSettingsLink label="Wire live integrations — open Vercel env settings" />
+          </div>
         </Card>
       </div>
     </div>

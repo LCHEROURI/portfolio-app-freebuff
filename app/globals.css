@@ -86,3 +86,15 @@
     background: transparent;
   }
 }
+
+/* Small pop-in for the "Updated" badge on the integration status cards. */
+@keyframes badge-pop {
+  0% {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}

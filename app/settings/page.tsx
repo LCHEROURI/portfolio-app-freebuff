@@ -6,6 +6,7 @@ import { Database, LogOut, Save, RotateCcw, User } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Field, Input, Select } from '@/components/ui/Field';
+import { VercelEnvSettingsLink } from '@/components/integrations/VercelEnvSettingsLink';
 import { useStore } from '@/lib/store';
 import { useAuth } from '@/lib/auth';
 import { isFirebaseConfigured } from '@/lib/firebase';
@@ -163,7 +164,10 @@ export default function SettingsPage() {
 
         {!isFirebaseConfigured() && (
           <p className="text-xs text-pepper-400">
-            Running in demo mode — data persists in this browser via localStorage. Add <code className="font-mono">NEXT_PUBLIC_FIREBASE_*</code> env vars to switch to Firestore.
+            Running in demo mode — data persists in this browser via localStorage. Add{' '}
+            <code className="font-mono">NEXT_PUBLIC_FIREBASE_*</code> env vars to switch to Firestore, or{' '}
+            <VercelEnvSettingsLink label="wire live integrations in Vercel env settings" />
+            .
           </p>
         )}
       </form>

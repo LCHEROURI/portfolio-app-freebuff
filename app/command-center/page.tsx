@@ -3,13 +3,16 @@
 import Link from 'next/link';
 import {
   FolderKanban, AlertTriangle, CalendarClock, GitBranch, ArrowUpFromLine, Rocket,
-  HeartPulse, Clock4, ShieldAlert, ArrowRight, ListChecks, TrendingUp,
+  HeartPulse, Clock4, ShieldAlert, ArrowRight, ListChecks, TrendingUp, Plug,
 } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
 import { StatCard, Card, CardHeader } from '@/components/ui/Card';
 import { StatusBadge, PriorityBadge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { VercelEnvSettingsLink } from '@/components/integrations/VercelEnvSettingsLink';
+import { isFirebaseConfigured } from '@/lib/firebase';
+import { readLiveFlags } from '@/lib/liveData';
 import { useStore } from '@/lib/store';
 import {
   computeMetrics, buildPriorityQueue, buildTopThree, runAutomationRules, timeAgo,
@@ -22,6 +25,15 @@ export default function CommandCenterPage() {
   const queue = buildPriorityQueue(store);
   const topThree = buildTopThree(store);
   const alerts = runAutomationRules(store);
+
+  // Landing surface for a missing integration: when no live data source is
+  // connected, surface a one-click path to wire one up (Integrations page +
+  // Vercel env settings deep-link). Mirrors the Integrations page banner.
+  const flags = readLiveFlags();
+  // Matches the Integrations page's live-count logic (tasks/repositories/
+  // deployments/Firebase); LIVE_PROJECTS alone doesn't count as an integration
+  // being connected there, so it shouldn't hide this banner either.
+  const anyLive = flags.tasks || flags.repositories || flags.deployments || isFirebaseConfigured();
 
   const queueTone = (severity: string) =>
     severity === 'critical'
@@ -43,6 +55,27 @@ export default function CommandCenterPage() {
           </Link>
         }
       />
+
+      {/* No live integrations — one-click setup nudge on the landing page */}
+      {!anyLive && (
+        <div className="mb-6 flex flex-col gap-3 rounded-xl2 border border-turmeric-300 bg-turmeric-50 p-4 sm:flex-row sm:items-center sm:justify-between dark:border-turmeric-800 dark:bg-turmeric-900/40">
+          <div className="flex items-start gap-3">
+            <Plug size={18} className="mt-0.5 shrink-0 text-turmeric-700 dark:text-turmeric-300" aria-hidden="true" />
+            <div>
+              <p className="text-sm font-semibold text-pepper-800 dark:text-flour-100">No live integrations connected yet</p>
+              <p className="mt-0.5 text-sm text-pepper-600 dark:text-pepper-300">
+                The Command Center is running on local demo data. Add your API keys and flip the live flags, then redeploy to pull real tasks, repos, and deployments.
+              </p>
+            </div>
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-2 sm:pl-7">
+            <Link href="/integrations" className="btn-ghost text-sm">
+              Open Integrations <ArrowRight size={14} aria-hidden="true" />
+            </Link>
+            <VercelEnvSettingsLink label="Vercel env settings" className="btn-secondary text-sm" />
+          </div>
+        </div>
+      )}
 
       {/* Summary metrics */}
       <section aria-label="Summary metrics" className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">

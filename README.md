@@ -154,7 +154,13 @@ shows up the moment you return after pasting env lines and redeploying. Each
 integration card carries an **"Open Vercel project env settings"** link that
 deep-links straight to the project's Environment Variables page (overridable
 via `NEXT_PUBLIC_VERCEL_TEAM_SLUG` / `NEXT_PUBLIC_VERCEL_PROJECT_SLUG` for
-forks). Same Firebase-token auth as every other live route.
+forks). The same deep-link is one click from anywhere a missing integration is
+surfaced: the **Command Center** landing banner (when no live source is
+connected), the **sidebar connection-status widget** (an inline row when any
+integration isn't healthy, plus the exact URL in its tooltip when nothing is
+connected), the **auth gate** first-run screen, the **Settings** demo-mode
+note, and each setup checklist. Same Firebase-token auth as every other live
+route.
 
 > **Auth model:** every live API route is owner-scoped by a **cryptographically
 > verified Firebase ID token** (`Authorization: Bearer <idToken>`, RS256-verified

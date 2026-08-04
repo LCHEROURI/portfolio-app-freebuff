@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { Fragment, useState, type ReactNode } from 'react';
 import {
   Activity, Check, ChevronDown, Copy, Cpu, Database, ExternalLink, Github,
   HeartPulse, Plug, RefreshCw, Rocket, Wrench, X, type LucideIcon,
@@ -9,6 +9,8 @@ import {
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Badge, type Tone } from '@/components/ui/Badge';
+import { VercelEnvSettingsLink } from '@/components/integrations/VercelEnvSettingsLink';
+import { firstVarSource, varEnvLine, varSourceUrl } from '@/lib/integrationVarLinks';
 import { isFirebaseConfigured } from '@/lib/firebase';
 import { readLiveFlags, type IntegrationStatus } from '@/lib/liveData';
 import { useStore } from '@/lib/store';
@@ -128,27 +130,6 @@ const REDEPLOY_STEP: SetupStep = {
   note: 'Env changes only apply on the next deployment. Pushing triggers a new one automatically (or use Redeploy in the Vercel dashboard).',
 };
 
-// Deep-link target for the "Open Vercel project env settings" action shown on
-// every integration card. Overridable per deployment via NEXT_PUBLIC_ env vars
-// (e.g. when a fork lives under a different team/project); defaults match this
-// repo's own Vercel project.
-const VERCEL_ENV_URL = `https://vercel.com/${
-  process.env.NEXT_PUBLIC_VERCEL_TEAM_SLUG || 'laredj-chehrouris-projects'
-}/${process.env.NEXT_PUBLIC_VERCEL_PROJECT_SLUG || 'portfolio-app-freebuff'}/settings/environment-variables`;
-
-function VercelEnvSettingsLink({ label = 'Open Vercel project env settings' }: { label?: string }) {
-  return (
-    <a
-      href={VERCEL_ENV_URL}
-      target="_blank"
-      rel="noreferrer"
-      className="inline-flex items-center gap-1 font-medium text-pepper-500 transition-colors hover:text-tomato-600 dark:text-pepper-300 dark:hover:text-tomato-300"
-    >
-      {label} <ExternalLink size={11} aria-hidden="true" />
-    </a>
-  );
-}
-
 /** Copy text with a legacy execCommand fallback for non-secure contexts. */
 const copyToClipboard = async (text: string): Promise<boolean> => {
   try {
@@ -186,13 +167,21 @@ const stateOf = (s: IntegrationStatus): { tone: Tone; label: string } => {
     : { tone: 'turmeric', label: 'Configured · flag off' };
 };
 
-function StatusCard({ status }: { status: IntegrationStatus }) {
+function StatusCard({ status, updated }: { status: IntegrationStatus; updated: boolean }) {
   const Icon = STATUS_ICONS[status.id] ?? Plug;
   const { tone, label } = stateOf(status);
   const ep = status.endpoint;
 
   return (
-    <div className="rounded-xl2 border border-butter-200 bg-butter-50 p-4 dark:border-pepper-700 dark:bg-pepper-800">
+    <div className="relative rounded-xl2 border border-butter-200 bg-butter-50 p-4 dark:border-pepper-700 dark:bg-pepper-800">
+      {updated && (
+        <span
+          className="animate-[badge-pop_0.3s_ease-out] absolute -right-1.5 -top-1.5 inline-flex items-center gap-1 rounded-full border border-turmeric-300 bg-turmeric-100 px-2 py-0.5 text-[10px] font-semibold text-turmeric-700 shadow-sm dark:border-turmeric-700 dark:bg-turmeric-900/80 dark:text-turmeric-200"
+          aria-hidden="true"
+        >
+          Updated
+        </span>
+      )}
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${STATUS_TONES[status.id] ?? 'bg-pepper-800 text-white'}`}>
@@ -260,6 +249,29 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
+function VarCopyButton({ name }: { name: string }) {
+  const [copied, setCopied] = useState(false);
+  const line = varEnvLine(name);
+  if (!line) return null;
+  const handle = async () => {
+    if (await copyToClipboard(line)) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={handle}
+      aria-label={copied ? `Copied ${line}` : `Copy ${line}`}
+      title={line}
+      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-pepper-400 transition-colors hover:bg-butter-100 hover:text-tomato-600 dark:text-pepper-500 dark:hover:bg-pepper-700 dark:hover:text-tomato-300"
+    >
+      {copied ? <Check size={10} aria-hidden="true" /> : <Copy size={10} aria-hidden="true" />}
+    </button>
+  );
+}
+
 function CodeBlock({ code }: { code: string }) {
   const [copied, setCopied] = useState(false);
   const handle = async () => {
@@ -295,9 +307,29 @@ function SetupChecklist({ status }: { status: IntegrationStatus }) {
   const missing = status.env.filter((v) => !v.set && v.required);
   const [open, setOpen] = useState(missing.length > 0);
 
+  const flagOff = status.env.find((v) => v.name.startsWith('NEXT_PUBLIC_LIVE_') && !v.set);
+  // When credentials are missing, deep-link to the page where the token/key
+  // is created; flag-only gaps stay on the Vercel env page (labeled with the
+  // exact flag — Vercel's env UI has no per-row URL anchors).
+  const credentialsMissing = missing.some((v) => !v.name.startsWith('NEXT_PUBLIC_LIVE_'));
+  // The footer "get the token" link only earns its spot when some missing var
+  // has no per-var deep-link of its own (e.g. Automation's CRON_SECRET /
+  // REPORT_EMAIL) — otherwise the per-var links above already cover the gap.
+  // The anchor is derived from the same per-var map as the deep-links
+  // (firstVarSource), so the two URL sets can never drift out of sync.
+  const firebaseProjectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+  const footerTokenLink =
+    credentialsMissing && missing.some((v) => varSourceUrl(v.name, firebaseProjectId) === null)
+      ? firstVarSource(missing.map((v) => v.name), firebaseProjectId)
+      : null;
+  const envLinkLabel = credentialsMissing
+    ? 'Paste in Vercel env settings'
+    : flagOff
+      ? `Flip ${flagOff.name}=1 in Vercel env settings`
+      : 'Open Vercel project env settings';
+
   let body: ReactNode;
   if (missing.length === 0) {
-    const flagOff = status.env.find((v) => v.name.startsWith('NEXT_PUBLIC_LIVE_') && !v.set);
     body = flagOff ? (
       <p className="text-xs text-turmeric-700 dark:text-turmeric-300">
         Required vars are set — flip{' '}
@@ -330,9 +362,36 @@ function SetupChecklist({ status }: { status: IntegrationStatus }) {
           </span>
           <span className="font-normal text-pepper-400 dark:text-pepper-500">{open ? 'Hide steps' : 'Show steps'}</span>
         </button>
-        <p className="mt-1 pl-[22px] font-mono text-[10px] text-paprika-600 dark:text-paprika-400">
-          {missing.map((v) => v.name).join(' · ')}
-        </p>
+        <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 pl-[22px] font-mono text-[10px] text-paprika-600 dark:text-paprika-400">
+          {missing.map((v, i) => {
+            // Per-var deep-link to where this var's value lives (GitHub token
+            // page, Supabase API settings, Firebase console project, …). Vars
+            // you invent yourself (CRON_SECRET, REPORT_EMAIL) render plain.
+            const src = varSourceUrl(v.name, firebaseProjectId);
+            return (
+              <Fragment key={v.name}>
+                {i > 0 && <span aria-hidden="true">·</span>}
+                {src ? (
+                  <span className="inline-flex items-center gap-0.5">
+                    <a
+                      href={src.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={`Get ${v.name} — ${src.label}`}
+                      aria-label={`Get ${v.name} — ${src.label}`}
+                      className="font-medium text-tomato-600 hover:underline dark:text-tomato-300"
+                    >
+                      {v.name} <ExternalLink size={9} aria-hidden="true" />
+                    </a>
+                    <VarCopyButton name={v.name} />
+                  </span>
+                ) : (
+                  <span>{v.name}</span>
+                )}
+              </Fragment>
+            );
+          })}
+        </div>
 
         {open && (
           <ol id={`${status.id}-checklist`} className="mt-3 space-y-3">
@@ -361,8 +420,25 @@ function SetupChecklist({ status }: { status: IntegrationStatus }) {
   return (
     <div className="mt-3 border-t border-butter-200 pt-2 dark:border-pepper-700">
       {body}
-      <div className="mt-2.5 flex items-center justify-end">
-        <VercelEnvSettingsLink />
+      <div className="mt-2.5 flex flex-col items-end gap-1.5">
+        <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
+          {footerTokenLink && (
+            <a
+              href={footerTokenLink.href}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 font-medium text-tomato-600 hover:underline dark:text-tomato-300"
+            >
+              {footerTokenLink.label} <ExternalLink size={11} aria-hidden="true" />
+            </a>
+          )}
+          <VercelEnvSettingsLink label={envLinkLabel} />
+        </div>
+        {(missing.length > 0 || flagOff) && (
+          <p className="text-[10px] text-pepper-400 dark:text-pepper-500">
+            After making changes, come back — the panel refreshes when this tab regains focus.
+          </p>
+        )}
       </div>
     </div>
   );
@@ -372,9 +448,12 @@ function ConnectionStatusPanel() {
   const { userId } = useStore();
   // Shared hook — same polling/refresh behavior as the sidebar widget, with
   // the server-side ping cache absorbing provider API calls between polls.
-  const { statuses, checkedAt, error, loading, refresh } = useIntegrationStatus(userId, POLL_MS);
+  const { statuses, checkedAt, error, loading, changed, refresh } = useIntegrationStatus(userId, POLL_MS);
 
   const connected = statuses?.filter((s) => s.enabled && (s.endpoint?.ok ?? true)).length ?? 0;
+  const changedSummary = changed.length > 0
+    ? ` ${changed.length} card${changed.length === 1 ? '' : 's'} just updated.`
+    : '';
 
   return (
     <Card className="mb-6">
@@ -386,8 +465,8 @@ function ConnectionStatusPanel() {
         }
         subtitle={
           checkedAt
-            ? `Polls every 30s — which env vars are set and whether each endpoint responds. Last checked ${new Date(checkedAt).toLocaleTimeString()}.`
-            : 'Polls every 30s — which env vars are set and whether each endpoint responds.'
+            ? `Polls every 30s — which env vars are set and whether each endpoint responds. Cards show “Updated” when a check detects a change. Last checked ${new Date(checkedAt).toLocaleTimeString()}.`
+            : 'Polls every 30s — which env vars are set and whether each endpoint responds. Cards show “Updated” when a check detects a change.'
         }
         action={
           <div className="flex items-center gap-2">
@@ -411,9 +490,18 @@ function ConnectionStatusPanel() {
         </p>
       )}
       {statuses ? (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {statuses.map((s) => <StatusCard key={s.id} status={s} />)}
-        </div>
+        <>
+          {changedSummary && (
+            <p className="mb-3 text-xs font-medium text-turmeric-700 dark:text-turmeric-300" role="status">
+              {changedSummary}
+            </p>
+          )}
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {statuses.map((s) => (
+              <StatusCard key={s.id} status={s} updated={changed.includes(s.id)} />
+            ))}
+          </div>
+        </>
       ) : (
         <p className="text-sm text-pepper-500 dark:text-pepper-300">Checking connections…</p>
       )}
