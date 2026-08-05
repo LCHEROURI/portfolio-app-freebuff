@@ -82,6 +82,18 @@ jobs:
           FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
           NEXT_PUBLIC_FIREBASE_PROJECT_ID: portfolio-app-freebuff2
 
+      # Google sign-in IdP smoke check: asserts the PUBLIC getProjectConfig
+      # endpoint (the same one the SDK reads) lists google.com in idpConfig,
+      # so a provider missing from the config store fails the deploy the
+      # moment it drops, before any user clicks the Google button.
+      - name: Verify Google sign-in IdP config
+        if: ${{ env.FIREBASE_WEB_API_KEY != '' }}
+        run: node scripts/verify-google-idp.mjs
+        env:
+          FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: portfolio-app-freebuff2
+
   # Post-deploy authorized-domains smoke test. Mints a throwaway Firebase
   # user, calls the deployed /api/status?project=<domain> and fails the run
   # when the validated domain is NOT in the project's authorized list — so an

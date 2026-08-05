@@ -1,0 +1,103 @@
+#!/usr/bin/env node
+// ============================================================================
+// scripts/verify-google-idp.mjs — production Google sign-in IdP smoke check.
+//
+// Asserts that the PUBLIC Identity Toolkit getProjectConfig endpoint (the same
+// one the Firebase SDK reads at runtime) lists `google.com` in `idpConfig` for
+// the configured project. When the provider is missing there, the Google
+// button on the deployed app fails at click time no matter what the console
+// UI shows — so this gate fails the deploy the moment the provider drops.
+//
+// Also cross-checks the admin API (via the shared SA mint) so the config store
+// and the SDK surface agree.
+//
+// Usage:
+//   node scripts/verify-google-idp.mjs
+//
+// Reads FIREBASE_WEB_API_KEY, then NEXT_PUBLIC_FIREBASE_API_KEY, then
+// .env.local; project id from NEXT_PUBLIC_FIREBASE_PROJECT_ID / .env.local.
+// Exits nonzero on any failure. No Chrome required — fast, CI-friendly.
+// ============================================================================
+
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+import { getServiceAccount, mintServiceAccountToken } from '../lib/server/sa-token.mjs';
+
+const readEnv = (name) => {
+  if (process.env[name]) return process.env[name];
+  try {
+    const env = readFileSync(resolve(process.cwd(), '.env.local'), 'utf8');
+    const m = env.match(new RegExp(`^${name}=(.*)$`, 'm'));
+    return m ? m[1].trim().replace(/^"|"$/g, '') : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const API_KEY =
+  process.env.FIREBASE_WEB_API_KEY ??
+  process.env.NEXT_PUBLIC_FIREBASE_API_KEY ??
+  readEnv('NEXT_PUBLIC_FIREBASE_API_KEY') ??
+  '';
+
+const PROJECT_ID =
+  process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? readEnv('NEXT_PUBLIC_FIREBASE_PROJECT_ID') ?? '';
+
+let failures = 0;
+const fail = (msg) => { failures += 1; console.error(`  ✗ FAIL: ${msg}`); };
+const ok = (msg) => console.log(`  ✓ ${msg}`);
+
+if (!API_KEY || !PROJECT_ID) {
+  console.error('✗ FAIL: need FIREBASE_WEB_API_KEY / NEXT_PUBLIC_FIREBASE_API_KEY and NEXT_PUBLIC_FIREBASE_PROJECT_ID');
+  process.exit(1);
+}
+
+// ── 1. Public endpoint — the surface the SDK reads ─────────────────────────
+console.log(`\n[1/2] Public getProjectConfig (${PROJECT_ID})`);
+const pub = await fetch(
+  `https://www.googleapis.com/identitytoolkit/v3/relyingparty/getProjectConfig?key=${encodeURIComponent(API_KEY)}`,
+  { cache: 'no-store' },
+).then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) }));
+
+if (pub.status !== 200) {
+  fail(`getProjectConfig → HTTP ${pub.status}`);
+} else {
+  ok(`getProjectConfig → HTTP 200 (projectId ${pub.body.projectId})`);
+  const idps = pub.body.idpConfig ?? [];
+  const google = idps.find((c) => c.providerId === 'google.com');
+  if (google) {
+    ok(`google.com present in idpConfig (clientId ${google.clientId?.slice(0, 34)}…)`);
+  } else {
+    fail(`google.com MISSING from idpConfig (have: ${idps.map((c) => c.providerId).join(', ') || 'none'}) — enable Google in the Firebase console Auth settings`);
+  }
+}
+
+// ── 2. Admin API cross-check (best-effort when SA configured) ──────────────
+if (getServiceAccount()) {
+  console.log('\n[2/2] Admin API cross-check');
+  try {
+    const adminToken = await mintServiceAccountToken();
+    const idp = await fetch(
+      `https://identitytoolkit.googleapis.com/admin/v2/projects/${PROJECT_ID}/defaultSupportedIdpConfigs/google.com`,
+      { headers: { authorization: `Bearer ${adminToken}` }, cache: 'no-store' },
+    );
+    if (idp.status === 200) {
+      const cfg = await idp.json();
+      cfg.enabled === true
+        ? ok('admin API: google.com IdP config enabled')
+        : fail(`admin API: google.com present but enabled=${cfg.enabled}`);
+    } else if (idp.status === 404) {
+      fail('admin API: google.com IdP config NOT FOUND');
+    } else {
+      fail(`admin API: google.com probe → HTTP ${idp.status}`);
+    }
+  } catch (err) {
+    fail(`admin API cross-check errored: ${err.message}`);
+  }
+} else {
+  console.log('\n[2/2] Admin API cross-check (skipped — FIREBASE_SERVICE_ACCOUNT not configured)');
+}
+
+console.error(`\nRESULT: ${failures === 0 ? 'PASS' : `FAIL (${failures})`}`);
+process.exit(failures === 0 ? 0 : 1);
