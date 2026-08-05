@@ -43,6 +43,7 @@ const baseline = (): IntegrationStatus[] => [
   healthy('vercel', 'Vercel', ['VERCEL_TOKEN', 'NEXT_PUBLIC_LIVE_DEPLOYMENTS']),
   healthy('firebase', 'Firebase', ['NEXT_PUBLIC_FIREBASE_API_KEY', 'NEXT_PUBLIC_FIREBASE_PROJECT_ID']),
   healthy('automation', 'Automation Engine', ['CRON_SECRET', 'RESEND_API_KEY', 'REPORT_EMAIL']),
+  healthy('google-idp', 'Google sign-in', ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET']),
 ];
 
 /** Apply per-id endpoint overrides onto the baseline (empty → unchanged). */
@@ -206,6 +207,18 @@ describe('IntegrationsPage — mocked /api/status E2E', () => {
       'Updated — Endpoint error → OK, HTTP 503 → 200, Latency 2400ms → 40ms',
     );
     expect(within(cardOf('GitHub')).getByLabelText(/^Updated —/)).toBeInTheDocument();
+  });
+
+  it('shows the Google sign-in setup checklist with classic-client steps when the wiring vars are missing', async () => {
+    queue = [withEnvUnset('google-idp', ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'])];
+    render(<IntegrationsPage />);
+    await screen.findByRole('heading', { name: 'Google sign-in' });
+
+    const card = cardOf('Google sign-in');
+    expect(within(card).getByText('Setup checklist · 2 missing required vars')).toBeInTheDocument();
+    // The guide warns against the Workforce-client trap instead of endorsing it.
+    expect(within(card).getByText(/gcloud iam oauth-clients/)).toBeInTheDocument();
+    expect(within(card).getByText(/wire-google-client\.mjs/)).toBeInTheDocument();
   });
 
   it('badges each flipped card when several integrations change in one poll', async () => {

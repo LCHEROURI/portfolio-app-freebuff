@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useState, type ReactNode } from 'react';
 import {
   Activity, Check, ChevronDown, Copy, Cpu, Database, ExternalLink, FlaskConical,
-  Github, HeartPulse, Plug, RefreshCw, Rocket, Wrench, X, type LucideIcon,
+  Github, HeartPulse, KeyRound, Plug, RefreshCw, Rocket, Wrench, X, type LucideIcon,
 } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -34,6 +34,7 @@ const STATUS_ICONS: Record<string, LucideIcon> = {
   github: Github,
   vercel: Rocket,
   firebase: HeartPulse,
+  'google-idp': KeyRound,
   automation: Cpu,
 };
 
@@ -42,6 +43,7 @@ const STATUS_TONES: Record<string, string> = {
   github: 'bg-pepper-800 text-white',
   vercel: 'bg-pepper-900 text-white',
   firebase: 'bg-turmeric-500 text-white',
+  'google-idp': 'bg-tomato-600 text-white',
   automation: 'bg-eggplant-700 text-white',
 };
 
@@ -122,6 +124,17 @@ const SETUP_GUIDES: Record<string, SetupStep[]> = {
       label: 'Pick a CRON_SECRET and a report inbox',
       code: 'CRON_SECRET=<long-random-string>\nRESEND_API_KEY=<key>\nREPORT_EMAIL=you@example.com',
       note: 'Vercel Cron sends CRON_SECRET automatically as Authorization: Bearer — the route rejects requests without it.',
+    },
+  ],
+  'google-idp': [
+    {
+      label: 'Create a classic web OAuth client',
+      note: 'Google Cloud console → Auth → Clients → Create client → Web application. The id looks like {projectNumber}-{hash}.apps.googleusercontent.com and the secret like GOCSPX-…. Add https://portfolio-app-freebuff2.firebaseapp.com/__/auth/handler as an authorized redirect URI. Do NOT use gcloud iam oauth-clients — those are Workforce/IAP clients that accounts.google.com rejects ("The OAuth client was not found").',
+    },
+    {
+      label: 'Wire it into the google.com IdP record (one-time)',
+      code: 'GOOGLE_CLIENT_ID=<classic-client-id>\nGOOGLE_CLIENT_SECRET=<classic-secret>\nnode scripts/wire-google-client.mjs',
+      note: 'Run locally once. The script PATCHes the IdP record the SDK reads at sign-in time — the deployed app never reads these env vars at runtime.',
     },
   ],
 };

@@ -2,6 +2,21 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { checkIntegrations } from './status';
 
+// The admin-API probe needs a service-account token. The real mint signs a
+// JWT with the private key — a fake key can't sign — so stub the shared
+// credential module: configured reads the same env guards, and minting
+// returns a token without touching crypto or the network.
+vi.mock('@/lib/server/sa-token.mjs', () => ({
+  isServiceAccountConfigured: () =>
+    Boolean(
+      (process.env.FIREBASE_SERVICE_ACCOUNT || process.env.FIREBASE_SERVICE_ACCOUNT_PATH) &&
+      (process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || process.env.FIREBASE_PROJECT_ID),
+    ),
+  mintServiceAccountToken: async () => 'test-token',
+  getServiceAccount: () => '',
+  getProjectId: () => process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? process.env.FIREBASE_PROJECT_ID ?? '',
+}));
+
 // ============================================================================
 // Firebase authorized-domains check (server side).
 // Only the client SDK env vars are needed: the domain list comes from the
@@ -23,6 +38,12 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
   if (url.includes('api.github.com')) {
     return jsonResponse({ resources: { core: { remaining: 10, limit: 60 } } });
   }
+  // Identity Platform admin API: the google.com IdP record (google-idp check).
+  if (url.includes('defaultSupportedIdpConfigs/google.com')) {
+    return jsonResponse(
+      { enabled: true, clientId: '952213217375-abc.apps.googleusercontent.com' },
+    );
+  }
   return jsonResponse({});
 });
 
@@ -43,6 +64,83 @@ const firebaseStatus = async (origin: string, projectOrigin?: string) => {
   if (!fb) throw new Error('firebase status missing');
   return fb;
 };
+
+const stubAdminEnv = () => {
+  // A minimal-but-well-formed service account JSON is enough for the configured
+  // guard + the cachedPing call (the mint itself is mocked above).
+  vi.stubEnv('FIREBASE_SERVICE_ACCOUNT', JSON.stringify({
+    type: 'service_account',
+    project_id: 'portfolio-app-freebuff2',
+    client_email: 'cron@portfolio-app-freebuff2.iam.gserviceaccount.com',
+    private_key: '-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----\n',
+  }));
+  vi.stubEnv('NEXT_PUBLIC_FIREBASE_PROJECT_ID', 'portfolio-app-freebuff2');
+  vi.stubEnv('GOOGLE_CLIENT_ID', '952213217375-abc.apps.googleusercontent.com');
+  vi.stubEnv('GOOGLE_CLIENT_SECRET', 'GOCSPX-secret');
+};
+
+const googleIdpStatus = async () => {
+  const statuses = await checkIntegrations(true);
+  const g = statuses.find((s) => s.id === 'google-idp');
+  if (!g) throw new Error('google-idp status missing');
+  return g;
+};
+
+describe('checkIntegrations — Google IdP record probe', () => {
+  it('reports the google.com IdP record as healthy when the admin API returns it enabled', async () => {
+    stubAdminEnv();
+    vi.stubGlobal('fetch', fetchMock);
+
+    const g = await googleIdpStatus();
+    expect(g.configured).toBe(true);
+    expect(g.endpoint).toEqual({
+      ok: true,
+      status: 200,
+      ms: expect.any(Number),
+      detail: 'google.com IdP enabled with a classic web client',
+    });
+  });
+
+  it('flags a missing IdP record as a failed endpoint (the Google popup will fail)', async () => {
+    stubAdminEnv();
+    const missing = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('defaultSupportedIdpConfigs/google.com')) {
+        return jsonResponse({ error: { message: 'not found' } }, 404);
+      }
+      return jsonResponse({});
+    });
+    vi.stubGlobal('fetch', missing);
+
+    const g = await googleIdpStatus();
+    expect(g.endpoint).toEqual({
+      ok: false,
+      status: 404,
+      ms: expect.any(Number),
+      detail: 'google.com IdP record missing — Google popup will fail',
+    });
+  });
+
+  it('skips the probe when the service account is not configured', async () => {
+    vi.stubEnv('GOOGLE_CLIENT_ID', '952213217375-abc.apps.googleusercontent.com');
+    vi.stubEnv('GOOGLE_CLIENT_SECRET', 'GOCSPX-secret');
+    vi.stubGlobal('fetch', fetchMock);
+
+    const g = await googleIdpStatus();
+    expect(g.configured).toBe(true);
+    expect(g.endpoint).toBeNull();
+    expect(g.note).toContain('wire script can patch');
+  });
+
+  it('reports not-configured when the wiring vars are unset', async () => {
+    vi.stubGlobal('fetch', fetchMock);
+
+    const g = await googleIdpStatus();
+    expect(g.configured).toBe(false);
+    expect(g.env.every((v) => !v.set)).toBe(true);
+    expect(g.endpoint).toBeNull();
+  });
+});
 
 describe('checkIntegrations — authorized-domains override', () => {
   it('validates the request origin by default', async () => {

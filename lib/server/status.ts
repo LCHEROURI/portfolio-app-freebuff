@@ -257,6 +257,61 @@ const checkFirebase = async (origin?: string, projectOrigin?: string): Promise<I
   };
 };
 
+// ─── Google IdP (classic web OAuth client + google.com IdP record) ───────────
+// Google sign-in works through a CLASSIC web OAuth client
+// ({projectNumber}-{hash}.apps.googleusercontent.com + GOCSPX- secret) wired
+// into the google.com IdP record — NOT a Workforce/IAP client from
+// `gcloud iam oauth-clients`, which accounts.google.com rejects at the popup.
+// The two env vars below are wiring-only: scripts/wire-google-client.mjs reads
+// them once to PATCH the IdP record; the deployed app never reads them at
+// runtime (it reads the IdP record the SDK queries at sign-in time).
+const checkGoogleIdp = async (): Promise<IntegrationStatus> => {
+  const clientConfigured = varSet('GOOGLE_CLIENT_ID') && varSet('GOOGLE_CLIENT_SECRET');
+  const env = [
+    envVar('GOOGLE_CLIENT_ID', true),
+    envVar('GOOGLE_CLIENT_SECRET', true),
+  ];
+
+  // The definitive live check: read the actual google.com IdP record the SDK
+  // consults. Needs a service account + project id (same credential the
+  // Firestore cron uses); without them we can only report env presence.
+  let ep = unsetEndpoint();
+  if (isFirestoreAdminConfigured() && getFirestoreProjectId()) {
+    try {
+      const token = await getFirestoreAdminToken();
+      const project = getFirestoreProjectId();
+      const r = await cachedPing(
+        'google-idp',
+        `https://identitytoolkit.googleapis.com/admin/v2/projects/${project}/defaultSupportedIdpConfigs/google.com`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      const json = r.json as { enabled?: boolean; clientId?: string } | null;
+      const registered = r.status === 200 && json?.enabled === true;
+      const classicClient = registered && (json?.clientId ?? '').includes('apps.googleusercontent.com');
+      const detail =
+        r.status === 200 && registered
+          ? classicClient
+            ? 'google.com IdP enabled with a classic web client'
+            : 'google.com IdP enabled — but client id is not classic format'
+          : r.status === 404 ? 'google.com IdP record missing — Google popup will fail'
+          : r.status === 401 || r.status === 403 ? 'Service account lacks Identity Platform access'
+          : r.status === null ? 'Unreachable'
+          : `HTTP ${r.status}`;
+      ep = endpoint(r, detail, registered && classicClient);
+    } catch {
+      ep = { ok: false, status: null, ms: null, detail: 'Token mint failed' };
+    }
+  }
+
+  return {
+    id: 'google-idp', name: 'Google sign-in', enabled: clientConfigured,
+    configured: clientConfigured, env, endpoint: ep,
+    note: clientConfigured
+      ? 'Wiring vars set — the one-shot wire script can patch the IdP record.'
+      : 'Google sign-in needs a classic web OAuth client (GCP console → Auth → Clients) wired into the google.com IdP record via scripts/wire-google-client.mjs.',
+  };
+};
+
 // ─── Automation engine ──────────────────────────────────────────────────────
 const checkAutomation = (): IntegrationStatus => {
   const configured =
@@ -281,8 +336,9 @@ export const checkIntegrations = async (
   projectOrigin?: string,
 ): Promise<IntegrationStatus[]> => {
   if (refresh) pingCache.clear();
-  const [firestore, github, vercel, firebase] = await Promise.all([
+  const [firestore, github, vercel, firebase, googleIdp] = await Promise.all([
     checkFirestore(), checkGithub(), checkVercel(), checkFirebase(origin, projectOrigin),
+    checkGoogleIdp(),
   ]);
-  return [firestore, github, vercel, firebase, checkAutomation()];
+  return [firestore, github, vercel, firebase, googleIdp, checkAutomation()];
 };
