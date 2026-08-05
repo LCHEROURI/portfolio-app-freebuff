@@ -227,45 +227,73 @@ if (!gateVisible) {
 }
 ok('AuthGate rendered (sign-in gate visible)');
 
-// ── 3b. Google sign-in readiness (button renders + IdP enabled) ──────────────
-console.log('\n[3b] Google sign-in readiness');
+// ── 3b. Sign-in provider readiness (buttons render + IdPs enabled) ───────────
+// Both providers are enforced symmetrically: the UI control must render on the
+// AuthGate AND the corresponding Identity Platform config must be enabled via
+// the admin API, so a provider silently disabled in the console blocks the
+// deploy rather than surfacing only at click time. The admin checks use the
+// same service-account credential as the cron/seeder; they skip (with a
+// warning) only when the SA is not configured in this environment.
+console.log('\n[3b] Sign-in provider readiness');
+
+const emailInput = await evaluate(`(() => {
+  const email = document.querySelector('input[type="email"]');
+  const password = document.querySelector('input[type="password"]');
+  return Boolean(email && password);
+})()`);
+emailInput
+  ? ok('email/password inputs render on the AuthGate')
+  : fail('email/password inputs missing from the AuthGate');
+
 const googleButton = await evaluate(`(() => {
   const btns = [...document.querySelectorAll('button')];
   return btns.some((b) => (b.textContent || '').toLowerCase().includes('google'))
     || document.body.innerText.includes('Continue with Google');
 })()`);
-if (googleButton) {
-  ok('Google sign-in button renders on the AuthGate');
-} else {
-  fail('Google sign-in button missing from the AuthGate');
-}
+googleButton
+  ? ok('Google sign-in button renders on the AuthGate')
+  : fail('Google sign-in button missing from the AuthGate');
 
-// Best-effort admin-API check that the google.com IdP is enabled. Uses the
-// same service-account credential as the cron/seeder; skips (with a warning)
-// when the SA is not configured in this environment.
 if (getServiceAccount() && projectId) {
   try {
     const adminToken = await mintServiceAccountToken();
+    const AUTH = { authorization: `Bearer ${adminToken}` };
+
+    // Email/Password lives on the project config's signIn.email.enabled flag.
+    const cfg = await fetch(
+      `https://identitytoolkit.googleapis.com/admin/v2/projects/${projectId}/config`,
+      { headers: AUTH },
+    );
+    if (cfg.status === 200) {
+      const emailCfg = (await cfg.json()).signIn?.email ?? {};
+      emailCfg.enabled === true
+        ? ok('Email/Password IdP config enabled (admin API)')
+        : fail(`Email/Password IdP config present but enabled=${emailCfg.enabled}`);
+    } else {
+      fail(`Email/Password IdP probe → HTTP ${cfg.status}`);
+    }
+
+    // Google lives on defaultSupportedIdpConfigs/google.com.
     const idp = await fetch(
       `https://identitytoolkit.googleapis.com/admin/v2/projects/${projectId}/defaultSupportedIdpConfigs/google.com`,
-      { headers: { authorization: `Bearer ${adminToken}` } },
+      { headers: AUTH },
     );
     if (idp.status === 200) {
-      const cfg = await idp.json();
-      cfg.enabled === true
+      const gcfg = await idp.json();
+      gcfg.enabled === true
         ? ok('google.com IdP config enabled (admin API)')
-        : fail(`google.com IdP config present but enabled=${cfg.enabled}`);
-      if (cfg.clientId) ok(`auto-created OAuth client present (${cfg.clientId.slice(0, 24)}…)`);
+        : fail(`google.com IdP config present but enabled=${gcfg.enabled}`);
+      if (gcfg.clientId) ok(`auto-created OAuth client present (${gcfg.clientId.slice(0, 24)}…)`);
     } else if (idp.status === 404) {
       fail('google.com IdP config NOT FOUND — enable Google in the Firebase console Auth settings');
     } else {
       fail(`google.com IdP probe → HTTP ${idp.status}`);
     }
   } catch (err) {
-    fail(`google.com IdP admin check errored: ${err.message}`);
+    fail(`sign-in provider admin checks errored: ${err.message}`);
   }
 } else {
-  console.log('  (skipping IdP admin check — FIREBASE_SERVICE_ACCOUNT not configured here)');
+  console.log('  (skipping provider admin checks — FIREBASE_SERVICE_ACCOUNT not configured here)');
 }
 
 // ── 4. Fill the form and submit ──────────────────────────────────────────────
