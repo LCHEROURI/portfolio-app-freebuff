@@ -3,8 +3,8 @@
 //
 // OpenRouter exposes an OpenAI-compatible chat-completions endpoint, so we
 // talk to it with a plain fetch — no SDK, matching the project's
-// fetch-over-API convention (PostgREST, GitHub, Vercel, Resend are all wired
-// the same way).
+// fetch-over-API convention (Firestore REST, GitHub, Vercel, Resend are all
+// wired the same way).
 //
 // Degradation contract: every entry point returns null (or throws only when
 // the caller opted into the raw helper) when OPENROUTER_API_KEY is unset or

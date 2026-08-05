@@ -11,7 +11,7 @@
 //
 // Documents are stored in the SAME camelCase shape the client FirestoreService
 // writes (entity minus `id`; the doc id IS the entity id), so reads come back
-// as typed entities directly — no snake_case row mapping needed.
+// as typed entities directly — no field renaming needed.
 //
 // Everything is owner-scoped by `userId` in the query/document, matching the
 // client's security model (firestore.rules enforce userId == auth.uid for the

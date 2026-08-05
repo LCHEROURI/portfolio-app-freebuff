@@ -3,7 +3,7 @@ import type { AutomationAlert } from '@/lib/engine';
 
 // ============================================================================
 // Report email client — Resend REST API via fetch (no SDK, matching the
-// project's PostgREST-over-fetch convention). Config is all env-driven:
+// project's plain fetch-over-API convention). Config is all env-driven:
 //   RESEND_API_KEY      → required to send
 //   REPORT_EMAIL        → recipient inbox
 //   REPORT_FROM         → optional sender (default Command Center <onboarding@resend.dev>)

@@ -17,11 +17,19 @@
 // Usage:
 //   node scripts/seed-winner-candidates.mjs [--owner demo-user] [--clear]
 //
+// Every doc is written with `userId = --owner` (default 'demo-user'), so the
+// fixture is scoped to a dedicated owner id and can never pollute a real
+// account's data. ALWAYS run against a throwaway owner: keep the default, or
+// pass --owner demo-user explicitly. The cron reads scoped by REPORT_OWNER_ID,
+// so set that env var on Vercel to the SAME owner id to make the weekly email
+// see the fixture; leave REPORT_OWNER_ID unset (default demo-user) otherwise.
+//
 // Credentials resolve from FIREBASE_SERVICE_ACCOUNT (JSON string) or
 // FIREBASE_SERVICE_ACCOUNT_PATH (file), then .env.local. Project id comes from
 // --project, then NEXT_PUBLIC_FIREBASE_PROJECT_ID / FIREBASE_PROJECT_ID env,
-// then .env.local. A Google OAuth token is minted from the SA private key
-// (JWT RS256 -> token endpoint, same flow as scripts/authorize-domain.mjs).
+// then .env.local. The Google OAuth token is minted from the shared
+// lib/server/sa-token.mjs module (the same flow firestoreAdmin.ts and
+// authorize-domain.mjs use), so the seeder can never drift from the cron.
 // Idempotent: fixed doc ids + PATCH upsert, so re-running is safe. --clear
 // deletes the fixture first (handy for resetting). Exits nonzero when the
 // service account is not configured, so the step can gate a deploy script.
