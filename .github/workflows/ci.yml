@@ -132,9 +132,13 @@ jobs:
   # real headless-Chrome session via CDP: mints a throwaway Firebase user,
   # types the credentials into the AuthGate form, asserts the gate releases
   # into the Command Center shell, and proves Firestore read/write sync under
-  # the real account. A broken sign-in or a Firestore rules regression fails
-  # the run. Gated on FIREBASE_WEB_API_KEY so forks / unconfigured repos stay
-  # green and the check only runs where a real deployment exists.
+  # the real account. Also asserts Google sign-in readiness: the Google button
+  # renders on the AuthGate AND the google.com IdP config is enabled via the
+  # admin API (FIREBASE_SERVICE_ACCOUNT) — so a missing Google provider blocks
+  # the deploy, not just local runs. A broken sign-in or a Firestore rules
+  # regression fails the run. Gated on FIREBASE_WEB_API_KEY so forks /
+  # unconfigured repos stay green and the check only runs where a real
+  # deployment exists.
   verify-prod-signin:
     name: Verify production sign-in + Firestore sync
     runs-on: ubuntu-latest
@@ -144,6 +148,7 @@ jobs:
 
     env:
       FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
 
     steps:
       - name: Check out repository
@@ -165,5 +170,6 @@ jobs:
         run: node scripts/verify-prod-signin.mjs
         env:
           FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           NEXT_PUBLIC_FIREBASE_PROJECT_ID: portfolio-app-freebuff2
           CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
