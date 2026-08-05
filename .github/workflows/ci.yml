@@ -80,7 +80,7 @@ jobs:
         run: node scripts/verify-firestore-rules.mjs
         env:
           FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
-          NEXT_PUBLIC_FIREBASE_PROJECT_ID: meal-planner-lcherouri
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: portfolio-app-freebuff
 
   # Post-deploy authorized-domains smoke test. Mints a throwaway Firebase
   # user, calls the deployed /api/status?project=<domain> and fails the run
@@ -165,5 +165,5 @@ jobs:
         run: node scripts/verify-prod-signin.mjs
         env:
           FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
-          NEXT_PUBLIC_FIREBASE_PROJECT_ID: meal-planner-lcherouri
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: portfolio-app-freebuff
           CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}

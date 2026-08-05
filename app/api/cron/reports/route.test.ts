@@ -41,7 +41,7 @@ vi.mock('@/lib/server/firestoreAdmin', async (importOriginal) => {
     isFirestoreAdminConfigured: vi.fn(() => false),
     firestoreUpsert: vi.fn(async (_collection: string, row: Record<string, unknown>) => row),
     firestoreList: vi.fn(async () => []),
-    getFirestoreProjectId: vi.fn(() => 'meal-planner-lcherouri'),
+    getFirestoreProjectId: vi.fn(() => 'portfolio-app-freebuff'),
     getFirestoreAdminToken: vi.fn(async () => 'test-token'),
   };
 });

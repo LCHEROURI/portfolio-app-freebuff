@@ -1,14 +1,12 @@
 #!/usr/bin/env node
 // ============================================================================
-// scripts/verify-firestore-rules.mjs — merged-rules smoke test.
+// scripts/verify-firestore-rules.mjs — portfolio-only rules smoke test.
 //
 // Mints a throwaway Identity Toolkit user and probes Firestore through the
-// public REST API with its ID token, asserting the merged ruleset deployed to
-// the shared project behaves correctly:
-//   1. Portfolio collections: owner can create + read (profiles keyed by uid,
-//      and userId-scoped collections), and a cross-user write is denied.
-//   2. Meal-planner collections (Section A, kept verbatim): owner can create
-//      and read their own users doc; a stranger's read is denied.
+// public REST API with its ID token, asserting the portfolio ruleset deployed
+// to the dedicated project behaves correctly: the owner can create + read
+// (profiles keyed by uid, and userId-scoped collections), and a cross-user
+// write is denied.
 //
 // Usage:
 //   node scripts/verify-firestore-rules.mjs
@@ -126,29 +124,6 @@ res = await fetch(`${FS}/projects?documentId=${probeB}`, {
 });
 probeDocs.push(`projects/${probeB}`);
 res.status === 403 ? ok('cross-user create projects/<probe> denied (403)') : fail(`cross-user create → ${res.status}`);
-
-// ── Meal-planner collections (Section A) ───────────────────────────────────
-console.log('\n[Meal planner] users collection (Section A intact)');
-res = await fetch(`${FS}/users?documentId=${uid}`, {
-  method: 'POST', headers: { ...AUTH, 'content-type': 'application/json' },
-  body: JSON.stringify({
-    fields: {
-      displayName: { stringValue: 'Probe' },
-      householdSize: { integerValue: '2' },
-    },
-  }),
-});
-probeDocs.push(`users/${uid}`);
-res.status === 200 ? ok('create users/<uid> with required fields (owner)') : fail(`create users/<uid> → ${res.status}`);
-
-res = await fetch(`${FS}/users/${uid}`, { headers: AUTH });
-res.status === 200 ? ok('read own users/<uid>') : fail(`read own users/<uid> → ${res.status}`);
-
-res = await fetch(`${FS}/users/${stranger}`, { headers: AUTH });
-res.status === 403 ? ok('stranger read of users/<other> denied (403)') : fail(`stranger read users/<other> → ${res.status}`);
-
-res = await fetch(`${FS}/mealPlans/${stranger}`, { headers: AUTH });
-res.status === 403 ? ok('stranger read of mealPlans/<other> denied (403)') : fail(`stranger read mealPlans/<other> → ${res.status}`);
 
 // ── Result ──────────────────────────────────────────────────────────────────
 console.error(`\nRESULT: ${failures === 0 ? 'PASS' : `FAIL (${failures})`}`);

@@ -8,6 +8,12 @@
 
 The app runs Firebase Auth on the shared `meal-planner-lcherouri` project. The project's `authorizedDomains` list was the meal-planner's original set (localhost, the firebaseapp.com / web.app hosts, and three older Vercel apps). `portfolio-app-freebuff.vercel.app` was never added, so Identity Platform rejected every sign-in from that origin with `auth/unauthorized-domain`.
 
+> **Update (Aug 2026):** this shared-project arrangement no longer exists. The
+> app moved onto its own dedicated Firebase project,
+> `portfolio-app-freebuff`, with a portfolio-only ruleset (see
+> `docs/migrations/dedicated-firebase-project.md`). The shared
+> `meal-planner-lcherouri` list below is historical context.
+
 The blocker surfaced in three places that all read the same list:
 
 - The AuthGate's live sign-in attempt (the visible symptom).

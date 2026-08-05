@@ -98,7 +98,7 @@ describe('AuthGate — forgot password flow', () => {
   });
 
   it('renders an actionable banner with the console deep-link for unauthorized-domain', async () => {
-    vi.stubEnv('NEXT_PUBLIC_FIREBASE_PROJECT_ID', 'meal-planner-lcherouri');
+    vi.stubEnv('NEXT_PUBLIC_FIREBASE_PROJECT_ID', 'portfolio-app-freebuff');
     authApi.signIn.mockRejectedValueOnce(
       new Error('Firebase: Error (auth/unauthorized-domain).'),
     );

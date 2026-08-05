@@ -16,7 +16,7 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
   const url = String(input);
   if (url.includes('identitytoolkit.googleapis.com/v1/projects')) {
     return jsonResponse({
-      authorizedDomains: ['localhost', 'meal-planner-lcherouri.firebaseapp.com'],
+      authorizedDomains: ['localhost', 'portfolio-app-freebuff.firebaseapp.com'],
     });
   }
   // GitHub /rate_limit is always pinged; return a healthy body.
@@ -28,7 +28,7 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 
 const stubClientEnv = () => {
   vi.stubEnv('NEXT_PUBLIC_FIREBASE_API_KEY', 'test-key');
-  vi.stubEnv('NEXT_PUBLIC_FIREBASE_PROJECT_ID', 'meal-planner-lcherouri');
+  vi.stubEnv('NEXT_PUBLIC_FIREBASE_PROJECT_ID', 'portfolio-app-freebuff');
 };
 
 afterEach(() => {
@@ -53,7 +53,7 @@ describe('checkIntegrations — authorized-domains override', () => {
     expect(fb.authDomains).toEqual({
       ok: true,
       origin: 'localhost',
-      href: 'https://console.firebase.google.com/project/meal-planner-lcherouri/authentication/settings',
+      href: 'https://console.firebase.google.com/project/portfolio-app-freebuff/authentication/settings',
     });
   });
 
@@ -70,7 +70,7 @@ describe('checkIntegrations — authorized-domains override', () => {
       // itself came from localhost.
       ok: false,
       origin: 'portfolio-app-freebuff.vercel.app',
-      href: 'https://console.firebase.google.com/project/meal-planner-lcherouri/authentication/settings',
+      href: 'https://console.firebase.google.com/project/portfolio-app-freebuff/authentication/settings',
     });
   });
 

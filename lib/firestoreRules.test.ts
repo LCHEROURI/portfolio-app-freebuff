@@ -6,12 +6,10 @@ import { describe, expect, it } from 'vitest';
 // ============================================================================
 // firestore.rules coverage spec.
 //
-// The shared project runs ONE merged ruleset: Section A (meal-planner
-// collections kept verbatim from the original ../firestore.rules) and
-// Section B (portfolio collections with per-user isolation). These tests
-// parse the rules text and assert every collection from both apps still has
-// its rules block with the right scoping, so a future edit can't silently
-// drop or relax a collection.
+// The app now runs on its dedicated Firebase project with a portfolio-only
+// ruleset. These tests parse the rules text and assert every portfolio
+// collection still has its rules block with per-user isolation, so a future
+// edit can't silently drop or relax a collection.
 // ============================================================================
 
 // vitest runs from the repo root, so the rules file resolves reliably here.
@@ -33,17 +31,6 @@ const PORTFOLIO = [
   'reports',
 ] as const;
 
-// Meal-planner collections from the original ../firestore.rules (Section A),
-// which must survive the merge verbatim.
-const MEAL_PLANNER = [
-  'users',
-  'mealPlans',
-  'publicShares',
-  'generationUsage',
-  'cookingSessions',
-  'pantryItems',
-] as const;
-
 const hasBlock = (collection: string): boolean => {
   const escaped = collection.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return new RegExp(`match /${escaped}/\\{`).test(rules);
@@ -51,15 +38,7 @@ const hasBlock = (collection: string): boolean => {
 
 const indexOf = (needle: string): number => rules.indexOf(needle);
 
-/** Extract one top-level collection block (from its `match /` to the next). */
-const blockOf = (collection: string): string => {
-  const start = rules.indexOf(`match /${collection}/{`);
-  if (start === -1) return '';
-  const next = rules.indexOf('\n    match /', start + 1);
-  return rules.slice(start, next === -1 ? rules.length : next);
-};
-
-describe('firestore.rules — merged spec', () => {
+describe('firestore.rules — portfolio-only spec', () => {
   it('covers every portfolio collection', () => {
     for (const c of PORTFOLIO) {
       expect(hasBlock(c), `missing rules block for /${c}`).toBe(true);
@@ -78,58 +57,16 @@ describe('firestore.rules — merged spec', () => {
     }
   });
 
-  it('keeps every meal-planner collection from the original file', () => {
-    for (const c of MEAL_PLANNER) {
-      expect(hasBlock(c), `missing rules block for /${c}`).toBe(true);
+  it('no longer contains the meal-planner collections', () => {
+    for (const c of ['users', 'mealPlans', 'publicShares', 'generationUsage', 'cookingSessions', 'pantryItems']) {
+      expect(hasBlock(c), `meal-planner collection /${c} must be gone`).toBe(false);
     }
-  });
-
-  it('keeps the meal-planner subcollection owner checks', () => {
-    const mealPlans = blockOf('mealPlans');
-    // recipes subcollection: reads and writes scoped to the plan owner via
-    // a parent-document lookup.
-    expect(mealPlans).toMatch(/match \/recipes\/\{recipeId\}/);
-    expect(mealPlans).toMatch(
-      /isOwner\(get\(\/databases\/\$\(database\)\/documents\/mealPlans\/\$\(planId\)\).data\.ownerId\)/,
-    );
-    // shoppingItems subcollection: same owner check.
-    expect(mealPlans).toMatch(/match \/shoppingItems\/\{itemId\}/);
-    expect(mealPlans).toMatch(
-      /isOwner\(get\(\/databases\/\$\(database\)\/documents\/mealPlans\/\$\(planId\)\).data\.ownerId\)/,
-    );
-  });
-
-  it('keeps the publicShares single-get rule', () => {
-    const shares = blockOf('publicShares');
-    // Single-share get only: no list, no random reads.
-    expect(shares).toMatch(/allow get: if resource\.data\.isActive == true/);
-    expect(shares).toMatch(/resource\.data\.expiresAt > request\.time/);
-    expect(shares).toMatch(/resource\.data\.revokedAt == null/);
-    expect(shares).toMatch(/allow list: if false;/);
-    // Writes still claim the owner.
-    expect(shares).toMatch(/request\.resource\.data\.ownerId == request\.auth\.uid/);
-  });
-
-  it('keeps the meal-planner field-level create constraints', () => {
-    // users: displayName is required and string; householdSize is a positive int.
-    const users = blockOf('users');
-    expect(users).toMatch(/keys\(\)\.hasAll\(\['displayName'\]\)/);
-    expect(users).toMatch(/request\.resource\.data\.displayName is string/);
-    expect(users).toMatch(/request\.resource\.data\.householdSize is int/);
-    expect(users).toMatch(/request\.resource\.data\.householdSize >= 1/);
-    // users: the update allow-list (changedKeys().hasOnly) must stay.
-    expect(users).toMatch(/changedKeys\(\)\.hasOnly\(\[/);
-
-    // mealPlans: ownerId is claimed on create and immutable on update.
-    const mealPlans = blockOf('mealPlans');
-    expect(mealPlans).toMatch(/request\.resource\.data\.ownerId == request\.auth\.uid/);
-    expect(mealPlans).toMatch(/request\.resource\.data\.ownerId == resource\.data\.ownerId/);
   });
 
   it('keeps the catch-all deny last', () => {
     const catchAll = indexOf('match /{document=**}');
     expect(catchAll).toBeGreaterThan(-1);
-    for (const c of [...PORTFOLIO, ...MEAL_PLANNER]) {
+    for (const c of PORTFOLIO) {
       const block = indexOf(`match /${c}/{`);
       expect(block, `/${c} block must exist`).toBeGreaterThan(-1);
       expect(block, `/${c} block must precede the catch-all deny`).toBeLessThan(catchAll);
