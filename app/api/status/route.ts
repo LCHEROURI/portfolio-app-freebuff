@@ -22,7 +22,9 @@ export async function GET(req: NextRequest) {
   // ?refresh=1 bypasses the per-check ping cache (used by the panel's Refresh
   // button so a manual refresh always re-pings the providers).
   const refresh = req.nextUrl.searchParams.get('refresh') === '1';
-  const integrations = await checkIntegrations(refresh);
+  // The request origin is the domain Firebase's sign-in gate compares against —
+  // used by the Firebase authorized-domains check.
+  const integrations = await checkIntegrations(refresh, req.nextUrl.origin);
   return NextResponse.json(
     { ok: true, checkedAt: new Date().toISOString(), integrations },
     { headers: { 'Cache-Control': 'no-store' } },

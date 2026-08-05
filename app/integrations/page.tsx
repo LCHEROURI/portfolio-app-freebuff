@@ -225,6 +225,35 @@ function StatusCard({ status, change }: { status: IntegrationStatus; change?: In
         )}
       </div>
 
+      {status.authDomains && (
+        <div
+          className={`mt-2 rounded-lg border px-3 py-2 text-xs ${
+            status.authDomains.ok
+              ? 'border-basil-200 bg-basil-50 text-basil-700 dark:border-basil-800 dark:bg-basil-950 dark:text-basil-300'
+              : 'border-paprika-200 bg-paprika-50 text-paprika-700 dark:border-paprika-800 dark:bg-paprika-950 dark:text-paprika-300'
+          }`}
+        >
+          <p className="flex items-center gap-1.5 font-semibold">
+            {status.authDomains.ok ? <Check size={12} aria-hidden="true" /> : <X size={12} aria-hidden="true" />}
+            {status.authDomains.ok ? 'Domain authorized for sign-in' : 'Domain NOT authorized — sign-in is blocked'}
+          </p>
+          {!status.authDomains.ok && (
+            <p className="mt-1 font-medium">
+              Add <code className="rounded bg-paprika-100 px-1 py-0.5 font-mono text-[11px] dark:bg-paprika-900">{status.authDomains.origin}</code>{' '}
+              under Firebase → Authentication → Authorized domains, then Save (no redeploy needed).{' '}
+              <a
+                href={status.authDomains.href}
+                target="_blank"
+                rel="noreferrer"
+                className="font-semibold text-tomato-600 underline underline-offset-2 hover:text-tomato-700 dark:text-tomato-300"
+              >
+                Open console ↗
+              </a>
+            </p>
+          )}
+        </div>
+      )}
+
       <SetupChecklist status={status} />
     </div>
   );

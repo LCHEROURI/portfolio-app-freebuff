@@ -91,6 +91,24 @@ describe('integrationChanged', () => {
     const b = base({ endpoint: { ok: false, status: null, ms: null, detail: 'Unreachable' } });
     expect(integrationChanged(a, b)).toBe(true);
   });
+
+  it('detects an authorized-domains flip (authorized → not)', () => {
+    const a = base({
+      authDomains: { ok: true, origin: 'portfolio-app-freebuff.vercel.app', href: 'https://console.firebase.google.com' },
+    });
+    const b = base({
+      authDomains: { ok: false, origin: 'portfolio-app-freebuff.vercel.app', href: 'https://console.firebase.google.com' },
+    });
+    expect(integrationChanged(a, b)).toBe(true);
+  });
+
+  it('detects the check appearing (absent → unauthorized)', () => {
+    const a = base({ authDomains: undefined });
+    const b = base({
+      authDomains: { ok: false, origin: 'portfolio-app-freebuff.vercel.app', href: 'https://console.firebase.google.com' },
+    });
+    expect(integrationChanged(a, b)).toBe(true);
+  });
 });
 
 // ─── describeIntegrationChange ─────────────────────────────────────────────
@@ -184,6 +202,28 @@ describe('describeIntegrationChange', () => {
       'Endpoint error → OK',
       'Status now 200',
       'Latency now 120ms',
+    ]);
+  });
+
+  it('describes an origin becoming authorized', () => {
+    const a = base();
+    const b = base({
+      authDomains: { ok: true, origin: 'portfolio-app-freebuff.vercel.app', href: 'https://console.firebase.google.com' },
+    });
+    expect(describeIntegrationChange(a, b)).toEqual([
+      'Origin portfolio-app-freebuff.vercel.app is authorized',
+    ]);
+  });
+
+  it('describes an origin no longer authorized', () => {
+    const a = base({
+      authDomains: { ok: true, origin: 'portfolio-app-freebuff.vercel.app', href: 'https://console.firebase.google.com' },
+    });
+    const b = base({
+      authDomains: { ok: false, origin: 'portfolio-app-freebuff.vercel.app', href: 'https://console.firebase.google.com' },
+    });
+    expect(describeIntegrationChange(a, b)).toEqual([
+      'Origin portfolio-app-freebuff.vercel.app no longer authorized',
     ]);
   });
 });

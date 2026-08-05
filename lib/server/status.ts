@@ -1,4 +1,5 @@
-import type { IntegrationEndpoint, IntegrationEnvVar, IntegrationStatus } from '@/lib/liveData';
+import type { IntegrationAuthDomains, IntegrationEndpoint, IntegrationEnvVar, IntegrationStatus } from '@/lib/liveData';
+import { isDomainAuthorized, originHostname } from '@/lib/authDomains';
 
 // ============================================================================
 // Integration connection-status checks (server-only).
@@ -188,9 +189,10 @@ const checkVercel = async (): Promise<IntegrationStatus> => {
 };
 
 // ─── Firebase ───────────────────────────────────────────────────────────────
-const checkFirebase = async (): Promise<IntegrationStatus> => {
+const checkFirebase = async (origin?: string): Promise<IntegrationStatus> => {
   const clientConfigured =
     varSet('NEXT_PUBLIC_FIREBASE_API_KEY') && varSet('NEXT_PUBLIC_FIREBASE_PROJECT_ID');
+  const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? '';
   const fbToken = varSet('FIREBASE_TOKEN');
   const env = [
     envVar('NEXT_PUBLIC_FIREBASE_API_KEY', true),
@@ -215,9 +217,29 @@ const checkFirebase = async (): Promise<IntegrationStatus> => {
     ep = endpoint(r, detail);
   }
 
+  // Authorized-domains gate: Firebase silently blocks sign-in from an origin
+  // that isn't in the project's list, so flag it here — before the user ever
+  // hits the AuthGate — using the public getProjectConfig endpoint (no secret
+  // needed; the API key is already public). Skipped when the origin is unknown
+  // or the client SDK isn't configured.
+  let authDomains: IntegrationAuthDomains | undefined;
+  if (clientConfigured && origin) {
+    const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY ?? '';
+    const r = await cachedPing(
+      'firebase-domains',
+      `https://identitytoolkit.googleapis.com/v1/projects?key=${encodeURIComponent(apiKey)}`,
+    );
+    const list = (r.json as { authorizedDomains?: string[] } | null)?.authorizedDomains ?? [];
+    authDomains = {
+      ok: isDomainAuthorized(list, origin),
+      origin: originHostname(origin),
+      href: `https://console.firebase.google.com/project/${projectId}/authentication/settings`,
+    };
+  }
+
   return {
     id: 'firebase', name: 'Firebase', enabled: clientConfigured,
-    configured: clientConfigured, env, endpoint: ep,
+    configured: clientConfigured, env, endpoint: ep, authDomains,
     note: clientConfigured && !fbToken
       ? 'Client SDK configured — auth verified via ID token. Hosting feed needs FIREBASE_TOKEN.'
       : undefined,
@@ -242,10 +264,13 @@ const checkAutomation = (): IntegrationStatus => {
   };
 };
 
-export const checkIntegrations = async (refresh = false): Promise<IntegrationStatus[]> => {
+export const checkIntegrations = async (
+  refresh = false,
+  origin?: string,
+): Promise<IntegrationStatus[]> => {
   if (refresh) pingCache.clear();
   const [supabase, github, vercel, firebase] = await Promise.all([
-    checkSupabase(), checkGithub(), checkVercel(), checkFirebase(),
+    checkSupabase(), checkGithub(), checkVercel(), checkFirebase(origin),
   ]);
   return [supabase, github, vercel, firebase, checkAutomation()];
 };

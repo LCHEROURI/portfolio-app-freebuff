@@ -295,6 +295,15 @@ export interface IntegrationEndpoint {
   detail: string;
 }
 
+/** Firebase authorized-domains check result (client-origin vs. project list). */
+export interface IntegrationAuthDomains {
+  ok: boolean;
+  /** Hostname that was checked against the project's Authorized domains. */
+  origin: string;
+  /** Deep link to the Firebase console Authorized domains settings. */
+  href: string;
+}
+
 export interface IntegrationStatus {
   id: string;
   name: string;
@@ -303,6 +312,8 @@ export interface IntegrationStatus {
   env: IntegrationEnvVar[];
   endpoint: IntegrationEndpoint | null;
   note?: string;
+  /** Present on the Firebase integration when the client SDK is configured. */
+  authDomains?: IntegrationAuthDomains;
 }
 
 export const fetchIntegrationStatus = (userId: string, refresh = false) =>

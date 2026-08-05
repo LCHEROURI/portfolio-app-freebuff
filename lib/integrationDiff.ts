@@ -29,6 +29,11 @@ export interface IntegrationChange {
 const envFingerprint = (s: IntegrationStatus): string =>
   s.env.map((v) => `${v.name}:${v.set ? '1' : '0'}`).join('|');
 
+// Firebase authorized-domains state: null when not checked (not configured),
+// otherwise ok-or-not plus which origin was checked.
+const authDomainsKey = (s: IntegrationStatus): string | null =>
+  s.authDomains ? `${s.authDomains.ok ? '1' : '0'}|${s.authDomains.origin}` : null;
+
 const endpointChanged = (
   a: IntegrationStatus['endpoint'],
   b: IntegrationStatus['endpoint'],
@@ -48,7 +53,8 @@ export const integrationChanged = (a: IntegrationStatus, b: IntegrationStatus): 
   a.configured !== b.configured ||
   a.enabled !== b.enabled ||
   envFingerprint(a) !== envFingerprint(b) ||
-  endpointChanged(a.endpoint, b.endpoint);
+  endpointChanged(a.endpoint, b.endpoint) ||
+  authDomainsKey(a) !== authDomainsKey(b);
 
 /**
  * Human-readable "what changed" descriptions between two checks of the same
@@ -68,6 +74,23 @@ export const describeIntegrationChange = (
   }
   if (a.enabled !== b.enabled) {
     changes.push(b.enabled ? 'Live flag turned on' : 'Live flag turned off');
+  }
+
+  // Firebase authorized-domains flips (a domain added/removed in the console).
+  const da = authDomainsKey(a);
+  const db = authDomainsKey(b);
+  if (da !== db) {
+    if (db === null) {
+      changes.push('Authorized-domains check no longer reported');
+    } else if (da === null) {
+      changes.push(b.authDomains?.ok
+        ? `Origin ${b.authDomains.origin} is authorized`
+        : `Origin ${b.authDomains?.origin} is NOT authorized`);
+    } else if (b.authDomains?.ok) {
+      changes.push(`Origin ${b.authDomains.origin} now authorized`);
+    } else {
+      changes.push(`Origin ${b.authDomains?.origin} no longer authorized`);
+    }
   }
 
   // Env var (re)set, cleared, or added/removed. `prev !== undefined` (not a
