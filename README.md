@@ -454,6 +454,26 @@ documents these commands and shows the last scan per repo (read from
 Repositories page uses — so a missing or stale scan is visible right next to
 the documented schedule.
 
+### Chrome crash recovery
+
+If Chrome stops opening (no window, no error, the icon just disappears), its
+main process likely crashed and left stale Singleton lock files behind; Chrome
+then thinks another instance is running and exits silently. One command revives
+it — sweeps leftover headless instances from the capture/verify scripts, clears
+the stale locks, and relaunches Chrome:
+
+```bash
+./scripts/chrome-revive.sh          # clean up + relaunch Chrome
+./scripts/chrome-revive.sh --no-launch   # clean up only
+```
+
+The `.githooks/pre-push` hook runs it (timeboxed to 15s) before any verifier,
+so a crashed Chrome is revived automatically on every push. Full incident
+details in `docs/reviews/2026-08-05-chrome-crash.md`. Every script that spawns
+headless Chrome (the gallery driver, the sign-in/matrix verifiers, the live
+tour) also kills its own instance and drops its throwaway profile on exit and
+on signals, so interrupted runs can never accumulate leftovers.
+
 ### Cloud Functions (optional)
 
 ```bash

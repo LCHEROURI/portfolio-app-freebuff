@@ -91,6 +91,13 @@ run_verify() {
 }
 
 KEY="$(read_env FIREBASE_WEB_API_KEY)"
+# The web API key is commonly stored as NEXT_PUBLIC_FIREBASE_API_KEY in
+# .env.local (that is the name the verify scripts themselves fall back to).
+# Mirror that fallback here so the hook's key gates don't skip a proof the
+# scripts could actually run.
+if [ -z "$KEY" ]; then
+  KEY="$(read_env NEXT_PUBLIC_FIREBASE_API_KEY)"
+fi
 CRON="$(read_env CRON_SECRET)"
 
 # ── 1. Authorized-domains gate (fast, no Chrome) ───────────────────────────
