@@ -85,6 +85,15 @@ const chrome = spawn(CHROME, [
   `--remote-debugging-port=${PORT}`, `--user-data-dir=${USER_DATA_DIR}`, 'about:blank',
 ], { stdio: 'ignore' });
 
+// Self-cleanup: kill the headless Chrome and drop its throwaway profile even
+// when the tour is interrupted by a signal or dies mid-run.
+const killChrome = () => { try { chrome.kill('SIGKILL'); } catch { /* already gone */ } };
+const dropProfile = () => { try { rmSync(USER_DATA_DIR, { recursive: true, force: true }); } catch { /* best-effort */ } };
+process.on('exit', killChrome);
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(sig, () => { killChrome(); dropProfile(); process.exit(130); });
+}
+
 let wsUrl = null;
 for (let i = 0; i < 40 && !wsUrl; i++) {
   try {

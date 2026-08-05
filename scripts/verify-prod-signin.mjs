@@ -148,6 +148,15 @@ const chrome = spawn(CHROME, [
   'about:blank',
 ], { stdio: 'ignore' });
 
+// Self-cleanup: never leave the headless Chrome (or its throwaway profile)
+// behind, even when this verifier is interrupted by a signal or dies mid-run.
+const killChrome = () => { try { chrome.kill('SIGKILL'); } catch { /* already gone */ } };
+const dropProfile = () => { try { rmSync(USER_DATA_DIR, { recursive: true, force: true }); } catch { /* best-effort */ } };
+process.on('exit', killChrome);
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(sig, () => { killChrome(); dropProfile(); process.exit(130); });
+}
+
 const fetchJson = async (url) => {
   const res = await fetch(url);
   return res.json();

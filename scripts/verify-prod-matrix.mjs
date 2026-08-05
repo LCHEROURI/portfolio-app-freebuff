@@ -7,6 +7,7 @@
  * Usage: node scripts/verify-prod-matrix.mjs
  */
 import { spawn } from 'node:child_process';
+import { rmSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 const CHROME = process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -30,6 +31,15 @@ const chrome = spawn(CHROME, [
   '--user-data-dir=/tmp/prod-matrix-chrome',
   'about:blank',
 ], { stdio: 'ignore' });
+
+// Self-cleanup: kill the headless Chrome and drop its fixed profile dir even
+// when this verifier is interrupted by a signal or dies mid-run.
+const killChrome = () => { try { chrome.kill('SIGKILL'); } catch { /* already gone */ } };
+const dropProfile = () => { try { rmSync('/tmp/prod-matrix-chrome', { recursive: true, force: true }); } catch { /* best-effort */ } };
+process.on('exit', killChrome);
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(sig, () => { killChrome(); dropProfile(); process.exit(130); });
+}
 
 const sleepMs = (ms) => sleep(ms);
 const fetchJson = async (url) => {

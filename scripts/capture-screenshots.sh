@@ -73,6 +73,18 @@ if ! reachable "$URL"; then
   fi
 fi
 
+# ── Self-cleanup ────────────────────────────────────────────────────────────
+# The CDP driver spawns a headless Chrome with a fixed profile dir; make sure
+# it is torn down even if this script or the driver is interrupted (Ctrl-C,
+# CI timeout, kill -9), so stale instances never accumulate across runs.
+cleanup_capture() {
+  pkill -f 'gallery-capture-chrome' 2>/dev/null || true
+  if [[ -n "${CAPTURE_DIR:-}" && "$CAPTURE_DIR" != "$OUT" ]]; then
+    rm -rf "$CAPTURE_DIR"
+  fi
+}
+trap cleanup_capture EXIT
+
 # ── Capture ──────────────────────────────────────────────────────────────────
 # In --diff mode capture into a throwaway temp dir, then copy a PNG into OUT
 # only when its pixels actually changed, so trivial re-runs leave the git tree
@@ -80,7 +92,6 @@ fi
 CAPTURE_DIR="$OUT"
 if [[ "$DIFF" == "1" ]]; then
   CAPTURE_DIR="$(mktemp -d)"
-  trap 'rm -rf "$CAPTURE_DIR"' EXIT
 fi
 
 echo "Capturing $EXPECTED gallery cells from $URL into $CAPTURE_DIR/ ..."

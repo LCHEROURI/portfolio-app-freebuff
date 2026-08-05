@@ -53,7 +53,6 @@ for (let i = 0; i < args.length; i++) {
     const idx = h.indexOf(':');
     if (idx === -1) {
       console.error(`Bad --header (want 'Name: value'): ${h}`);
-      chrome.kill();
       process.exit(2);
     }
     extraHeaders[h.slice(0, idx).trim()] = h.slice(idx + 1).trim();
@@ -73,6 +72,15 @@ const chrome = spawn(CHROME, [
   '--user-data-dir=/tmp/gallery-capture-chrome',
   'about:blank',
 ], { stdio: 'ignore' });
+
+// Self-cleanup: never leave the headless Chrome behind, even when this driver
+// is interrupted by a signal or dies mid-run (a leaked instance holds port
+// 9444 and its /tmp profile until the next reboot).
+const killChrome = () => { try { chrome.kill('SIGKILL'); } catch { /* already gone */ } };
+process.on('exit', killChrome);
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(sig, () => process.exit(130));
+}
 
 const fetchJson = async (url) => (await fetch(url)).json();
 
