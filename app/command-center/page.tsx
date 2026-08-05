@@ -220,10 +220,10 @@ export default function CommandCenterPage() {
   // connected, surface a one-click path to wire one up (Integrations page +
   // Vercel env settings deep-link). Mirrors the Integrations page banner.
   const flags = readLiveFlags();
-  // Matches the Integrations page's live-count logic (tasks/repositories/
-  // deployments/Firebase); LIVE_PROJECTS alone doesn't count as an integration
-  // being connected there, so it shouldn't hide this banner either.
-  const anyLive = flags.tasks || flags.repositories || flags.deployments || isFirebaseConfigured();
+  // Matches the Integrations page's live-count logic (repositories/deployments/
+  // Firebase); Firestore is the always-on data store, so it doesn't hide this
+  // banner when the GitHub/Vercel feeds are still unwired.
+  const anyLive = flags.repositories || flags.deployments || isFirebaseConfigured();
 
   const queueTone = (severity: string) =>
     severity === 'critical'

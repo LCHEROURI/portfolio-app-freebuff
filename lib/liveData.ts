@@ -2,9 +2,12 @@
 // Client-side live-data facade.
 //
 // The store calls these functions when the matching live source is enabled:
-//   NEXT_PUBLIC_LIVE_TASKS=1        → Tasks + Reminders via Supabase
 //   NEXT_PUBLIC_LIVE_REPOS=1        → Repositories via GitHub API
 //   NEXT_PUBLIC_LIVE_DEPLOYMENTS=1  → Deployments via Vercel API + health checks
+//
+// Tasks/projects/versions/evaluations/activity are NOT here: they persist to
+// Firestore through the client FirestoreService (lib/firestore.ts) — the app's
+// single data store — so there are no server routes or live flags for them.
 //
 // Every call goes through the app's own server routes (which hold the real
 // secrets). When Firebase is wired the acting user is proven by a verified
@@ -14,22 +17,16 @@
 // ============================================================================
 
 import { getFirebaseAuth } from '@/lib/firebase';
-import type { Task, Reminder, Repository, Deployment, Project, ProjectVersion, ModelEvaluation, ActivityEntry } from '@/types';
+import type { Repository, Deployment } from '@/types';
 
 export interface LiveFlags {
-  tasks: boolean;
-  reminders: boolean;
   repositories: boolean;
   deployments: boolean;
-  projects: boolean;
 }
 
 export const readLiveFlags = (): LiveFlags => ({
-  tasks: process.env.NEXT_PUBLIC_LIVE_TASKS === '1',
-  reminders: process.env.NEXT_PUBLIC_LIVE_TASKS === '1',
   repositories: process.env.NEXT_PUBLIC_LIVE_REPOS === '1',
   deployments: process.env.NEXT_PUBLIC_LIVE_DEPLOYMENTS === '1',
-  projects: process.env.NEXT_PUBLIC_LIVE_PROJECTS === '1',
 });
 
 /**
@@ -78,45 +75,6 @@ const call = async <T>(path: string, userId: string, init?: RequestInit): Promis
   return body;
 };
 
-// ─── Tasks ──────────────────────────────────────────────────────────────────
-export const fetchLiveTasks = (userId: string) =>
-  call<{ tasks: Task[]; configured: boolean }>('/api/tasks', userId);
-
-export const saveLiveTask = (userId: string, task: Task) => {
-  const { id, ...rest } = task;
-  return call<{ task: Task }>(`/api/tasks/${encodeURIComponent(id)}`, userId, {
-    method: 'PATCH',
-    body: JSON.stringify(rest),
-  });
-};
-
-export const createLiveTask = (userId: string, task: Task) =>
-  call<{ task: Task }>('/api/tasks', userId, { method: 'POST', body: JSON.stringify(task) });
-
-export const deleteLiveTask = (userId: string, id: string) =>
-  call<{ ok: true }>(`/api/tasks/${encodeURIComponent(id)}`, userId, { method: 'DELETE' });
-
-// ─── Reminders ──────────────────────────────────────────────────────────────
-export const fetchLiveReminders = (userId: string) =>
-  call<{ reminders: Reminder[]; configured: boolean }>('/api/reminders', userId);
-
-export const createLiveReminder = (userId: string, reminder: Reminder) =>
-  call<{ reminder: Reminder }>('/api/reminders', userId, {
-    method: 'POST',
-    body: JSON.stringify(reminder),
-  });
-
-export const updateLiveReminder = (userId: string, reminder: Reminder) => {
-  const { id, ...rest } = reminder;
-  return call<{ reminder: Reminder }>(`/api/reminders/${encodeURIComponent(id)}`, userId, {
-    method: 'PATCH',
-    body: JSON.stringify(rest),
-  });
-};
-
-export const deleteLiveReminder = (userId: string, id: string) =>
-  call<{ ok: true }>(`/api/reminders/${encodeURIComponent(id)}`, userId, { method: 'DELETE' });
-
 // ─── Repositories (live GitHub feed) ────────────────────────────────────────
 export const fetchLiveRepos = (userId: string) =>
   call<{ repositories: Repository[]; configured: boolean }>('/api/repos', userId);
@@ -124,34 +82,6 @@ export const fetchLiveRepos = (userId: string) =>
 // ─── Deployments (live Vercel feed + health checks) ─────────────────────────
 export const fetchLiveDeployments = (userId: string) =>
   call<{ deployments: Deployment[]; configured: boolean }>('/api/deployments', userId);
-
-// ─── Projects (Supabase-backed, powers the automation engine) ───────────────
-export const fetchLiveProjects = (userId: string) =>
-  call<{ projects: Project[]; configured: boolean }>('/api/projects', userId);
-
-export const saveLiveProject = (userId: string, project: Project) =>
-  call<{ project: Project }>('/api/projects', userId, { method: 'POST', body: JSON.stringify(project) });
-
-export const deleteLiveProject = (userId: string, id: string) =>
-  call<{ ok: true }>(`/api/projects/${encodeURIComponent(id)}`, userId, { method: 'DELETE' });
-
-// ─── Versions (Supabase-backed) ─────────────────────────────────────────────
-export const fetchLiveVersions = (userId: string) =>
-  call<{ versions: ProjectVersion[]; configured: boolean }>('/api/versions', userId);
-
-export const saveLiveVersion = (userId: string, version: ProjectVersion) =>
-  call<{ version: ProjectVersion }>('/api/versions', userId, { method: 'POST', body: JSON.stringify(version) });
-
-export const deleteLiveVersion = (userId: string, id: string) =>
-  call<{ ok: true }>(`/api/versions/${encodeURIComponent(id)}`, userId, { method: 'DELETE' });
-
-// ─── Evaluations (Supabase-backed) ──────────────────────────────────────────
-export const fetchLiveEvaluations = (userId: string) =>
-  call<{ evaluations: ModelEvaluation[]; configured: boolean }>('/api/evaluations', userId);
-
-// ─── Activity feed (Supabase-backed — report delivery history) ──────────────
-export const fetchLiveActivity = (userId: string) =>
-  call<{ activity: ActivityEntry[]; configured: boolean }>('/api/activity', userId);
 
 // ─── Manual report delivery (POST /api/reports/send) ────────────────────────
 export interface SendReportNowInput {
@@ -321,9 +251,3 @@ export const fetchIntegrationStatus = (userId: string, refresh = false) =>
     `/api/status${refresh ? '?refresh=1' : ''}`,
     userId,
   );
-
-export const saveLiveEvaluation = (userId: string, evaluation: ModelEvaluation) =>
-  call<{ evaluation: ModelEvaluation }>('/api/evaluations', userId, { method: 'POST', body: JSON.stringify(evaluation) });
-
-export const deleteLiveEvaluation = (userId: string, id: string) =>
-  call<{ ok: true }>(`/api/evaluations/${encodeURIComponent(id)}`, userId, { method: 'DELETE' });

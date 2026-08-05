@@ -13,8 +13,9 @@ import {
 import type { ReportPreviewPayload } from '@/lib/reportPreview';
 import { loadLiveSnapshot, serverProfile } from '@/lib/server/reporting/data';
 import { sendReportEmail } from '@/lib/server/reporting/email';
-import { toActivityRow } from '@/lib/server/rows';
-import { isSupabaseConfigured, supabaseUpsert } from '@/lib/server/supabase';
+import {
+  FIRESTORE_COLLECTIONS, firestoreUpsert, isFirestoreAdminConfigured,
+} from '@/lib/server/firestoreAdmin';
 
 // ============================================================================
 // GET /api/cron/reports — automation engine entry point.
@@ -45,12 +46,12 @@ import { isSupabaseConfigured, supabaseUpsert } from '@/lib/server/supabase';
 //                    per-report email object in the response carries the test
 //                    emailId.
 //
-// Every send (real or test) also logs a `report_generated` activity row to the
-// Supabase activity table when Supabase is configured, so the Activity page
-// shows the full delivery history — cron sends, test sends, and the client's
-// 'Save and email now' / retry all land in the same feed.
+// Every send (real or test) also logs a `report_generated` activity doc to the
+// Firestore activity collection when the service account is configured, so the
+// Activity page shows the full delivery history — cron sends, test sends, and
+// the client's 'Save and email now' / retry all land in the same feed.
 //
-// The 14 automation rules run against a live snapshot (Supabase tasks/projects/
+// The 14 automation rules run against a live snapshot (Firestore tasks/projects/
 // versions/evaluations + live GitHub repos + Vercel/Firebase deployments) using
 // the exact same engine as the UI, then the report is emailed via Resend.
 // ============================================================================
@@ -113,7 +114,7 @@ export async function GET(req: NextRequest) {
   if (totalData === 0) {
     return NextResponse.json({
       ok: true,
-      note: 'No live data configured — skipping email. Wire Supabase/GitHub/Vercel env vars first.',
+      note: 'No live data configured — skipping email. Wire Firestore/GitHub/Vercel env vars first.',
       ownerId,
       configured: snapshot.configured,
     });
@@ -239,11 +240,12 @@ export async function GET(req: NextRequest) {
       winnerRecommendations: s.winnerRecommendations,
     });
 
-    // Log a report_generated activity row (Supabase) so the Activity page shows
-    // the delivery history. Best-effort: never fail the cron on a log write.
-    if (isSupabaseConfigured()) {
+    // Log a report_generated activity doc (Firestore, camelCase like the client
+    // FirestoreService) so the Activity page shows the delivery history.
+    // Best-effort: never fail the cron on a log write.
+    if (isFirestoreAdminConfigured()) {
       try {
-        await supabaseUpsert('activity', toActivityRow({
+        await firestoreUpsert(FIRESTORE_COLLECTIONS.activity, {
           id: `a-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
           userId: ownerId,
           kind: 'report_generated',
@@ -251,7 +253,7 @@ export async function GET(req: NextRequest) {
             ? `${s.kind} report "${s.title}" emailed (${email.emailId ?? 'no id'})${sendTest ? ' [test]' : ''}`
             : `${s.kind} report "${s.title}" email ${email.reason ?? 'not sent'}`,
           createdAt: new Date().toISOString(),
-        }));
+        });
       } catch (e) {
         console.warn('activity log skipped (cron):', e instanceof Error ? e.message : e);
       }

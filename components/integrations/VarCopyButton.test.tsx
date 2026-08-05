@@ -31,11 +31,11 @@ describe('VarCopyButton', () => {
   });
 
   it('flips its aria-label to Copied after a successful copy', async () => {
-    render(<VarCopyButton name="SUPABASE_URL" />);
-    const btn = screen.getByRole('button', { name: 'Copy SUPABASE_URL=https://<project-ref>.supabase.co' });
+    render(<VarCopyButton name="VERCEL_TOKEN" />);
+    const btn = screen.getByRole('button', { name: 'Copy VERCEL_TOKEN=<token>' });
     fireEvent.click(btn);
     await waitFor(() => {
-      expect(btn.getAttribute('aria-label')).toBe('Copied SUPABASE_URL=https://<project-ref>.supabase.co');
+      expect(btn.getAttribute('aria-label')).toBe('Copied VERCEL_TOKEN=<token>');
     });
   });
 

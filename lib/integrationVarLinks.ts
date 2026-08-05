@@ -2,17 +2,14 @@
 // Per-var credential source pages for the Integrations setup checklists.
 //
 // Each missing required env var deep-links to the exact page where its value
-// lives (GitHub token page, Supabase API settings, Firebase console project),
+// lives (GitHub token page, Vercel token page, Firebase console project),
 // alongside the existing Vercel env-settings link. Vars without a dedicated
 // source page (CRON_SECRET, REPORT_EMAIL, GITHUB_OWNER — values you invent
 // or copy from your own account) intentionally render as plain text.
 //
-// Supabase deep-links to the dashboard root because the project ref lives
-// inside SUPABASE_URL itself — which is exactly what's missing, so the ref
-// can't be known client-side. Firebase deep-links to the exact project when
-// NEXT_PUBLIC_FIREBASE_PROJECT_ID is set (it's a NEXT_PUBLIC_ var, so it is
-// available client-side when configured); otherwise it falls back to the
-// console root (project picker).
+// Firebase deep-links to the exact project when NEXT_PUBLIC_FIREBASE_PROJECT_ID
+// is set (it's a NEXT_PUBLIC_ var, so it is available client-side when
+// configured); otherwise it falls back to the console root (project picker).
 //
 // varEnvLine() pairs with the source link: it returns the .env.example
 // template line to paste into Vercel (mirroring the repo's .env.example and
@@ -35,8 +32,6 @@ export const firebaseConsoleUrl = (projectId?: string): VarSource =>
     : { label: 'Firebase console', href: 'https://console.firebase.google.com' };
 
 const VAR_SOURCE_URLS: Record<string, VarSource> = {
-  SUPABASE_URL: { label: 'Supabase API settings', href: 'https://supabase.com/dashboard' },
-  SUPABASE_SERVICE_ROLE_KEY: { label: 'Supabase API settings', href: 'https://supabase.com/dashboard' },
   GITHUB_TOKEN: { label: 'GitHub token page', href: 'https://github.com/settings/personal-access-tokens/new' },
   VERCEL_TOKEN: { label: 'Vercel token page', href: 'https://vercel.com/account/tokens' },
   RESEND_API_KEY: { label: 'Resend API keys', href: 'https://resend.com/api-keys' },
@@ -69,8 +64,6 @@ export const firstVarSource = (names: string[], firebaseProjectId?: string): Var
 // text to paste into Vercel (replace the <placeholder> with the real value
 // from the console page).
 const VAR_ENV_LINES: Record<string, string> = {
-  SUPABASE_URL: 'SUPABASE_URL=https://<project-ref>.supabase.co',
-  SUPABASE_SERVICE_ROLE_KEY: 'SUPABASE_SERVICE_ROLE_KEY=<service-role-key>',
   GITHUB_TOKEN: 'GITHUB_TOKEN=<github_pat_...>',
   VERCEL_TOKEN: 'VERCEL_TOKEN=<token>',
   RESEND_API_KEY: 'RESEND_API_KEY=<key>',

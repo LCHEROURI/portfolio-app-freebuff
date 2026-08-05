@@ -38,7 +38,7 @@ const healthy = (id: string, name: string, envVars: string[]): IntegrationStatus
 });
 
 const baseline = (): IntegrationStatus[] => [
-  healthy('supabase', 'Supabase', ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'NEXT_PUBLIC_LIVE_TASKS']),
+  healthy('firestore', 'Firestore', ['FIREBASE_SERVICE_ACCOUNT', 'NEXT_PUBLIC_FIREBASE_PROJECT_ID']),
   healthy('github', 'GitHub', ['GITHUB_TOKEN', 'NEXT_PUBLIC_LIVE_REPOS']),
   healthy('vercel', 'Vercel', ['VERCEL_TOKEN', 'NEXT_PUBLIC_LIVE_DEPLOYMENTS']),
   healthy('firebase', 'Firebase', ['NEXT_PUBLIC_FIREBASE_API_KEY', 'NEXT_PUBLIC_FIREBASE_PROJECT_ID']),
@@ -138,8 +138,8 @@ describe('IntegrationsPage — mocked /api/status E2E', () => {
     // The badge sits on the GitHub card — and only there.
     const githubCard = cardOf('GitHub');
     expect(within(githubCard).getByLabelText(/^Updated —/)).toBeInTheDocument();
-    const supabaseCard = cardOf('Supabase');
-    expect(within(supabaseCard).queryByLabelText(/^Updated —/)).toBeNull();
+    const firestoreCard = cardOf('Firestore');
+    expect(within(firestoreCard).queryByLabelText(/^Updated —/)).toBeNull();
 
     // The what-changed tooltip content is in the DOM (aria-hidden, so found by text).
     expect(within(githubCard).getByText('Endpoint OK → error')).toBeInTheDocument();
@@ -164,8 +164,8 @@ describe('IntegrationsPage — mocked /api/status E2E', () => {
     // The badge sits on the GitHub card — and only there.
     const githubCard = cardOf('GitHub');
     expect(within(githubCard).getByLabelText(/^Updated —/)).toBeInTheDocument();
-    const supabaseCard = cardOf('Supabase');
-    expect(within(supabaseCard).queryByLabelText(/^Updated —/)).toBeNull();
+    const firestoreCard = cardOf('Firestore');
+    expect(within(firestoreCard).queryByLabelText(/^Updated —/)).toBeNull();
 
     // The what-changed tooltip carries the env-var description.
     expect(within(githubCard).getByText('GITHUB_TOKEN cleared')).toBeInTheDocument();
@@ -194,7 +194,7 @@ describe('IntegrationsPage — mocked /api/status E2E', () => {
       'Updated — Endpoint OK → error, HTTP 200 → 503, Latency 40ms → 2400ms',
     );
     expect(within(cardOf('GitHub')).getByLabelText(/^Updated —/)).toBeInTheDocument();
-    expect(within(cardOf('Supabase')).queryByLabelText(/^Updated —/)).toBeNull();
+    expect(within(cardOf('Firestore')).queryByLabelText(/^Updated —/)).toBeNull();
 
     // Toggling off restores real status — which is itself a change, so the
     // badge flips to describe the reversal on the next refresh.
@@ -225,7 +225,7 @@ describe('IntegrationsPage — mocked /api/status E2E', () => {
 
     expect(within(cardOf('GitHub')).getByLabelText(/^Updated —/)).toBeInTheDocument();
     expect(within(cardOf('Vercel')).getByLabelText(/^Updated —/)).toBeInTheDocument();
-    expect(within(cardOf('Supabase')).queryByLabelText(/^Updated —/)).toBeNull();
+    expect(within(cardOf('Firestore')).queryByLabelText(/^Updated —/)).toBeNull();
 
     expect(await screen.findByText(/2 cards just updated/)).toBeInTheDocument();
   });

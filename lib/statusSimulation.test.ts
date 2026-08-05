@@ -12,7 +12,7 @@ const statusBody = () => ({
   checkedAt: new Date().toISOString(),
   integrations: [
     { id: 'github', name: 'GitHub', endpoint: { ok: true, status: 200, ms: 40, detail: 'ok' } },
-    { id: 'supabase', name: 'Supabase', endpoint: null },
+    { id: 'firestore', name: 'Firestore', endpoint: null },
   ],
 });
 

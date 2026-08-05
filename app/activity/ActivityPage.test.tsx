@@ -69,7 +69,6 @@ describe('ActivityPage — Deliveries filter', () => {
     mockActivityLive = false;
     render(<ActivityPage />);
     expect(screen.getByText('Live activity feed is not connected')).toBeTruthy();
-    expect(screen.getByText(/supabase db push/)).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Integration setup' })).toBeTruthy();
   });
 });

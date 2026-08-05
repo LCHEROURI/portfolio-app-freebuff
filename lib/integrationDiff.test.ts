@@ -12,16 +12,15 @@ import type { IntegrationStatus } from './liveData';
 // ─── Fixtures ───────────────────────────────────────────────────────────────
 
 const base = (over: Partial<IntegrationStatus> = {}): IntegrationStatus => ({
-  id: 'supabase',
-  name: 'Supabase',
+  id: 'firestore',
+  name: 'Firestore',
   enabled: true,
   configured: true,
   env: [
-    { name: 'SUPABASE_URL', set: true, required: true },
-    { name: 'SUPABASE_SERVICE_ROLE_KEY', set: true, required: true },
-    { name: 'NEXT_PUBLIC_LIVE_TASKS', set: true, required: false },
+    { name: 'FIREBASE_SERVICE_ACCOUNT', set: true, required: true },
+    { name: 'NEXT_PUBLIC_FIREBASE_PROJECT_ID', set: true, required: true },
   ],
-  endpoint: { ok: true, status: 200, ms: 120, detail: 'Tasks table reachable' },
+  endpoint: { ok: true, status: 200, ms: 120, detail: 'Service account can read documents' },
   ...over,
 });
 
@@ -249,7 +248,7 @@ describe('computeChangedSummaries', () => {
     const prev = [base()];
     const next = [base({ endpoint: { ok: false, status: 503, ms: 90, detail: 'Service Unavailable' } })];
     expect(computeChangedSummaries(prev, next)).toEqual([
-      { id: 'supabase', changes: ['Endpoint OK → error', 'HTTP 200 → 503'] },
+      { id: 'firestore', changes: ['Endpoint OK → error', 'HTTP 200 → 503'] },
     ]);
   });
 
@@ -257,7 +256,7 @@ describe('computeChangedSummaries', () => {
     const prev = [base(), gh()];
     const next = [base({ enabled: false }), gh({ configured: true })];
     expect(computeChangedSummaries(prev, next)).toEqual([
-      { id: 'supabase', changes: ['Live flag turned off'] },
+      { id: 'firestore', changes: ['Live flag turned off'] },
       { id: 'github', changes: ['Now configured'] },
     ]);
   });
@@ -296,7 +295,7 @@ describe('computeChangedIds', () => {
   it('returns multiple ids when several integrations changed', () => {
     const prev = [base(), gh()];
     const next = [base({ enabled: false }), gh({ configured: true })];
-    expect(computeChangedIds(prev, next).sort()).toEqual(['github', 'supabase']);
+    expect(computeChangedIds(prev, next).sort()).toEqual(['firestore', 'github']);
   });
 
   it('returns [] when nothing changed', () => {

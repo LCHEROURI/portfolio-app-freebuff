@@ -30,7 +30,7 @@ import type { IntegrationChange } from '@/lib/integrationDiff';
 const POLL_MS = 30_000;
 
 const STATUS_ICONS: Record<string, LucideIcon> = {
-  supabase: Database,
+  firestore: Database,
   github: Github,
   vercel: Rocket,
   firebase: HeartPulse,
@@ -38,7 +38,7 @@ const STATUS_ICONS: Record<string, LucideIcon> = {
 };
 
 const STATUS_TONES: Record<string, string> = {
-  supabase: 'bg-basil-500 text-white',
+  firestore: 'bg-basil-500 text-white',
   github: 'bg-pepper-800 text-white',
   vercel: 'bg-pepper-900 text-white',
   firebase: 'bg-turmeric-500 text-white',
@@ -58,20 +58,15 @@ interface SetupStep {
 }
 
 const SETUP_GUIDES: Record<string, SetupStep[]> = {
-  supabase: [
+  firestore: [
     {
-      label: 'Create a Supabase project and run the schema',
-      note: 'Run supabase db push (or Dashboard → SQL Editor → paste supabase/schema.sql). It creates public.tasks, reminders, projects, versions, evaluations, and the activity table (report delivery history) with row-level security.',
+      label: 'Create a service account for the automation cron',
+      note: 'Console → Project settings → Service accounts → Generate new private key. The service account needs Cloud Datastore / Firestore read access (roles/datastore.user).',
     },
     {
-      label: 'Copy the project URL and service-role key',
-      code: 'SUPABASE_URL=https://<project-ref>.supabase.co\nSUPABASE_SERVICE_ROLE_KEY=<service-role-key>',
-      note: 'Project Settings → API. The service-role key is server-only — never prefix it with NEXT_PUBLIC_.',
-    },
-    {
-      label: 'Turn on the live flags',
-      code: 'NEXT_PUBLIC_LIVE_TASKS=1\nNEXT_PUBLIC_LIVE_PROJECTS=1',
-      note: 'PROJECTS persists projects/versions/evaluations so the automation cron can evaluate the project-level rules.',
+      label: 'Add the service account JSON (server-only)',
+      code: 'FIREBASE_SERVICE_ACCOUNT=<service-account-json>',
+      note: 'The cron reads projects/versions/tasks/evaluations from Firestore through this account. Never prefix it with NEXT_PUBLIC_.',
     },
   ],
   github: [
@@ -375,8 +370,8 @@ function SetupChecklist({ status }: { status: IntegrationStatus }) {
         <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 pl-[22px] font-mono text-[10px] text-paprika-600 dark:text-paprika-400">
           {missing.map((v, i) => {
             // Per-var deep-link to where this var's value lives (GitHub token
-            // page, Supabase API settings, Firebase console project, …). Vars
-            // you invent yourself (CRON_SECRET, REPORT_EMAIL) render plain.
+            // page, Firebase console project, …). Vars you invent yourself
+            // (CRON_SECRET, REPORT_EMAIL) render plain.
             const src = varSourceUrl(v.name, firebaseProjectId);
             return (
               <Fragment key={v.name}>
@@ -577,9 +572,9 @@ interface Integration {
 
 const INTEGRATIONS: Integration[] = [
   {
-    id: 'supabase', name: 'Supabase (Tasks + Reminders)', tone: 'bg-basil-500 text-white',
-    description: 'Live Tasks and Reminders table: add, edit, and check off items from Today and Tasks with state persisted to Postgres.',
-    icon: Database, status: 'off', statusLabel: 'Not configured', env: 'SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY',
+    id: 'firestore', name: 'Firestore (data store)', tone: 'bg-basil-500 text-white',
+    description: 'Projects, versions, evaluations, tasks, and activity all persist to Firestore through the Firebase SDK — the app\'s single data store, no separate database to provision.',
+    icon: Database, status: 'off', statusLabel: 'Not configured', env: 'FIREBASE_SERVICE_ACCOUNT',
   },
   {
     id: 'github', name: 'GitHub (Repositories)', tone: 'bg-pepper-800 text-white',
@@ -603,8 +598,8 @@ export default function IntegrationsPage() {
   const firebase = isFirebaseConfigured();
 
   const items = INTEGRATIONS.map((i) => {
-    if (i.id === 'supabase') {
-      return { ...i, status: flags.tasks ? 'live' as const : 'ready' as const, statusLabel: flags.tasks ? 'Connected — Tasks + Reminders live' : 'Schema ready' };
+    if (i.id === 'firestore') {
+      return { ...i, status: firebase ? 'live' as const : 'off' as const, statusLabel: firebase ? 'Connected — Firestore store active' : 'Not configured' };
     }
     if (i.id === 'github') {
       return { ...i, status: flags.repositories ? 'live' as const : 'ready' as const, statusLabel: flags.repositories ? 'Connected — Repositories live' : 'Ready (add token)' };
@@ -661,7 +656,7 @@ export default function IntegrationsPage() {
                 </span>
                 <span className="flex items-center gap-3">
                   <a
-                    href="https://github.com/LCHEROURI/portfolio-app-freebuff#-live-integrations-supabase-github-vercel"
+                    href="https://github.com/LCHEROURI/portfolio-app-freebuff#-live-integrations-github-vercel-firebase"
                     target="_blank"
                     rel="noreferrer"
                     className="inline-flex items-center gap-1 font-medium text-tomato-600 hover:underline dark:text-tomato-300"

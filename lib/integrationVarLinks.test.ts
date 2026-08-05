@@ -12,15 +12,11 @@ describe('varSourceUrl', () => {
     });
   });
 
-  it('maps SUPABASE vars to the API settings dashboard', () => {
-    expect(varSourceUrl('SUPABASE_URL')).toEqual({
-      label: 'Supabase API settings',
-      href: 'https://supabase.com/dashboard',
-    });
-    expect(varSourceUrl('SUPABASE_SERVICE_ROLE_KEY')).toEqual({
-      label: 'Supabase API settings',
-      href: 'https://supabase.com/dashboard',
-    });
+  it('maps SUPABASE-style vars (removed) to null and Firebase client vars to the console', () => {
+    // SUPABASE vars were removed with the Supabase migration — they must not
+    // resolve to a source page anymore.
+    expect(varSourceUrl('SUPABASE_URL')).toBeNull();
+    expect(varSourceUrl('SUPABASE_SERVICE_ROLE_KEY')).toBeNull();
   });
 
   it('maps VERCEL_TOKEN to the account tokens page', () => {
@@ -63,7 +59,7 @@ describe('varSourceUrl', () => {
     expect(varSourceUrl('REPORT_EMAIL')).toBeNull();
     expect(varSourceUrl('GITHUB_OWNER')).toBeNull();
     expect(varSourceUrl('GITHUB_REPOS')).toBeNull();
-    expect(varSourceUrl('NEXT_PUBLIC_LIVE_TASKS')).toBeNull();
+    expect(varSourceUrl('NEXT_PUBLIC_LIVE_REPOS')).toBeNull();
     expect(varSourceUrl('UNKNOWN_VAR')).toBeNull();
   });
 
@@ -76,8 +72,6 @@ describe('varSourceUrl', () => {
 
 describe('varEnvLine', () => {
   it('returns the .env.example template line for vars with a source page', () => {
-    expect(varEnvLine('SUPABASE_URL')).toBe('SUPABASE_URL=https://<project-ref>.supabase.co');
-    expect(varEnvLine('SUPABASE_SERVICE_ROLE_KEY')).toBe('SUPABASE_SERVICE_ROLE_KEY=<service-role-key>');
     expect(varEnvLine('GITHUB_TOKEN')).toBe('GITHUB_TOKEN=<github_pat_...>');
     expect(varEnvLine('VERCEL_TOKEN')).toBe('VERCEL_TOKEN=<token>');
     expect(varEnvLine('RESEND_API_KEY')).toBe('RESEND_API_KEY=<key>');
@@ -90,7 +84,7 @@ describe('varEnvLine', () => {
     expect(varEnvLine('REPORT_EMAIL')).toBeNull();
     expect(varEnvLine('GITHUB_OWNER')).toBeNull();
     expect(varEnvLine('GITHUB_REPOS')).toBeNull();
-    expect(varEnvLine('NEXT_PUBLIC_LIVE_TASKS')).toBeNull();
+    expect(varEnvLine('NEXT_PUBLIC_LIVE_REPOS')).toBeNull();
     expect(varEnvLine('UNKNOWN_VAR')).toBeNull();
   });
 });
@@ -99,7 +93,7 @@ describe('varEnvLine', () => {
 
 describe('firstVarSource', () => {
   it('returns the source page of the first var that has one', () => {
-    expect(firstVarSource(['GITHUB_TOKEN', 'SUPABASE_URL'])).toEqual({
+    expect(firstVarSource(['GITHUB_TOKEN', 'VERCEL_TOKEN'])).toEqual({
       label: 'GitHub token page',
       href: 'https://github.com/settings/personal-access-tokens/new',
     });
@@ -121,7 +115,7 @@ describe('firstVarSource', () => {
   });
 
   it('propagates the firebase project id to firebase vars', () => {
-    expect(firstVarSource(['NEXT_PUBLIC_FIREBASE_API_KEY', 'SUPABASE_URL'], 'apcc-prod')).toEqual({
+    expect(firstVarSource(['NEXT_PUBLIC_FIREBASE_API_KEY', 'VERCEL_TOKEN'], 'apcc-prod')).toEqual({
       label: 'Firebase console',
       href: 'https://console.firebase.google.com/project/apcc-prod/settings/general',
     });

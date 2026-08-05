@@ -14,8 +14,7 @@
 // failure so CI can fail when the automated add fails.
 // ============================================================================
 
-import { createSign } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { getServiceAccount, mintServiceAccountToken } from '../lib/server/sa-token.mjs';
 
 const args = process.argv.slice(2);
 const flag = (name, fallback) => {
@@ -24,48 +23,24 @@ const flag = (name, fallback) => {
 };
 const DOMAIN = new URL(flag('--domain', 'https://portfolio-app-freebuff.vercel.app')).hostname;
 const PROJECT = process.env.FIREBASE_PROJECT_ID ?? 'meal-planner-lcherouri';
-const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const CONFIG_URL = `https://identitytoolkit.googleapis.com/admin/v2/projects/${PROJECT}/config`;
 
-const saRaw = process.env.FIREBASE_SERVICE_ACCOUNT
-  ?? (process.env.FIREBASE_SERVICE_ACCOUNT_PATH
-    ? readFileSync(process.env.FIREBASE_SERVICE_ACCOUNT_PATH, 'utf8')
-    : '');
+const saRaw = getServiceAccount();
 if (!saRaw) {
   console.error('✗ FAIL: no service account (set FIREBASE_SERVICE_ACCOUNT or FIREBASE_SERVICE_ACCOUNT_PATH)');
   process.exit(1);
 }
 const sa = JSON.parse(saRaw);
 
-const b64url = (buf) => Buffer.from(buf).toString('base64url');
-const now = Math.floor(Date.now() / 1000);
-const header = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
-const claims = b64url(JSON.stringify({
-  iss: sa.client_email,
-  scope: 'https://www.googleapis.com/auth/cloud-platform',
-  aud: TOKEN_URL,
-  iat: now,
-  exp: now + 3600,
-}));
-const sig = createSign('RSA-SHA256').update(`${header}.${claims}`).sign(sa.private_key, 'base64url');
-const assertion = `${header}.${claims}.${sig}`;
-
-// 1. Exchange the JWT for an OAuth access token.
-console.log(`[1/3] Minting OAuth token for ${sa.client_email}`);
-const tokRes = await fetch(TOKEN_URL, {
-  method: 'POST',
-  headers: { 'content-type': 'application/x-www-form-urlencoded' },
-  body: new URLSearchParams({
-    grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-    assertion,
-  }),
-});
-const tokJson = await tokRes.json().catch(() => ({}));
-if (!tokRes.ok || !tokJson.access_token) {
-  console.error(`✗ FAIL: token mint → ${tokRes.status} ${JSON.stringify(tokJson).slice(0, 200)}`);
+// 1. Exchange the JWT for an OAuth access token (shared module — the same
+//    credential + mint flow the cron's firestoreAdmin.ts and the seeder use).
+let bearer;
+try {
+  bearer = await mintServiceAccountToken(saRaw);
+} catch (err) {
+  console.error(`✗ FAIL: token mint → ${err.message}`);
   process.exit(1);
 }
-const bearer = tokJson.access_token;
 
 // 2. Read the current authorizedDomains.
 console.log(`[2/3] Reading admin config for ${PROJECT}`);

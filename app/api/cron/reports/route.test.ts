@@ -27,13 +27,24 @@ vi.mock('@/lib/server/reporting/email', () => ({
   sendReportEmail: vi.fn(async () => ({ sent: true, emailId: 'email-1' })),
 }));
 
-// Supabase is mocked so tests can assert the activity log write without a real
-// project; default unconfigured so existing tests never touch it.
-vi.mock('@/lib/server/supabase', () => ({
-  isSupabaseConfigured: vi.fn(() => false),
-  supabaseSelect: vi.fn(async () => []),
-  supabaseUpsert: vi.fn(async (table: string, row: Record<string, unknown>) => row),
-}));
+// The Firestore admin module is mocked so tests can assert the activity log
+// write without a real service account; default unconfigured so existing tests
+// never touch it.
+// The Firestore admin module is mocked so tests can assert the activity log
+// write without a real service account; default unconfigured so existing tests
+// never touch it. Real exports (FIRESTORE_COLLECTIONS) are spread through so
+// the collection map can never drift from the module it mocks.
+vi.mock('@/lib/server/firestoreAdmin', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('@/lib/server/firestoreAdmin')>();
+  return {
+    ...mod,
+    isFirestoreAdminConfigured: vi.fn(() => false),
+    firestoreUpsert: vi.fn(async (_collection: string, row: Record<string, unknown>) => row),
+    firestoreList: vi.fn(async () => []),
+    getFirestoreProjectId: vi.fn(() => 'meal-planner-lcherouri'),
+    getFirestoreAdminToken: vi.fn(async () => 'test-token'),
+  };
+});
 
 vi.mock('@/lib/openrouter', async (importOriginal) => {
   const mod = await importOriginal<typeof import('@/lib/openrouter')>();
@@ -49,7 +60,7 @@ import { GET } from './route';
 import { loadLiveSnapshot } from '@/lib/server/reporting/data';
 import { sendReportEmail } from '@/lib/server/reporting/email';
 import { narrateTopThree, recommendWinner } from '@/lib/openrouter';
-import { isSupabaseConfigured, supabaseUpsert } from '@/lib/server/supabase';
+import { firestoreUpsert, isFirestoreAdminConfigured } from '@/lib/server/firestoreAdmin';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -57,7 +68,7 @@ import { isSupabaseConfigured, supabaseUpsert } from '@/lib/server/supabase';
  *  an unpushed repo, and an overdue task. */
 const snapshotWithTopThree: LiveSnapshot = {
   userId: 'demo-user',
-  configured: { supabase: true, github: true, deployments: true },
+  configured: { firestore: true, github: true, deployments: true },
   collections: {
     projects: [
       {
@@ -137,8 +148,8 @@ beforeEach(() => {
     projectIds: ['p-1'],
   });
   vi.mocked(sendReportEmail).mockClear();
-  vi.mocked(isSupabaseConfigured).mockReturnValue(false);
-  vi.mocked(supabaseUpsert).mockClear();
+  vi.mocked(isFirestoreAdminConfigured).mockReturnValue(false);
+  vi.mocked(firestoreUpsert).mockClear();
 });
 
 afterEach(() => {
@@ -416,24 +427,25 @@ describe('GET /api/cron/reports — sendTest=1', () => {
   });
 });
 
-// ─── Activity logging (Supabase) ────────────────────────────────────────────
+// ─── Activity logging (Firestore) ───────────────────────────────────────────
 
 describe('GET /api/cron/reports — activity logging', () => {
-  it('writes a report_generated activity row with the emailId when Supabase is configured', async () => {
-    vi.mocked(isSupabaseConfigured).mockReturnValue(true);
+  it('writes a report_generated activity doc with the emailId when Firestore admin is configured', async () => {
+    vi.mocked(isFirestoreAdminConfigured).mockReturnValue(true);
     await GET(makeReq('daily'));
 
-    expect(supabaseUpsert).toHaveBeenCalledTimes(1);
-    const row = vi.mocked(supabaseUpsert).mock.calls[0][1] as Record<string, unknown>;
+    expect(firestoreUpsert).toHaveBeenCalledTimes(1);
+    const [collection, row] = vi.mocked(firestoreUpsert).mock.calls[0] as [string, Record<string, unknown>];
+    expect(collection).toBe('activity');
     expect(row.kind).toBe('report_generated');
-    expect(row.owner_id).toBe('demo-user');
+    expect(row.userId).toBe('demo-user');
     expect(String(row.message)).toContain('daily report');
     expect(String(row.message)).toContain('email-1');
   });
 
-  it('does not touch Supabase when it is unconfigured', async () => {
+  it('does not touch Firestore when the service account is unconfigured', async () => {
     await GET(makeReq('weekly'));
-    expect(supabaseUpsert).not.toHaveBeenCalled();
+    expect(firestoreUpsert).not.toHaveBeenCalled();
   });
 });
 

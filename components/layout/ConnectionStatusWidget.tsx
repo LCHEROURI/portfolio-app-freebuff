@@ -72,10 +72,10 @@ export const ConnectionStatusWidget = ({ onClose }: { onClose?: () => void }) =>
   const needsSetup = statuses ? statuses.some((s) => levelOf(s) !== 'ok') : false;
 
   // Per-var console links + copy affordances: every missing required env var
-  // deep-links to where its value lives (GitHub token page, Supabase API
-  // settings, Firebase console) with a one-click copy of the .env.example
-  // line — same affordances as the Integrations setup checklists, now reachable
-  // from any page without leaving the sidebar.
+  // deep-links to where its value lives (GitHub token page, Vercel token page,
+  // Firebase console) with a one-click copy of the .env.example line — same
+  // affordances as the Integrations setup checklists, now reachable from any
+  // page without leaving the sidebar.
   const firebaseProjectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
   const missingVars = statuses
     ? statuses.flatMap((s) =>

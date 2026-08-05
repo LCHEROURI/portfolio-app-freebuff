@@ -127,8 +127,8 @@ export default function ActivityPage() {
   const store = useStore();
   const [filter, setFilter] = useState<'ALL' | typeof DELIVERIES | string>('ALL');
 
-  // When /api/activity isn't wired (Supabase not configured or the schema
-  // hasn't created the activity table), the feed is local-only. Surface that
+  // When the Firestore activity feed isn't live (service account missing or
+  // the user is in local demo mode), the feed is local-only. Surface that
   // instead of silently showing demo/partial delivery history.
   const liveActivityOff = !store.activityLive;
 
@@ -155,10 +155,9 @@ export default function ActivityPage() {
             <strong>Live activity feed is not connected</strong>
           </span>
           <span className="text-turmeric-700 dark:text-turmeric-300">
-            Showing local-only events. Wire Supabase and run{' '}
-            <code className="rounded bg-turmeric-100 px-1 py-0.5 font-mono text-[11px] dark:bg-turmeric-900">supabase db push</code>{' '}
-            (or <code className="rounded bg-turmeric-100 px-1 py-0.5 font-mono text-[11px] dark:bg-turmeric-900">supabase/schema.sql</code>)
-            to create the <code className="rounded bg-turmeric-100 px-1 py-0.5 font-mono text-[11px] dark:bg-turmeric-900">activity</code> table.{' '}
+            Showing local-only events. Sign in to sync activity to your Firestore
+            account — the app&apos;s single data store, no separate database to
+            provision.{' '}
             <Link href="/integrations" className="font-medium underline underline-offset-2 hover:text-tomato-600">
               Integration setup
             </Link>

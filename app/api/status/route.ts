@@ -10,8 +10,9 @@ import { getRequestUserId } from '@/lib/server/user';
 // Owner-scoped like every live route (verified Firebase ID token when Firebase
 // is configured, local id in demo mode). Returns which env vars are set
 // (booleans only — never values) and a live endpoint ping per integration:
-// Supabase (PostgREST), GitHub (rate_limit), Vercel (user API), Firebase
-// (projects API when a hosting token is set), and the automation engine.
+// Firestore (REST when a service account is set), GitHub (rate_limit), Vercel
+// (user API), Firebase (projects API when a hosting token is set), and the
+// automation engine.
 // ============================================================================
 
 export async function GET(req: NextRequest) {

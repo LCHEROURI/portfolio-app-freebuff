@@ -187,28 +187,29 @@ deterministic rule-based text (no crash, no missing sections). To verify the
 AI layer is live in production, open the **Integrations** page — the status
 panel reports which vars are set and which endpoints respond.
 
-### 🔌 Live integrations — Supabase · GitHub · Vercel
+### 🔌 Live integrations — Firestore · GitHub · Vercel
 
 The Command Center ships with a **live-data layer** that replaces demo
-placeholder data with your real services. Each integration is toggled by a
-`NEXT_PUBLIC_LIVE_*` flag plus a matching server-side credential; if a
-credential is missing the app falls back to local demo data, so every screen
-stays usable.
+placeholder data with your real services. There is **no separate database**:
+the app's single data store is **Firestore** — the client persists projects,
+versions, evaluations, tasks, and activity through the Firebase SDK, and the
+automation cron reads the *same* documents server-side via a service account.
+GitHub and Vercel feeds are toggled by a `NEXT_PUBLIC_LIVE_*` flag plus a
+matching server-side credential; if a credential is missing the app falls back
+to local demo data, so every screen stays usable.
 
 | Source | Feeds | Flag | Server env |
 | --- | --- | --- | --- |
-| **Supabase** | `Today` + `Tasks` + `Projects`/`Versions` — tasks, reminders, projects, versions & evaluations persisted to Postgres (the tables the automation cron reads) | `NEXT_PUBLIC_LIVE_TASKS=1`, `NEXT_PUBLIC_LIVE_PROJECTS=1` | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` |
+| **Firestore** | `Projects`/`Versions`/`Tasks`/`Activity` — the app's single data store; the cron reads the same docs the client writes | (always on with Firebase) | `FIREBASE_SERVICE_ACCOUNT`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` |
 | **GitHub** | `Repositories` — branches, latest commit, PRs, issues, workflow status | `NEXT_PUBLIC_LIVE_REPOS=1` | `GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPOS` |
 | **Vercel** | `Deployments` — latest deploy per project + live health checks (HTTP status + response time) | `NEXT_PUBLIC_LIVE_DEPLOYMENTS=1` | `VERCEL_TOKEN`, `VERCEL_TEAM_ID` |
 
 **Setup (full detail in `.env.example`):**
 
-1. **Supabase** — create a project, then apply `supabase/schema.sql` with
-   `supabase db push` (or paste it into the Dashboard's SQL Editor). It creates
-   `tasks`, `reminders`, `projects`, `versions`, `evaluations` and `activity`
-   (the report-delivery history table) with owner-scoped RLS. Then add the
-   project URL + service-role key to your env. Set `NEXT_PUBLIC_LIVE_PROJECTS=1`
-   to persist projects/versions/evaluations there as well.
+1. **Firestore** — no schema to push. The client writes through the Firebase
+   SDK; for the automation cron, generate a service account JSON (Console →
+   Project settings → Service accounts) with Firestore read access
+   (`roles/datastore.user`) and set `FIREBASE_SERVICE_ACCOUNT`.
 2. **GitHub** — create a fine-grained PAT (repo read). Owner defaults to
    `LCHEROURI`; the repo list defaults to your 7 active repos and is
    overridable via `GITHUB_REPOS`.
@@ -219,7 +220,7 @@ stays usable.
 **Connection status panel** — the **Integrations** page live-polls `/api/status`
 (every 30s + manual refresh) and shows, per integration: exactly which env
 vars are set (✓/✗, booleans only — values are never exposed) and a live
-endpoint ping with HTTP status + latency (Supabase PostgREST, GitHub
+endpoint ping with HTTP status + latency (Firestore, GitHub
 `rate_limit`, Vercel `v2/user`, Firebase projects API, and the automation
 engine). Pings are cached server-side for 2 minutes (successful responses
 only — failures retry immediately), so polling never hammers provider APIs;
@@ -254,8 +255,9 @@ route.
 
 The 14 rules aren't just a dashboard widget — a **Vercel Cron job**
 (`vercel.json` → `/api/cron/reports`) evaluates them against the **live data**
-(Supabase tasks/projects/versions/evaluations, live GitHub repos, Vercel/
-Firebase deployments with health checks) and emails you a report:
+(Firestore tasks/projects/versions/evaluations via the service account, live
+GitHub repos, Vercel/Firebase deployments with health checks) and emails you a
+report:
 
 - **Daily (07:00 UTC):** attention items, overdue + due-today + completed-
 yesterday tasks, failed deployments, unpushed commits, priority queue, and
@@ -374,9 +376,8 @@ node scripts/verify-auth-domains.mjs --app http://localhost:3000 --domain localh
 
 **Delivery history on the Activity page:** every "Save and email now", retry,
 and cron send writes a `report_generated` activity entry (kind, emailId, and
-delivery status) into the Supabase `activity` table when a live source is
-wired, so the `/activity` feed shows the full delivery trail next to the
-in-app delivery badges.
+delivery status) into the Firestore `activity` collection, so the `/activity`
+feed shows the full delivery trail next to the in-app delivery badges.
 
 **Rotating `CRON_SECRET`** (do this whenever it may have leaked, or to keep the
 local `.env.local` and the Vercel/GitHub values in lockstep):
@@ -498,13 +499,11 @@ components/     Layout shell, auth gate, modals, UI kit
 lib/            firebase.ts, auth.tsx, firestore.ts, seed.ts, engine.ts,
                 store.tsx (React context), liveData.ts (live API facade),
                 theme.tsx
-app/api/        Live API routes: tasks, reminders, projects, versions,
-                evaluations, repos (GitHub), deployments (Vercel + health
+app/api/        Live API routes: repos (GitHub), deployments (Vercel + health
                 checks), scanner, cron/reports (automation engine)
-lib/server/     github.ts, deployments.ts, supabase.ts, rows.ts,
+lib/server/     github.ts, deployments.ts, firestoreAdmin.ts,
                 reporting/ (data assembly + email)
-supabase/       schema.sql — tasks, reminders, projects, versions,
-                evaluations, activity tables with RLS
+lib/firestore.ts  Client Firestore store — the app's single data layer
 types/          Full domain model + zod schemas + scoring
 scripts/        repo-scanner.mjs (local CLI companion)
 functions/      Firebase Cloud Functions (automation + scheduled reports)

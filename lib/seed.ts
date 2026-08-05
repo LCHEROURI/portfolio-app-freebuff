@@ -260,7 +260,7 @@ const p3obj: Project = {
 
 const version3a: ProjectVersion = {
   id: v3a, projectId: p3, userId: uid, versionName: 'Lovable Build', builder: 'Lovable',
-  model: 'Lovable default', developmentPlatform: 'Lovable + Supabase-free Firebase',
+  model: 'Lovable default', developmentPlatform: 'Lovable + Firebase',
   status: 'BUILDING', progress: 46, localFolderPath: '~/dev/resto-social/lovable',
   repositoryId: r3, deploymentIds: [d3a], primaryDeploymentId: d3a, branch: 'main',
   blocker: 'Facebook API app review pending', lastActivityAt: daysAgo(1),

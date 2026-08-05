@@ -1,24 +1,26 @@
 import { fetchGitHubRepos } from '@/lib/server/github';
 import { fetchLiveDeployments } from '@/lib/server/deployments';
-import { fromEvaluationRow, fromProjectRow, fromTaskRow, fromVersionRow, type Row } from '@/lib/server/rows';
-import { isSupabaseConfigured, supabaseSelect } from '@/lib/server/supabase';
+import {
+  FIRESTORE_COLLECTIONS, firestoreList, isFirestoreAdminConfigured,
+} from '@/lib/server/firestoreAdmin';
 import { mergeScannerOverlay } from '@/lib/scannerOverlay';
 import type { AppState } from '@/lib/engine';
-import type { UserProfile } from '@/types';
+import type { UserProfile, Task, Project, ProjectVersion, ModelEvaluation } from '@/types';
 
 // ============================================================================
 // Live snapshot assembly for the automation engine.
 //
 // The cron evaluates the exact same rules as the UI (lib/engine.ts is pure and
-// server-safe) against one assembled AppState: Supabase-backed tasks/projects/
-// versions/evaluations, the live GitHub repo feed, and live Vercel/Firebase
-// deployments with health checks. Every source degrades to [] when unconfigured
-// or unreachable so the engine never throws.
+// server-safe) against one assembled AppState: Firestore-backed tasks/projects/
+// versions/evaluations (written by the client's FirestoreService), the live
+// GitHub repo feed, and live Vercel/Firebase deployments with health checks.
+// Every source degrades to [] when unconfigured or unreachable so the engine
+// never throws.
 // ============================================================================
 
 export interface LiveSnapshot {
   userId: string;
-  configured: { supabase: boolean; github: boolean; deployments: boolean };
+  configured: { firestore: boolean; github: boolean; deployments: boolean };
   collections: Pick<
     AppState,
     'projects' | 'versions' | 'repositories' | 'deployments' | 'tasks' | 'evaluations'
@@ -50,20 +52,20 @@ export const serverProfile = (ownerId: string): UserProfile => ({
 });
 
 export const loadLiveSnapshot = async (ownerId: string): Promise<LiveSnapshot> => {
-  const supabase = isSupabaseConfigured();
+  const firestore = isFirestoreAdminConfigured();
 
   const [tasks, projects, versions, evaluations] = await Promise.all([
-    supabase
-      ? safe(() => supabaseSelect<Row>('tasks', ownerId, { order: 'position' }).then((r) => r.map(fromTaskRow)))
+    firestore
+      ? safe(() => firestoreList<Task>(FIRESTORE_COLLECTIONS.tasks, ownerId))
       : Promise.resolve(null),
-    supabase
-      ? safe(() => supabaseSelect<Row>('projects', ownerId, { order: 'updated_at.desc' }).then((r) => r.map(fromProjectRow)))
+    firestore
+      ? safe(() => firestoreList<Project>(FIRESTORE_COLLECTIONS.projects, ownerId))
       : Promise.resolve(null),
-    supabase
-      ? safe(() => supabaseSelect<Row>('versions', ownerId, { order: 'created_at' }).then((r) => r.map(fromVersionRow)))
+    firestore
+      ? safe(() => firestoreList<ProjectVersion>(FIRESTORE_COLLECTIONS.versions, ownerId))
       : Promise.resolve(null),
-    supabase
-      ? safe(() => supabaseSelect<Row>('evaluations', ownerId, { order: 'updated_at.desc' }).then((r) => r.map(fromEvaluationRow)))
+    firestore
+      ? safe(() => firestoreList<ModelEvaluation>(FIRESTORE_COLLECTIONS.evaluations, ownerId))
       : Promise.resolve(null),
   ]);
 
@@ -92,7 +94,7 @@ export const loadLiveSnapshot = async (ownerId: string): Promise<LiveSnapshot> =
   return {
     userId: ownerId,
     configured: {
-      supabase,
+      firestore,
       github: Boolean(process.env.GITHUB_TOKEN) || (repositories?.length ?? 0) > 0,
       deployments: Boolean(process.env.VERCEL_TOKEN) || Boolean(process.env.FIREBASE_TOKEN),
     },

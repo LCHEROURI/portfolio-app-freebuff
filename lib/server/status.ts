@@ -1,5 +1,8 @@
 import type { IntegrationAuthDomains, IntegrationEndpoint, IntegrationEnvVar, IntegrationStatus } from '@/lib/liveData';
 import { isDomainAuthorized, originHostname } from '@/lib/authDomains';
+import {
+  getFirestoreAdminToken, getFirestoreProjectId, isFirestoreAdminConfigured,
+} from '@/lib/server/firestoreAdmin';
 
 // ============================================================================
 // Integration connection-status checks (server-only).
@@ -83,37 +86,42 @@ const endpoint = (r: PingResult, detail: string, okOverride?: boolean): Integrat
 
 const unsetEndpoint = (): IntegrationEndpoint | null => null;
 
-// ─── Supabase ───────────────────────────────────────────────────────────────
-const checkSupabase = async (): Promise<IntegrationStatus> => {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const configured = Boolean(url && key);
+// ─── Firestore (server-side data store for the automation engine) ───────────
+const checkFirestore = async (): Promise<IntegrationStatus> => {
+  const configured = isFirestoreAdminConfigured();
   const env = [
-    envVar('SUPABASE_URL', true),
-    envVar('SUPABASE_SERVICE_ROLE_KEY', true),
-    envVar('NEXT_PUBLIC_LIVE_TASKS', false, true),
-    envVar('NEXT_PUBLIC_LIVE_PROJECTS', false, true),
+    envVar('FIREBASE_SERVICE_ACCOUNT', true),
+    envVar('FIREBASE_SERVICE_ACCOUNT_PATH'),
+    envVar('NEXT_PUBLIC_FIREBASE_PROJECT_ID', true),
   ];
 
   let ep = unsetEndpoint();
-  if (configured && url) {
-    const r = await cachedPing('supabase', `${url}/rest/v1/tasks?select=id&limit=1`, {
-      headers: { apikey: key as string, Authorization: `Bearer ${key}` },
-    });
-    const json = r.json as { code?: string; message?: string } | null;
-    const detail =
-      r.status === 200 ? 'Tasks table reachable'
-      : r.status === 404 && json?.code === '42P01' ? 'Tables missing — run supabase/schema.sql'
-      : r.status === 401 ? 'Service-role key invalid'
-      : r.status === null ? 'Unreachable'
-      : r.status === 404 ? `HTTP ${r.status} (${json?.message ?? 'not found'})`
-      : `HTTP ${r.status}`;
-    ep = endpoint(r, detail);
+  if (configured) {
+    try {
+      const token = await getFirestoreAdminToken();
+      const project = getFirestoreProjectId();
+      const r = await cachedPing(
+        'firestore',
+        `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents?pageSize=1`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      const detail =
+        r.status === 200 ? 'Service account can read documents'
+        : r.status === 401 || r.status === 403 ? 'Service account lacks access'
+        : r.status === null ? 'Unreachable'
+        : `HTTP ${r.status}`;
+      ep = endpoint(r, detail);
+    } catch {
+      ep = { ok: false, status: null, ms: null, detail: 'Token mint failed' };
+    }
   }
 
   return {
-    id: 'supabase', name: 'Supabase', enabled: flagSet('NEXT_PUBLIC_LIVE_TASKS'),
+    id: 'firestore', name: 'Firestore', enabled: configured,
     configured, env, endpoint: ep,
+    note: configured
+      ? 'Service account reads the same projects/versions/tasks/evaluations the client writes, so the cron evaluates real data.'
+      : 'The automation cron falls back to empty live data until FIREBASE_SERVICE_ACCOUNT is set.',
   };
 };
 
@@ -273,8 +281,8 @@ export const checkIntegrations = async (
   projectOrigin?: string,
 ): Promise<IntegrationStatus[]> => {
   if (refresh) pingCache.clear();
-  const [supabase, github, vercel, firebase] = await Promise.all([
-    checkSupabase(), checkGithub(), checkVercel(), checkFirebase(origin, projectOrigin),
+  const [firestore, github, vercel, firebase] = await Promise.all([
+    checkFirestore(), checkGithub(), checkVercel(), checkFirebase(origin, projectOrigin),
   ]);
-  return [supabase, github, vercel, firebase, checkAutomation()];
+  return [firestore, github, vercel, firebase, checkAutomation()];
 };

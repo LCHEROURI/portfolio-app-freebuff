@@ -44,7 +44,7 @@ const healthy = (id: string, name: string, envVars: string[]): IntegrationStatus
 });
 
 const baseline = (): IntegrationStatus[] => [
-  healthy('supabase', 'Supabase', ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'NEXT_PUBLIC_LIVE_TASKS']),
+  healthy('firestore', 'Firestore', ['FIREBASE_SERVICE_ACCOUNT', 'NEXT_PUBLIC_FIREBASE_PROJECT_ID']),
   healthy('github', 'GitHub', ['GITHUB_TOKEN', 'NEXT_PUBLIC_LIVE_REPOS']),
   healthy('vercel', 'Vercel', ['VERCEL_TOKEN', 'NEXT_PUBLIC_LIVE_DEPLOYMENTS']),
   healthy('firebase', 'Firebase', ['NEXT_PUBLIC_FIREBASE_API_KEY', 'NEXT_PUBLIC_FIREBASE_PROJECT_ID']),
