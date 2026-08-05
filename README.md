@@ -324,9 +324,7 @@ node scripts/verify-cron-email.mjs \
 ```
 
 It reads `CRON_SECRET` from `--secret`, then the `CRON_SECRET` env var, then
-`.env.local`, and exits nonzero on any failed assertion. CI runs it against the
-live deploy after every push to `main` (the `verify-deployed-cron` job,
-gated on the `CRON_SECRET` GitHub Actions secret).
+`.env.local`, and exits nonzero on any failed assertion.
 
 **Verifying Firebase ID-token auth on the send route:** the packaged
 `verify:send-auth` smoke test proves the deployed `/api/reports/send` (the
@@ -343,6 +341,36 @@ node scripts/verify-send-auth.mjs --base http://localhost:3000   # local dev
 
 It reads `NEXT_PUBLIC_FIREBASE_API_KEY` / `NEXT_PUBLIC_FIREBASE_PROJECT_ID`
 from env, then `.env.local`, and exits nonzero on any failed assertion.
+
+**Post-deploy verification suite — every push proves the live app.** Three
+packaged smoke tests run against the deployed URL after each push to `main`
+(see `.github/workflows/ci.yml`); each reads its secrets from env (then
+`.env.local`) and exits nonzero on any failed assertion:
+
+| Script | What it proves | Required GitHub secret |
+| --- | --- | --- |
+| `npm run verify:cron-email` | Deployed `/api/cron/reports` 401s without auth; daily + weekly email bodies carry the friendly `(DeepSeek Chat)` heading and the raw-id `Model:` footer | `CRON_SECRET` |
+| `npm run verify:firestore-rules` | Merged rules on the shared project: portfolio write/read under the user's uid, cross-user denied, meal-planner owner grants + stranger denials (mints + deletes a throwaway user) | `FIREBASE_WEB_API_KEY` |
+| `npm run verify:auth-domains` | Deployed `/api/status?project=<domain>` reports `authDomains.ok` for the shipping domain (defaults to the production URL; pass `--domain <preview-url>` to validate a preview before it ships) | `FIREBASE_WEB_API_KEY` |
+
+Set `CRON_SECRET` and `FIREBASE_WEB_API_KEY` in **GitHub → Settings → Secrets
+→ Actions** (and the same values in Vercel's env for the deployed app). The
+`verify-deployed` CI job runs cron-email + Firestore rules after every push;
+the `verify-auth-domains` job fails the run when the domain is not in the
+project's Firebase **Authorized domains** list; and
+`.github/workflows/preview-gate.yml` runs the same check against every Vercel
+**preview** URL via the `deployment_status` webhook. The merged
+`firestore.rules` itself is guarded by `lib/firestoreRules.test.ts`, which
+asserts every portfolio + meal-planner collection and its field-level
+constraints survive future edits.
+
+Local equivalents (against `localhost`):
+
+```bash
+node scripts/verify-cron-email.mjs --base http://localhost:3000 --secret "$CRON_SECRET"
+node scripts/verify-firestore-rules.mjs
+node scripts/verify-auth-domains.mjs --app http://localhost:3000 --domain localhost
+```
 
 **Delivery history on the Activity page:** every "Save and email now", retry,
 and cron send writes a `report_generated` activity entry (kind, emailId, and

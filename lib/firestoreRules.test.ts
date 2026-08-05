@@ -51,6 +51,14 @@ const hasBlock = (collection: string): boolean => {
 
 const indexOf = (needle: string): number => rules.indexOf(needle);
 
+/** Extract one top-level collection block (from its `match /` to the next). */
+const blockOf = (collection: string): string => {
+  const start = rules.indexOf(`match /${collection}/{`);
+  if (start === -1) return '';
+  const next = rules.indexOf('\n    match /', start + 1);
+  return rules.slice(start, next === -1 ? rules.length : next);
+};
+
 describe('firestore.rules — merged spec', () => {
   it('covers every portfolio collection', () => {
     for (const c of PORTFOLIO) {
@@ -74,6 +82,22 @@ describe('firestore.rules — merged spec', () => {
     for (const c of MEAL_PLANNER) {
       expect(hasBlock(c), `missing rules block for /${c}`).toBe(true);
     }
+  });
+
+  it('keeps the meal-planner field-level create constraints', () => {
+    // users: displayName is required and string; householdSize is a positive int.
+    const users = blockOf('users');
+    expect(users).toMatch(/keys\(\)\.hasAll\(\['displayName'\]\)/);
+    expect(users).toMatch(/request\.resource\.data\.displayName is string/);
+    expect(users).toMatch(/request\.resource\.data\.householdSize is int/);
+    expect(users).toMatch(/request\.resource\.data\.householdSize >= 1/);
+    // users: the update allow-list (changedKeys().hasOnly) must stay.
+    expect(users).toMatch(/changedKeys\(\)\.hasOnly\(\[/);
+
+    // mealPlans: ownerId is claimed on create and immutable on update.
+    const mealPlans = blockOf('mealPlans');
+    expect(mealPlans).toMatch(/request\.resource\.data\.ownerId == request\.auth\.uid/);
+    expect(mealPlans).toMatch(/request\.resource\.data\.ownerId == resource\.data\.ownerId/);
   });
 
   it('keeps the catch-all deny last', () => {
