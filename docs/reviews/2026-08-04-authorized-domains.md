@@ -64,8 +64,50 @@ With both fixes, the helper refreshes the OAuth token, persists it back into `~/
 
 Validating a freshly deployed URL from CI hit a second wall: Vercel's deployment protection 302-redirects the raw deployment URL to `vercel.com/sso-api`, so a script following redirects lands on an HTML page (HTTP 200, no JSON) and reports "no firebase.authDomains" instead of the real domain verdict. The gallery capture workflow already solved this with the `VERCEL_PROTECTION_BYPASS` secret sent as an `x-vercel-protection-bypass` header; the authorized-domains gate now uses the same header when that secret is set (`scripts/verify-auth-domains.mjs` + `.github/workflows/preview-gate.yml`). Without the secret set on the repo, the preview gate cannot reach the API behind protection, so it fails at the wall rather than at the domain check.
 
+## Addendum (Aug 2026): why `gcloud iam oauth-clients` cannot back Firebase Google sign-in
+
+A follow-up incident on the same project: Google sign-in was enabled in the
+console and the Identity Platform `defaultSupportedIdpConfigs/google.com`
+record existed, yet the browser popup still failed. The admin API and the
+`createAuthUri` SDK surface both looked healthy — the actual failure only
+appeared when Google's own OAuth endpoint was hit: **"The OAuth client was
+not found"** (`invalid_client`).
+
+**Root cause:** the client had been created with `gcloud iam oauth-clients`,
+which provisions clients in the **IAM Workforce Identity Federation / IAP
+registry**. Those clients get UUID-style ids (e.g.
+`af28e1eb0-e4d3-4c68-9ef0-3a8a2c5f696f`) and are designed for workforce
+identity and IAP access — they are **not** registered with Google's consumer
+OAuth system that `accounts.google.com/o/oauth2/v2/auth` (and therefore
+Firebase Auth's Google popup) resolves against. No amount of propagation fixes
+this: it is an architectural mismatch, not a delay.
+
+**What Firebase actually needs:** a *classic* web OAuth client id in the form
+`{projectNumber}-{hash}.apps.googleusercontent.com` plus its `GOCSPX-…`
+secret, stored in the IdP record. Classic clients can only be created in the
+GCP console (Google Auth Platform → Clients → Create Client → Web
+application) with `https://<auth-domain>/__/auth/handler` as an authorized
+redirect URI — there is no public API or gcloud command for them. The console
+Google toggle normally auto-creates this client and the record; on this
+project that toggle kept failing to land (it was applied to a different
+project under the same account), so the record was created via the admin API
+and the classic client manually.
+
+**How it is wired now:** `scripts/wire-google-client.mjs` PATCHes
+`clientId`/`clientSecret`/`enabled` into the record and then verifies at four
+layers — admin GET round-trip, `accounts.google.com` recognizing the client,
+and the SDK `createAuthUri` embedding the classic id. Its `isClassicWebClientId`
+/ `isClassicClientSecret` guards (tested in `scripts/wire-google-client.test.ts`)
+reject the UUID format on sight, so the wrong-kind-client failure mode is
+caught before it ever reaches the record.
+
+**Lesson:** when Google sign-in breaks, verify the *client id format* in the
+IdP record, not just that the record exists. A Workforce client passes every
+admin-API check and still fails at Google's door.
+
 ## Files
 
 - `.freebuff/add-auth-domains.py` (gitignored helper, not committed)
 - `scripts/verify-auth-domains.mjs` (committed gate)
 - `scripts/verify-prod-signin.mjs` (committed end-to-end sign-in + Firestore sync proof)
+- `scripts/wire-google-client.mjs` + `scripts/wire-google-client.test.ts` (classic-client wiring + format guards)

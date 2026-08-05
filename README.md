@@ -137,6 +137,30 @@ Deploy the rules with:
 npx firebase deploy --only firestore:rules
 ```
 
+**Google sign-in (popup) needs a classic web OAuth client.** Email/password
+works out of the box, but the Google provider requires a *classic* web OAuth
+client (`{projectNumber}-{hash}.apps.googleusercontent.com` + a `GOCSPX-…`
+secret) registered in the Identity Platform `defaultSupportedIdpConfigs`
+record. The Firebase console's Google toggle normally auto-creates this; if it
+silently fails (the console shows Enabled but the API 404s), create the client
+manually in the GCP console (Google Auth Platform → Clients → Create Client →
+**Web application**, with `https://<auth-domain>/__/auth/handler` as an
+authorized redirect URI) and wire it in with the one-shot script:
+
+```bash
+GOOGLE_CLIENT_ID=<projectNumber>-<hash>.apps.googleusercontent.com \
+GOOGLE_CLIENT_SECRET=GOCSPX-... \
+node scripts/wire-google-client.mjs
+```
+
+The script PATCHes the `google.com` IdP record via the admin API and verifies
+accounts.google.com recognizes the client. Do **not** use
+`gcloud iam oauth-clients` for this — it creates Workforce/IAP clients with
+UUID-style ids that Google's consumer OAuth endpoint rejects with "The OAuth
+client was not found". The `isClassicWebClientId` / `isClassicClientSecret`
+format guards (tested in `scripts/wire-google-client.test.ts`) reject exactly
+that failure mode.
+
 In **Demo Mode** (no env vars) everything still works: seeded data persists to
 localStorage and the app never asks for credentials.
 
