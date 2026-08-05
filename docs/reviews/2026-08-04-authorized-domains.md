@@ -45,6 +45,15 @@ End-to-end proof after the fix, all PASS:
 - The CI gates stay in place: every push re-proves the production domain is authorized, and every Vercel deployment re-proves the exact URL it shipped.
 - Adding a domain is now a one-line idempotent helper call instead of a manual console step, so future projects can be unblocked without hunting through the console.
 
+## Token refresh: the 401 and how the helper self-heals
+
+Midway through adding preview URLs, the helper started failing with a 401 on the admin API. Two bugs caused it:
+
+1. **Milliseconds vs seconds.** The Firebase CLI stores `expires_at` in milliseconds, but the helper compared it against `time.time()` (seconds). The comparison always looked fresh, so the helper never refreshed and kept sending the expired access token, which the admin API rejects with 401. Fix: compare `expires_at` against `time.time() * 1000`.
+2. **Missing client secret.** The refresh call sent `client_secret: ''`. Google's token endpoint rejects that with `invalid_request: client_secret is missing`. The real secret is baked into firebase-tools (`lib/api.js` -> `clientSecret()`); the helper now uses it.
+
+With both fixes, the helper refreshes the OAuth token, persists it back into `~/.config/configstore/firebase-tools.json`, and continues. A full interactive re-login (`firebase login`) is only needed if the refresh token itself is ever revoked; until then the helper self-heals on every run. If a future run prints `TOKEN_FAIL`, refresh the token once with `firebase login --no-localhost` (paste the code back) or delete the stale entry in the configstore and log in again.
+
 ## Gotcha: fresh deployment URLs sit behind Vercel's SSO wall
 
 Validating a freshly deployed URL from CI hit a second wall: Vercel's deployment protection 302-redirects the raw deployment URL to `vercel.com/sso-api`, so a script following redirects lands on an HTML page (HTTP 200, no JSON) and reports "no firebase.authDomains" instead of the real domain verdict. The gallery capture workflow already solved this with the `VERCEL_PROTECTION_BYPASS` secret sent as an `x-vercel-protection-bypass` header; the authorized-domains gate now uses the same header when that secret is set (`scripts/verify-auth-domains.mjs` + `.github/workflows/preview-gate.yml`). Without the secret set on the repo, the preview gate cannot reach the API behind protection, so it fails at the wall rather than at the domain check.

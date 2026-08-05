@@ -21,7 +21,7 @@
 // ============================================================================
 
 import { spawn } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 
@@ -34,6 +34,11 @@ const flag = (name, fallback) => {
 const APP = (flag('--app', process.env.VERIFY_BASE_URL) ?? 'https://portfolio-app-freebuff.vercel.app').replace(/\/$/, '');
 const CHROME = process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const PORT = 9334;
+// A fresh, unique profile per run so no previous sign-in session leaks into
+// the next run. A shared fixed dir (e.g. /tmp/prod-signin-chrome) keeps the
+// Firebase session from the prior run, so the AuthGate never renders and the
+// check falsely reports the shell instead of exercising the sign-in flow.
+const USER_DATA_DIR = `/tmp/prod-signin-chrome-${process.pid}-${Date.now()}`;
 
 const API_KEY =
   process.env.FIREBASE_WEB_API_KEY ??
@@ -115,7 +120,7 @@ const chrome = spawn(CHROME, [
   '--no-first-run',
   '--disable-background-networking',
   `--remote-debugging-port=${PORT}`,
-  '--user-data-dir=/tmp/prod-signin-chrome',
+  `--user-data-dir=${USER_DATA_DIR}`,
   'about:blank',
 ], { stdio: 'ignore' });
 
@@ -282,5 +287,6 @@ if (FS) {
 
 ws.close();
 chrome.kill();
+try { rmSync(USER_DATA_DIR, { recursive: true, force: true }); } catch { /* best-effort */ }
 console.error(`\nRESULT: ${failures === 0 ? 'PASS' : `FAIL (${failures})`}`);
 process.exit(failures === 0 ? 0 : 1);

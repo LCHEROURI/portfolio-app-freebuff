@@ -114,3 +114,43 @@ jobs:
         run: node scripts/verify-auth-domains.mjs
         env:
           FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+
+  # Post-deploy sign-in smoke test against the LIVE production URL. Drives a
+  # real headless-Chrome session via CDP: mints a throwaway Firebase user,
+  # types the credentials into the AuthGate form, asserts the gate releases
+  # into the Command Center shell, and proves Firestore read/write sync under
+  # the real account. A broken sign-in or a Firestore rules regression fails
+  # the run. Gated on FIREBASE_WEB_API_KEY so forks / unconfigured repos stay
+  # green and the check only runs where a real deployment exists.
+  verify-prod-signin:
+    name: Verify production sign-in + Firestore sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    needs: validate
+    if: ${{ github.event_name == 'push' }}
+
+    env:
+      FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Chrome for headless CDP
+        id: chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: Verify production sign-in and Firestore sync
+        if: ${{ env.FIREBASE_WEB_API_KEY != '' }}
+        run: node scripts/verify-prod-signin.mjs
+        env:
+          FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: meal-planner-lcherouri
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
