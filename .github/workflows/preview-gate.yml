@@ -21,10 +21,14 @@ jobs:
     name: Verify deployed domain is authorized
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # `secrets` is not a valid context in job-level `if`, so the key presence
+    # check happens on the step via job env below.
     if: >-
       github.event.deployment_status.state == 'success' &&
-      github.event.deployment_status.target_url != '' &&
-      secrets.FIREBASE_WEB_API_KEY != ''
+      github.event.deployment_status.target_url != ''
+
+    env:
+      FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
 
     steps:
       - name: Check out repository
@@ -39,6 +43,7 @@ jobs:
       # production). The script calls that app's own /api/status?project=
       # with the deployed origin, so it needs no extra configuration per URL.
       - name: Verify deployed domain is authorized
+        if: ${{ env.FIREBASE_WEB_API_KEY != '' }}
         run: node scripts/verify-auth-domains.mjs --app "${{ github.event.deployment_status.target_url }}"
         env:
           FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}

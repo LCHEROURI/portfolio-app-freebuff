@@ -84,6 +84,32 @@ describe('firestore.rules — merged spec', () => {
     }
   });
 
+  it('keeps the meal-planner subcollection owner checks', () => {
+    const mealPlans = blockOf('mealPlans');
+    // recipes subcollection: reads and writes scoped to the plan owner via
+    // a parent-document lookup.
+    expect(mealPlans).toMatch(/match \/recipes\/\{recipeId\}/);
+    expect(mealPlans).toMatch(
+      /isOwner\(get\(\/databases\/\$\(database\)\/documents\/mealPlans\/\$\(planId\)\).data\.ownerId\)/,
+    );
+    // shoppingItems subcollection: same owner check.
+    expect(mealPlans).toMatch(/match \/shoppingItems\/\{itemId\}/);
+    expect(mealPlans).toMatch(
+      /isOwner\(get\(\/databases\/\$\(database\)\/documents\/mealPlans\/\$\(planId\)\).data\.ownerId\)/,
+    );
+  });
+
+  it('keeps the publicShares single-get rule', () => {
+    const shares = blockOf('publicShares');
+    // Single-share get only: no list, no random reads.
+    expect(shares).toMatch(/allow get: if resource\.data\.isActive == true/);
+    expect(shares).toMatch(/resource\.data\.expiresAt > request\.time/);
+    expect(shares).toMatch(/resource\.data\.revokedAt == null/);
+    expect(shares).toMatch(/allow list: if false;/);
+    // Writes still claim the owner.
+    expect(shares).toMatch(/request\.resource\.data\.ownerId == request\.auth\.uid/);
+  });
+
   it('keeps the meal-planner field-level create constraints', () => {
     // users: displayName is required and string; householdSize is a positive int.
     const users = blockOf('users');

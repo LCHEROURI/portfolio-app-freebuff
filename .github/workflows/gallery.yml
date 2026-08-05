@@ -16,11 +16,16 @@ jobs:
     timeout-minutes: 25
     # Fork PRs cannot access secrets; skip (not fail) so the check stays green
     # for forks and only runs where a Vercel preview can actually be created.
-    if: ${{ secrets.VERCEL_TOKEN != '' && secrets.VERCEL_ORG_ID != '' && secrets.VERCEL_PROJECT_ID != '' }}
+    # Note: `secrets` is not a valid context in job-level `if`, so the fork
+    # guard uses `github` context here and the secret-presence check happens
+    # on the steps via job env below.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository }}
 
     env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
 
     steps:
       - name: Check out repository
@@ -44,6 +49,7 @@ jobs:
 
       - name: Deploy preview of this branch
         id: deploy
+        if: ${{ env.VERCEL_TOKEN != '' && env.VERCEL_ORG_ID != '' && env.VERCEL_PROJECT_ID != '' }}
         run: |
           npx --yes vercel pull --yes --environment=preview --token="$VERCEL_TOKEN"
           npx --yes vercel build --yes --token="$VERCEL_TOKEN"
@@ -54,6 +60,7 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
       - name: Wait for preview to answer HTTP 200
+        if: ${{ env.VERCEL_TOKEN != '' && env.VERCEL_ORG_ID != '' && env.VERCEL_PROJECT_ID != '' }}
         run: |
           args=(-s -o /dev/null -m 15 -w '%{http_code}' -L)
           if [ -n "$BYPASS" ]; then
@@ -72,6 +79,7 @@ jobs:
           BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
 
       - name: Capture gallery (fails if any cell does not render the app shell)
+        if: ${{ env.VERCEL_TOKEN != '' && env.VERCEL_ORG_ID != '' && env.VERCEL_PROJECT_ID != '' }}
         run: |
           args=(--url "$PREVIEW_URL")
           if [ -n "$BYPASS" ]; then

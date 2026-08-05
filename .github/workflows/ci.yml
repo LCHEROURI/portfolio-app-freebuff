@@ -53,6 +53,13 @@ jobs:
     needs: validate
     if: ${{ github.event_name == 'push' }}
 
+    # Job-level env is the only place secrets can be read for step gating
+    # (`secrets` is not a valid context in `if:`). An unset secret becomes an
+    # empty string, so `env.X != ''` gates each step cleanly.
+    env:
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -63,13 +70,13 @@ jobs:
           node-version: 20
 
       - name: Verify deployed cron email bodies
-        if: ${{ secrets.CRON_SECRET != '' }}
+        if: ${{ env.CRON_SECRET != '' }}
         run: node scripts/verify-cron-email.mjs
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
 
       - name: Verify deployed Firestore rules
-        if: ${{ secrets.FIREBASE_WEB_API_KEY != '' }}
+        if: ${{ env.FIREBASE_WEB_API_KEY != '' }}
         run: node scripts/verify-firestore-rules.mjs
         env:
           FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
@@ -87,7 +94,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: validate
-    if: ${{ github.event_name == 'push' && secrets.FIREBASE_WEB_API_KEY != '' }}
+    # Same secrets-in-if restriction as above: gate the step on job env.
+    if: ${{ github.event_name == 'push' }}
+
+    env:
+      FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
 
     steps:
       - name: Check out repository
@@ -99,6 +110,7 @@ jobs:
           node-version: 20
 
       - name: Verify deployed authorized domains
+        if: ${{ env.FIREBASE_WEB_API_KEY != '' }}
         run: node scripts/verify-auth-domains.mjs
         env:
           FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
