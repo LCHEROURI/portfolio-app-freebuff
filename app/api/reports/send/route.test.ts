@@ -60,7 +60,7 @@ describe('POST /api/reports/send', () => {
     }));
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ ok: true, sent: true, emailId: 'email-1' });
+    expect(await res.json()).toMatchObject({ ok: true, sent: true, emailId: 'email-1', userId: 'e2e-user' });
 
     const sent = vi.mocked(sendReportEmail).mock.calls[0][0];
     expect(sent.kind).toBe('daily');
@@ -85,6 +85,14 @@ describe('POST /api/reports/send', () => {
     const sent = vi.mocked(sendReportEmail).mock.calls[0][0];
     expect(sent.body).toBe('# Weekly Command Center Report');
     expect(sent.body).not.toContain('AI executive summary');
+  });
+
+  it('echoes the verified acting user id so ID-token verification is provable', async () => {
+    const res = await POST(await makeReq(
+      { kind: 'daily', title: 'T', body: 'B', attentionCount: 0 },
+      'firebase-uid-abc123',
+    ));
+    expect(await res.json()).toMatchObject({ ok: true, userId: 'firebase-uid-abc123' });
   });
 
   it('surfaces a skipped send gracefully instead of throwing', async () => {

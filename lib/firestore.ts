@@ -327,7 +327,16 @@ class DemoService implements DataService {
   async saveTask(t: Task) { const d = this.read(); this.write({ ...d, tasks: this.merge(d.tasks, t) }); }
   async saveEvaluation(e: ModelEvaluation) { const d = this.read(); this.write({ ...d, evaluations: this.merge(d.evaluations, e) }); }
   async saveActivity(a: ActivityEntry) { const d = this.read(); this.write({ ...d, activity: [a, ...d.activity].slice(0, 200) }); }
-  async saveReport(r: Report) { const d = this.read(); this.write({ ...d, reports: [r, ...d.reports].slice(0, 60) }); }
+  async saveReport(r: Report) {
+    const d = this.read();
+    const exists = d.reports.some((x) => x.id === r.id);
+    this.write({
+      ...d,
+      reports: exists
+        ? d.reports.map((x) => (x.id === r.id ? r : x))
+        : [r, ...d.reports].slice(0, 60),
+    });
+  }
   async deleteProject(id: string) {
     const d = this.read();
     this.write({

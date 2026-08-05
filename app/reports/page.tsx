@@ -14,6 +14,7 @@ import { useStore } from '@/lib/store';
 import { fetchAiSummary, sendReportNow } from '@/lib/liveData';
 import { buildDailyReportBody, buildWeeklyReportBody, timeAgo } from '@/lib/engine';
 import type { ReportPreviewPayload } from '@/lib/reportPreview';
+import type { Report } from '@/types';
 
 // A report preview is the shared payload the cron's ?previewBody=1 also emits
 // (kind/title/body/attentionCount/aiModel/narration) plus the client-only
@@ -98,23 +99,29 @@ export default function ReportsPage() {
   // Save the report AND immediately deliver it via /api/reports/send — the same
   // Resend client the scheduled cron uses, but user-authenticated so the browser
   // can trigger it. Emailing is graceful: an unconfigured provider still saves
-  // the report and reports why the email was skipped.
+  // the report and reports why the email was skipped. The delivery outcome is
+  // persisted onto the saved report (saveReport upserts by id), so the card in
+  // the list keeps showing the Emailed/skipped/failed badge after the modal
+  // closes — the result is never lost.
   const saveAndEmailNow = async () => {
     if (!preview) return;
     setSending(true);
     setSendNote(null);
+    // Save the report FIRST (before delivery) so it is never lost even if the
+    // send fails; the delivery status then updates the same row via upsert.
+    const report: Report = {
+      id: `r-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
+      userId: store.userId,
+      kind: preview.kind,
+      title: preview.title,
+      body: preview.body,
+      attentionCount: preview.attentionCount,
+      createdAt: new Date().toISOString(),
+      aiSummary: preview.aiSummary,
+      aiModel: preview.aiModel ?? undefined,
+    };
+    await store.saveReport(report);
     try {
-      await store.saveReport({
-        id: `r-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
-        userId: store.userId,
-        kind: preview.kind,
-        title: preview.title,
-        body: preview.body,
-        attentionCount: preview.attentionCount,
-        createdAt: new Date().toISOString(),
-        aiSummary: preview.aiSummary,
-        aiModel: preview.aiModel ?? undefined,
-      });
       const res = await sendReportNow(store.userId, {
         kind: preview.kind,
         title: preview.title,
@@ -123,8 +130,21 @@ export default function ReportsPage() {
         aiSummary: preview.aiSummary,
         aiModel: preview.aiModel,
       });
+      await store.saveReport({
+        ...report,
+        emailStatus: res.sent ? 'sent' : 'skipped',
+        emailId: res.emailId ?? undefined,
+        emailReason: res.sent ? undefined : (res.reason ?? 'not configured'),
+        emailAttemptedAt: new Date().toISOString(),
+      });
       setSendNote(res.sent ? 'Emailed ✓' : `Saved — email skipped: ${res.reason ?? 'not configured'}.`);
     } catch {
+      await store.saveReport({
+        ...report,
+        emailStatus: 'failed',
+        emailReason: 'Email delivery failed.',
+        emailAttemptedAt: new Date().toISOString(),
+      });
       setSendNote('Saved — email delivery failed.');
     } finally {
       setSending(false);
@@ -200,6 +220,16 @@ export default function ReportsPage() {
             <details key={r.id} className="card-base group">
               <summary className="flex cursor-pointer list-none items-center gap-3">
                 <Badge tone={r.kind === 'daily' ? 'turmeric' : 'eggplant'}>{r.kind}</Badge>
+                {r.emailStatus && (
+                  <Badge
+                    tone={r.emailStatus === 'sent' ? 'basil' : r.emailStatus === 'skipped' ? 'turmeric' : 'paprika'}
+                    title={r.emailId ? `Resend email id: ${r.emailId}` : r.emailReason}
+                  >
+                    {r.emailStatus === 'sent'
+                      ? 'Emailed ✓'
+                      : `Email ${r.emailStatus}${r.emailReason ? ` — ${r.emailReason}` : ''}`}
+                  </Badge>
+                )}
                 <span className="flex-1 font-semibold">{r.title}</span>
                 <span className="text-xs text-pepper-400">{r.attentionCount} attention items · {timeAgo(r.createdAt)}</span>
                 <button

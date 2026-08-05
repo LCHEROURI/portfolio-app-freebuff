@@ -16,6 +16,7 @@
     "scan:schedule": "bash scripts/scan-schedule.sh",
     "scan:scheduled": "bash scripts/scan-all-scheduled.sh",
     "verify:cron-email": "node scripts/verify-cron-email.mjs",
+    "verify:send-auth": "node scripts/verify-send-auth.mjs",
     "capture:screenshots": "bash scripts/capture-screenshots.sh"
   },
   "dependencies": {

@@ -512,7 +512,17 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
       },
       saveReport: async (r: Report) => {
         await service.saveReport(r);
-        await mutate((prev) => ({ ...prev, reports: [r, ...prev.reports].slice(0, 60) }));
+        await mutate((prev) => {
+          // Upsert by id so 'Save and email now' can update the same row with
+          // its delivery status instead of prepending a duplicate.
+          const exists = prev.reports.some((x) => x.id === r.id);
+          return {
+            ...prev,
+            reports: exists
+              ? prev.reports.map((x) => (x.id === r.id ? r : x))
+              : [r, ...prev.reports].slice(0, 60),
+          };
+        });
       },
       logActivity,
     };

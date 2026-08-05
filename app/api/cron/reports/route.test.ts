@@ -112,6 +112,12 @@ const makePreviewReq = (kind: string) =>
     headers: { authorization: 'Bearer test-secret' },
   });
 
+/** ?previewBody=1&format=text — dev-only plain-text email preview (no send). */
+const makeTextPreviewReq = (kind: string) =>
+  new NextRequest(`http://localhost/api/cron/reports?kind=${kind}&previewBody=1&format=text`, {
+    headers: { authorization: 'Bearer test-secret' },
+  });
+
 beforeEach(() => {
   process.env.CRON_SECRET = 'test-secret';
   vi.mocked(loadLiveSnapshot).mockResolvedValue(snapshotWithTopThree);
@@ -256,5 +262,37 @@ describe('GET /api/cron/reports — previewBody=1', () => {
     const res = await GET(makeReq('weekly'));
     const json = (await res.json()) as { reports: Array<Record<string, unknown>> };
     expect(json.reports[0].body).toBeUndefined();
+  });
+});
+
+// ─── Plain-text email preview (?previewBody=1&format=text) ───────────────────
+
+describe('GET /api/cron/reports — plain-text email preview (format=text)', () => {
+  it('returns the composed daily body as text/plain without sending email', async () => {
+    const res = await GET(makeTextPreviewReq('daily'));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toContain('text/plain');
+    const text = await res.text();
+    expect(text).toContain('# Daily Command Center Report');
+    expect(text).toContain('## ✨ AI executive summary (DeepSeek Chat)');
+    expect(text).toContain('## 🎯 Why these three matter today (DeepSeek Chat)');
+    // The dev-only preview must NOT touch the real inbox.
+    expect(sendReportEmail).not.toHaveBeenCalled();
+  });
+
+  it('returns the composed weekly body as text/plain', async () => {
+    const res = await GET(makeTextPreviewReq('weekly'));
+    const text = await res.text();
+    expect(text).toContain('# Weekly Command Center Report');
+    expect(text).toContain('## ✨ AI executive summary (DeepSeek Chat)');
+    expect(text).not.toContain('Why these three matter today');
+    expect(sendReportEmail).not.toHaveBeenCalled();
+  });
+
+  it('still requires the CRON_SECRET bearer (401 without auth)', async () => {
+    const res = await GET(
+      new NextRequest('http://localhost/api/cron/reports?kind=daily&previewBody=1&format=text', { headers: {} }),
+    );
+    expect(res.status).toBe(401);
   });
 });

@@ -11,7 +11,7 @@
 [![Firebase](https://img.shields.io/badge/Firebase-FFCA28?style=for-the-badge&logo=firebase&logoColor=black)](https://firebase.google.com)
 [![Tailwind](https://img.shields.io/badge/Tailwind%20CSS-38BDF8?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
 
-**[Live demo →](https://portfolio-app-freebuff.vercel.app)** · No sign-up needed — runs in demo mode with seeded data.
+**[Live app →](https://portfolio-app-freebuff.vercel.app)** · Real Firebase Auth — sign in with email/password or Google to see your command center.
 
 </div>
 
@@ -142,9 +142,10 @@ localStorage and the app never asks for credentials.
 
 ### 🌐 Production environment on Vercel
 
-As of the current deploy, the Vercel project's **Production** environment
-carries exactly these eight variables (names only — values are encrypted in
-Vercel and never committed):
+As of the current deploy, the Vercel project's **Production** environment runs
+in **Firebase mode** — every live API route requires a cryptographically
+verified Firebase ID token. The environment carries these variables (names only
+— values are encrypted in Vercel and never committed):
 
 ```bash
 # Firebase identity + data (flips every API route from demo to verified auth)
@@ -158,11 +159,12 @@ NEXT_PUBLIC_FIREBASE_APP_ID=…
 # OpenRouter (activates AI features: report summaries, winner picks, top-three briefings)
 OPENROUTER_API_KEY=…
 OPENROUTER_MODEL=…   # optional; the per-user Settings picker overrides it in the UI
-
-# Public demo build: forces demo mode even with the Firebase vars above, so the
-# live link serves the seeded demo app (no sign-in gate) as the hero promises.
-NEXT_PUBLIC_DEMO_OVERRIDE=1
 ```
+
+`NEXT_PUBLIC_DEMO_OVERRIDE` is deliberately **not** set in Production — it was
+removed so the live API routes stop trusting the spoofable `x-app-user` header.
+Set it only in a separate demo deployment if you want a public no-sign-up
+build (forces demo mode even with the Firebase vars present).
 
 **Why this list matters:** these six Firebase vars are the on/off switch for
 the whole live-data layer. When `NEXT_PUBLIC_FIREBASE_PROJECT_ID` is set,
@@ -174,15 +176,16 @@ the auth gate disappears, data lives in per-browser localStorage, and the API
 routes trust the spoofable `x-app-user` header again. Keep the full set on
 Vercel in every environment that should behave as a real account.
 
-**Demo-mode identity caveat:** the local dev server deliberately runs in demo
-mode unless you copy the same six Firebase vars into `.env.local` — the
-preview keeps working without sign-in, but AI-generated content on `localhost`
-still works because `OPENROUTER_API_KEY` is read from `.env.local`. A fresh
-fork or a redeploy missing `OPENROUTER_API_KEY` degrades gracefully: AI
-surfaces fall back to the deterministic rule-based text (no crash, no missing
-sections). To verify the AI layer is live in production, open the
-**Integrations** page — the status panel reports which vars are set and which
-endpoints respond.
+**Demo-mode identity caveat:** a local dev server runs in demo mode unless you
+copy the same six Firebase vars into `.env.local`. When they are present the
+preview is Firebase mode: the auth gate appears, and the API routes accept
+`Authorization: Bearer <idToken>` (verified RS256 against Google's public
+certs). AI-generated content on `localhost` still works because
+`OPENROUTER_API_KEY` is read from `.env.local`. A fresh fork or a redeploy
+missing `OPENROUTER_API_KEY` degrades gracefully: AI surfaces fall back to the
+deterministic rule-based text (no crash, no missing sections). To verify the
+AI layer is live in production, open the **Integrations** page — the status
+panel reports which vars are set and which endpoints respond.
 
 ### 🔌 Live integrations — Supabase · GitHub · Vercel
 
@@ -287,6 +290,16 @@ report is also visible in the Vercel cron invocation logs.
 **Verifying the emailed bodies without an inbox:** the route accepts a dev-only
 `?previewBody=1` flag (still CRON_SECRET-authed) that includes each composed
 email body — plus the structured top-three narration — in the JSON response.
+Add `&format=text` to get a **plain-text email preview**: the composed body is
+served as `text/plain` and the email is NOT sent, so the exact text can be
+piped into a mail client or file without touching the real inbox or waiting
+for the scheduled cron:
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" \
+  "https://portfolio-app-freebuff.vercel.app/api/cron/reports?kind=daily&previewBody=1&format=text"
+```
+
 The packaged smoke test asserts the auth gate, the friendly model heading, and
 the raw-id footer for both daily and weekly bodies:
 
@@ -301,6 +314,22 @@ It reads `CRON_SECRET` from `--secret`, then the `CRON_SECRET` env var, then
 `.env.local`, and exits nonzero on any failed assertion. CI runs it against the
 live deploy after every push to `main` (the `verify-deployed-cron` job,
 gated on the `CRON_SECRET` GitHub Actions secret).
+
+**Verifying Firebase ID-token auth on the send route:** the packaged
+`verify:send-auth` smoke test proves the deployed `/api/reports/send` (the
+Reports page's "Save and email now") runs in Firebase mode, not the demo
+`x-app-user` fallback. It mints a throwaway Firebase Auth user via the Identity
+Toolkit REST API, POSTs with the real ID token, asserts the response echoes the
+token's uid (not `demo-user`), asserts an `x-app-user`-only spoof gets 401, then
+deletes the test user:
+
+```bash
+npm run verify:send-auth                  # against the production URL
+node scripts/verify-send-auth.mjs --base http://localhost:3000   # local dev
+```
+
+It reads `NEXT_PUBLIC_FIREBASE_API_KEY` / `NEXT_PUBLIC_FIREBASE_PROJECT_ID`
+from env, then `.env.local`, and exits nonzero on any failed assertion.
 
 **Rotating `CRON_SECRET`** (do this whenever it may have leaked, or to keep the
 local `.env.local` and the Vercel/GitHub values in lockstep):
@@ -403,7 +432,7 @@ Scheduled functions: `runAutomation` (every 6h), `generateDailyReports` (daily
 | `/deployments` | Health + status of every environment |
 | `/repositories` | Repo cards + scanner instructions |
 | `/model-comparison` | Weighted score matrix + winner selection |
-| `/reports` | Generate/save daily & weekly reports |
+| `/reports` | Generate/save daily & weekly reports (preview-before-save, "Save and email now", delivery badge on saved cards) |
 | `/activity` | Event feed with kind filters |
 | `/integrations` | GitHub / Vercel / Calendar / Gemini connection UI |
 | `/gallery` | Every module's screenshot pair (light/dark) on the live site |

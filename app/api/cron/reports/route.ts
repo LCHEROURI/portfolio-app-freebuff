@@ -24,6 +24,13 @@ import { sendReportEmail } from '@/lib/server/reporting/email';
 //                    JSON response (still requires the CRON_SECRET bearer), so
 //                    the exact emailed text can be verified without opening an
 //                    inbox. Omitted by default to keep the response lean.
+//   ?previewBody=1&format=text → dev-only plain-text email preview: returns the
+//                    composed body as text/plain and does NOT send the email,
+//                    so the exact text can be piped into a mail client or file
+//                    without touching the real inbox or waiting for the
+//                    scheduled cron. (A manual trigger WITHOUT format=text
+//                    still delivers to REPORT_EMAIL immediately — that is the
+//                    "check it in a real inbox" path.)
 //
 // The 14 automation rules run against a live snapshot (Supabase tasks/projects/
 // versions/evaluations + live GitHub repos + Vercel/Firebase deployments) using
@@ -61,6 +68,9 @@ export async function GET(req: NextRequest) {
     rawKind === 'daily' || rawKind === 'weekly' ? rawKind : 'auto';
   // Dev-only verification aid: include the composed email body in the response.
   const previewBody = req.nextUrl.searchParams.get('previewBody') === '1';
+  // Dev-only plain-text preview: when set, the composed body is returned as
+  // text/plain and the email is NOT sent.
+  const textPreview = previewBody && req.nextUrl.searchParams.get('format') === 'text';
   const weeklyDay = Number(process.env.REPORT_WEEKLY_DAY ?? 1);
   const todayUtc = new Date().getUTCDay();
 
@@ -156,11 +166,15 @@ export async function GET(req: NextRequest) {
   );
 
   for (const s of summarized) {
-    const email = await sendReportEmail({
-      kind: s.kind, title: s.title,
-      body: s.body,
-      attentionCount: s.attentionCount, alerts,
-    });
+    // Plain-text preview skips delivery entirely (no inbox write, no wait); the
+    // default path always sends like the scheduled cron does.
+    const email = textPreview
+      ? { sent: false, reason: 'text preview — email not sent' }
+      : await sendReportEmail({
+          kind: s.kind, title: s.title,
+          body: s.body,
+          attentionCount: s.attentionCount, alerts,
+        });
     reports.push({
       kind: s.kind, title: s.title, attentionCount: s.attentionCount, email,
       aiModel: s.model, narrationModel: s.narration?.model ?? null,
@@ -169,6 +183,21 @@ export async function GET(req: NextRequest) {
       // below strips the heavy fields unless ?previewBody=1 asks for them.
       body: s.body,
       narration: s.narration,
+    });
+  }
+
+  // Dev-only plain-text email preview: serve the composed body as text/plain
+  // instead of JSON, and never send it — the exact emailed text is now
+  // curl-able / pipe-able without waiting for the schedule.
+  if (textPreview) {
+    const target =
+      reports.find((r) => r.kind === (kind === 'weekly' ? 'weekly' : 'daily')) ?? reports[0];
+    if (!target) {
+      return NextResponse.json({ ok: true, note: 'No report composed for the requested kind.' });
+    }
+    return new NextResponse(target.body, {
+      status: 200,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
     });
   }
 

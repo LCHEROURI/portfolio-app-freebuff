@@ -273,6 +273,16 @@ export interface Report {
   aiSummary?: string;
   /** Model id that produced aiSummary (e.g. deepseek/deepseek-chat). */
   aiModel?: string;
+  /** Outcome of a 'Save and email now' delivery attempt, persisted on the
+   *  report so the status survives the preview modal closing. Absent when the
+   *  report was only saved (never emailed). */
+  emailStatus?: 'sent' | 'skipped' | 'failed';
+  /** Resend email id when the delivery was accepted (emailStatus 'sent'). */
+  emailId?: string;
+  /** Human-readable reason when delivery was skipped or failed. */
+  emailReason?: string;
+  /** When the delivery attempt happened (ISO). */
+  emailAttemptedAt?: string;
 }
 
 export interface Reminder {
@@ -503,6 +513,10 @@ export const ReportSchema = z.object({
   createdAt: timestamp,
   aiSummary: z.string().optional(),
   aiModel: z.string().optional(),
+  emailStatus: z.enum(['sent', 'skipped', 'failed']).optional(),
+  emailId: z.string().optional(),
+  emailReason: z.string().optional(),
+  emailAttemptedAt: timestamp.optional(),
 });
 
 export const ReminderSchema = z.object({

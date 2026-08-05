@@ -71,6 +71,9 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     ok: true,
+    // Echo the resolved acting user so verifiers can prove the ID-token path
+    // (Firebase mode) used the token's uid and not the demo x-app-user header.
+    userId,
     sent: email.sent,
     emailId: email.emailId ?? null,
     reason: email.reason ?? null,
