@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# ============================================================================
+# .githooks/pre-push — run the production sign-in + Firestore sync proof
+# before pushing to main, so a sign-in or Firestore rules regression is caught
+# locally instead of waiting for CI. Enabled with:
+#
+#     npm run hooks:install      (git config core.hooksPath .githooks)
+#
+# Skips (with a notice) when: the push does not target main, FIREBASE_WEB_API_KEY
+# is not set, Chrome is unavailable, or SKIP_VERIFY_SIGNIN=1 is exported.
+# ============================================================================
+set -euo pipefail
+
+if [ "${SKIP_VERIFY_SIGNIN:-0}" = "1" ]; then
+  echo "pre-push: SKIP_VERIFY_SIGNIN=1 — skipping sign-in proof"
+  exit 0
+fi
+
+# Only guard pushes that touch main.
+PUSHES_TO_MAIN=0
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+  [ "$remote_ref" = "refs/heads/main" ] && PUSHES_TO_MAIN=1
+done
+if [ "$PUSHES_TO_MAIN" != "1" ]; then
+  exit 0
+fi
+
+# Gate on the Firebase key and Chrome availability so dev machines without
+# the deployment secrets / Chrome are never blocked.
+KEY="${FIREBASE_WEB_API_KEY:-}"
+if [ -z "$KEY" ] && [ -f .env.local ]; then
+  KEY="$(grep -m1 '^NEXT_PUBLIC_FIREBASE_API_KEY=' .env.local | cut -d= -f2- | tr -d '"' || true)"
+fi
+if [ -z "$KEY" ]; then
+  echo "pre-push: FIREBASE_WEB_API_KEY not set — skipping sign-in proof"
+  exit 0
+fi
+
+CHROME="${CHROME_PATH:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
+if [ ! -x "$CHROME" ]; then
+  echo "pre-push: Chrome not found — skipping sign-in proof"
+  exit 0
+fi
+
+echo "pre-push: verifying production sign-in + Firestore sync…"
+if node scripts/verify-prod-signin.mjs; then
+  echo "pre-push: sign-in proof passed ✓"
+else
+  echo "pre-push: sign-in proof FAILED — fix before pushing (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+  exit 1
+fi

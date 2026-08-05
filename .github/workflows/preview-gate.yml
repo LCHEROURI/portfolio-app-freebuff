@@ -29,6 +29,7 @@ jobs:
 
     env:
       FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
       VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
 
     steps:
@@ -47,6 +48,18 @@ jobs:
       # the VERCEL_PROTECTION_BYPASS secret is forwarded as the same
       # x-vercel-protection-bypass header the gallery capture uses; without it
       # the check would follow a redirect to the SSO wall and see no JSON.
+      #
+      # First, auto-authorize: the freshly deployed URL is brand new, so it is
+      # not in the project's authorized list yet. When a service account is
+      # configured (FIREBASE_SERVICE_ACCOUNT), add the domain via the Identity
+      # Platform admin API so the gate below passes by default; the gate only
+      # fails if the automated add itself fails.
+      - name: Auto-authorize the deployed domain
+        if: ${{ env.FIREBASE_SERVICE_ACCOUNT != '' && env.FIREBASE_WEB_API_KEY != '' }}
+        run: node scripts/authorize-domain.mjs --domain "${{ github.event.deployment_status.target_url }}"
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
       - name: Verify deployed domain is authorized
         if: ${{ env.FIREBASE_WEB_API_KEY != '' }}
         run: node scripts/verify-auth-domains.mjs --app "${{ github.event.deployment_status.target_url }}"
