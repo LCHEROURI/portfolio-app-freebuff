@@ -92,7 +92,7 @@ const headers = { authorization: `Bearer ${token}` };
 if (process.env.VERCEL_PROTECTION_BYPASS) {
   headers['x-vercel-protection-bypass'] = process.env.VERCEL_PROTECTION_BYPASS;
 }
-const res = await fetch(`${APP}/api/status?project=${encodeURIComponent(DOMAIN)}`, {
+const res = await fetch(`${APP}/api/status?project=${encodeURIComponent(DOMAIN)}&refresh=1`, {
   headers,
   cache: 'no-store',
 });

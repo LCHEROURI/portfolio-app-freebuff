@@ -119,6 +119,10 @@ const chrome = spawn(CHROME, [
   '--disable-gpu',
   '--no-first-run',
   '--disable-background-networking',
+  // GitHub-hosted runners run Chromium without a usable sandbox; these flags
+  // let headless Chrome start there (and are harmless on macOS).
+  '--no-sandbox',
+  '--disable-dev-shm-usage',
   `--remote-debugging-port=${PORT}`,
   `--user-data-dir=${USER_DATA_DIR}`,
   'about:blank',
