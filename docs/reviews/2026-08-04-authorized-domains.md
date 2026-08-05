@@ -10,7 +10,7 @@ The app runs Firebase Auth on the shared `meal-planner-lcherouri` project. The p
 
 > **Update (Aug 2026):** this shared-project arrangement no longer exists. The
 > app moved onto its own dedicated Firebase project,
-> `portfolio-app-freebuff`, with a portfolio-only ruleset (see
+> `portfolio-app-freebuff2`, with a portfolio-only ruleset (see
 > `docs/migrations/dedicated-firebase-project.md`). The shared
 > `meal-planner-lcherouri` list below is historical context.
 
@@ -34,7 +34,7 @@ The exact production domain was added first (`portfolio-app-freebuff.vercel.app`
 
 ## Why wildcards are rejected
 
-Firebase's validator rejects wildcard entries in `authorizedDomains` with `INVALID_AUTHORIZED_DOMAIN`. A pattern like `portfolio-app-freebuff-*.vercel.app` is not accepted; only exact hostnames. Each Vercel preview gets a unique hostname, so a preview must either be added by its exact URL or sign-in there stays blocked (the reasonable default for throwaway deploys).
+Firebase's validator rejects wildcard entries in `authorizedDomains` with `INVALID_AUTHORIZED_DOMAIN`. A pattern like `portfolio-app-freebuff2-*.vercel.app` is not accepted; only exact hostnames. Each Vercel preview gets a unique hostname, so a preview must either be added by its exact URL or sign-in there stays blocked (the reasonable default for throwaway deploys).
 
 ## How the gate is proven
 

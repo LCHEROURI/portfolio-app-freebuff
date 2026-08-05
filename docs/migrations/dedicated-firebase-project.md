@@ -2,7 +2,7 @@
 
 ## Decision (locked Aug 2026)
 
-- **New project id: `portfolio-app-freebuff`** — created, web app registered.
+- **New project id: `portfolio-app-freebuff2`** — created, web app registered.
 - **Data fate: fresh start.** The new project starts empty; users re-sign-in
   and can re-import from local demo data (`migrateLocalDemoToFirestore`). No
   export/import of the old rows.
@@ -13,13 +13,13 @@
 
 Done: project created, web app registered, `.env.local` + Vercel swapped,
 three hardcoded defaults fixed, `firestore.rules` trimmed + deployed
-(`firebase deploy --only firestore:rules --project portfolio-app-freebuff`
+(`firebase deploy --only firestore:rules --project portfolio-app-freebuff2`
 PASS), Firestore database created (FIRESTORE_NATIVE, nam5), test fixtures
 updated, `FIREBASE_WEB_API_KEY` repo secret updated to the new project's key.
 
 Pending (manual console steps):
 1. **Open the new project's Authentication page once** —
-   https://console.firebase.google.com/project/portfolio-app-freebuff/authentication
+   https://console.firebase.google.com/project/portfolio-app-freebuff2/authentication
    CLI-created projects don't get an Identity Platform config record until
    the console provisions it (`CONFIGURATION_NOT_FOUND` otherwise). This
    unblocks authorized domains + sign-in providers.
@@ -68,7 +68,7 @@ the `firestore.rules` deploy (`firebase.json`) all read the id from env too.
 
 ## Phase 0 — decisions (already made)
 
-1. **Project id: `portfolio-app-freebuff`** — created via
+1. **Project id: `portfolio-app-freebuff2`** — created via
    `firebase projects:create` and confirmed in the console.
 2. **Data fate: fresh start.** The new project starts empty. Users re-sign-in
    and can re-import from local demo data (the app already supports

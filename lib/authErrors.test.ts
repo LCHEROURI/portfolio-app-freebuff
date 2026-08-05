@@ -44,13 +44,13 @@ describe('authErrorMessage', () => {
 
 describe('authConsoleUrl', () => {
   it('deep-links to the authorized-domains settings page', () => {
-    expect(authConsoleUrl('unauthorized-domain', 'portfolio-app-freebuff')).toBe(
-      'https://console.firebase.google.com/project/portfolio-app-freebuff/authentication/settings',
+    expect(authConsoleUrl('unauthorized-domain', 'portfolio-app-freebuff2')).toBe(
+      'https://console.firebase.google.com/project/portfolio-app-freebuff2/authentication/settings',
     );
   });
 
   it('returns null for other codes or a missing project id', () => {
-    expect(authConsoleUrl('invalid-credential', 'portfolio-app-freebuff')).toBeNull();
+    expect(authConsoleUrl('invalid-credential', 'portfolio-app-freebuff2')).toBeNull();
     expect(authConsoleUrl('unauthorized-domain', undefined)).toBeNull();
   });
 });

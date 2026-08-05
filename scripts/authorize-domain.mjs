@@ -22,7 +22,7 @@ const flag = (name, fallback) => {
   return i >= 0 && args[i + 1] ? args[i + 1] : fallback;
 };
 const DOMAIN = new URL(flag('--domain', 'https://portfolio-app-freebuff.vercel.app')).hostname;
-const PROJECT = process.env.FIREBASE_PROJECT_ID ?? 'portfolio-app-freebuff';
+const PROJECT = process.env.FIREBASE_PROJECT_ID ?? 'portfolio-app-freebuff2';
 const CONFIG_URL = `https://identitytoolkit.googleapis.com/admin/v2/projects/${PROJECT}/config`;
 
 const saRaw = getServiceAccount();

@@ -4,8 +4,8 @@ import { isDomainAuthorized, normalizeProjectOrigin, originHostname } from '../l
 
 const PROD_LIST = [
   'localhost',
-  'portfolio-app-freebuff.firebaseapp.com',
-  'portfolio-app-freebuff.web.app',
+  'portfolio-app-freebuff2.firebaseapp.com',
+  'portfolio-app-freebuff2.web.app',
 ];
 
 describe('originHostname', () => {
@@ -24,7 +24,7 @@ describe('originHostname', () => {
 describe('isDomainAuthorized', () => {
   it('matches a listed hostname exactly (case-insensitive)', () => {
     expect(isDomainAuthorized(PROD_LIST, 'http://localhost:3000')).toBe(true);
-    expect(isDomainAuthorized(PROD_LIST, 'https://portfolio-app-freebuff.firebaseapp.com')).toBe(true);
+    expect(isDomainAuthorized(PROD_LIST, 'https://portfolio-app-freebuff2.firebaseapp.com')).toBe(true);
   });
 
   it('flags an origin missing from the list', () => {
