@@ -14,16 +14,22 @@
 //      through the public REST API (403 would mean the rules block it).
 //
 // Usage:
-//   node scripts/verify-prod-signin.mjs [--app https://...]
+//   node scripts/verify-prod-signin.mjs [--app https://...] [--email e] [--password p] [--screenshot out.png]
+//
+// With --email/--password, signs in with an existing account instead of
+// minting a throwaway user (and skips the Firestore REST probe + cleanup).
+// With --screenshot <path>, saves a PNG of the Command Center after sign-in.
 //
 // Reads the Firebase web API key from FIREBASE_WEB_API_KEY, then
 // NEXT_PUBLIC_FIREBASE_API_KEY, then .env.local. Exits nonzero on any failure.
 // ============================================================================
 
 import { spawn } from 'node:child_process';
-import { readFileSync, rmSync } from 'node:fs';
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+
+import { getServiceAccount, mintServiceAccountToken } from '../lib/server/sa-token.mjs';
 
 const args = process.argv.slice(2);
 const flag = (name, fallback) => {
@@ -32,6 +38,10 @@ const flag = (name, fallback) => {
 };
 
 const APP = (flag('--app', process.env.VERIFY_BASE_URL) ?? 'https://portfolio-app-freebuff.vercel.app').replace(/\/$/, '');
+const FIXED_EMAIL = flag('--email', '');
+const FIXED_PASSWORD = flag('--password', '');
+const SCREENSHOT_PATH = flag('--screenshot', '');
+const useFixedCredentials = Boolean(FIXED_EMAIL && FIXED_PASSWORD);
 const CHROME = process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const PORT = 9334;
 // A fresh, unique profile per run so no previous sign-in session leaks into
@@ -77,27 +87,37 @@ let failures = 0;
 const fail = (msg) => { failures += 1; console.error(`  ✗ FAIL: ${msg}`); };
 const ok = (msg) => console.log(`  ✓ ${msg}`);
 
-// ── 1. Mint the throwaway user ───────────────────────────────────────────────
-console.log(`\n[1/5] Minting throwaway Identity Toolkit user`);
-const signUp = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${API_KEY}`, {
-  method: 'POST',
-  headers: { 'content-type': 'application/json' },
-  body: JSON.stringify({
-    email: `signin-probe-${Date.now()}@e2e.local`,
-    password: 'ProbePass-123!',
-    returnSecureToken: true,
-  }),
-}).then((r) => r.json());
+// ── 1. Mint the throwaway user (or use fixed credentials) ──────────────────
+const signUp = useFixedCredentials
+  ? { email: FIXED_EMAIL, localId: '', idToken: '' }
+  : await (async () => {
+      console.log(`\n[1/5] Minting throwaway Identity Toolkit user`);
+      const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${API_KEY}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          email: `signin-probe-${Date.now()}@e2e.local`,
+          password: 'ProbePass-123!',
+          returnSecureToken: true,
+        }),
+      }).then((r) => r.json());
+      return res;
+    })();
 const uid = signUp.localId;
 const token = signUp.idToken;
-if (!token) {
+if (!useFixedCredentials && !token) {
   console.error(`✗ FAIL: could not mint a test user (${JSON.stringify(signUp).slice(0, 200)})`);
   process.exit(1);
 }
 const probeDoc = `probe-signin-${Date.now()}`;
-console.log(`  ✓ test user minted (${uid})`);
+if (useFixedCredentials) {
+  console.log(`  ✓ using fixed account ${FIXED_EMAIL} (no mint, no cleanup)`);
+} else {
+  console.log(`  ✓ test user minted (${uid})`);
+}
 
 const cleanup = async () => {
+  if (useFixedCredentials) return;
   if (FS && probeDoc) {
     try { await fetch(`${FS}/projects/${probeDoc}`, { method: 'DELETE', headers: { authorization: `Bearer ${token}` } }); } catch { /* best-effort */ }
   }
@@ -207,8 +227,50 @@ if (!gateVisible) {
 }
 ok('AuthGate rendered (sign-in gate visible)');
 
+// ── 3b. Google sign-in readiness (button renders + IdP enabled) ──────────────
+console.log('\n[3b] Google sign-in readiness');
+const googleButton = await evaluate(`(() => {
+  const btns = [...document.querySelectorAll('button')];
+  return btns.some((b) => (b.textContent || '').toLowerCase().includes('google'))
+    || document.body.innerText.includes('Continue with Google');
+})()`);
+if (googleButton) {
+  ok('Google sign-in button renders on the AuthGate');
+} else {
+  fail('Google sign-in button missing from the AuthGate');
+}
+
+// Best-effort admin-API check that the google.com IdP is enabled. Uses the
+// same service-account credential as the cron/seeder; skips (with a warning)
+// when the SA is not configured in this environment.
+if (getServiceAccount() && projectId) {
+  try {
+    const adminToken = await mintServiceAccountToken();
+    const idp = await fetch(
+      `https://identitytoolkit.googleapis.com/admin/v2/projects/${projectId}/defaultSupportedIdpConfigs/google.com`,
+      { headers: { authorization: `Bearer ${adminToken}` } },
+    );
+    if (idp.status === 200) {
+      const cfg = await idp.json();
+      cfg.enabled === true
+        ? ok('google.com IdP config enabled (admin API)')
+        : fail(`google.com IdP config present but enabled=${cfg.enabled}`);
+      if (cfg.clientId) ok(`auto-created OAuth client present (${cfg.clientId.slice(0, 24)}…)`);
+    } else if (idp.status === 404) {
+      fail('google.com IdP config NOT FOUND — enable Google in the Firebase console Auth settings');
+    } else {
+      fail(`google.com IdP probe → HTTP ${idp.status}`);
+    }
+  } catch (err) {
+    fail(`google.com IdP admin check errored: ${err.message}`);
+  }
+} else {
+  console.log('  (skipping IdP admin check — FIREBASE_SERVICE_ACCOUNT not configured here)');
+}
+
 // ── 4. Fill the form and submit ──────────────────────────────────────────────
 console.log(`\n[4/5] Typing credentials and submitting`);
+const password = useFixedCredentials ? FIXED_PASSWORD : 'ProbePass-123!';
 const typed = await evaluate(`(() => {
   const setVal = (sel, value) => {
     const el = document.querySelector(sel);
@@ -223,7 +285,7 @@ const typed = await evaluate(`(() => {
   const password = document.querySelector('input[type="password"]');
   if (!email || !password) return 'missing-inputs';
   setVal('input[type="email"]', ${JSON.stringify(signUp.email)});
-  setVal('input[type="password"]', 'ProbePass-123!');
+  setVal('input[type="password"]', ${JSON.stringify(password)});
   return 'typed';
 })()`);
 if (typed !== 'typed') {
@@ -270,8 +332,22 @@ if (!shell) {
 ok('sign-in gate released — Command Center shell rendered');
 if (shell.error) fail('store surfaced "Failed to load data"');
 
+// ── 5a. Optional screenshot of the rendered Command Center ──────────────────
+if (SCREENSHOT_PATH) {
+  console.log(`\n[5a] Capturing screenshot → ${SCREENSHOT_PATH}`);
+  // Give the data grid a beat to finish painting (cards, charts, sparklines).
+  await sleepMs(2500);
+  const { data } = await send('Page.captureScreenshot', { format: 'png' });
+  if (data) {
+    writeFileSync(SCREENSHOT_PATH, Buffer.from(data, 'base64'));
+    ok(`screenshot saved (${SCREENSHOT_PATH})`);
+  } else {
+    fail('Page.captureScreenshot returned no data');
+  }
+}
+
 // ── 5b. Firestore sync proof under the real account ──────────────────────────
-if (FS) {
+if (FS && !useFixedCredentials) {
   console.log('\n[5b] Proving Firestore read/write sync under the signed-in account');
   const AUTH = { authorization: `Bearer ${token}`, 'content-type': 'application/json' };
   const res = await fetch(`${FS}/projects?documentId=${probeDoc}`, {
@@ -285,6 +361,8 @@ if (FS) {
   } else {
     fail(`create probe doc → ${res.status} (rules may block the account's own writes)`);
   }
+} else if (useFixedCredentials) {
+  console.log('  (skipping Firestore REST probe — fixed-credential mode has no idToken; the shell render above already proves sync)');
 } else {
   console.log('  (skipping Firestore probe — NEXT_PUBLIC_FIREBASE_PROJECT_ID not set)');
 }
