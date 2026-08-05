@@ -1,18 +1,25 @@
 #!/usr/bin/env bash
 # ============================================================================
-# .githooks/pre-push — run the production sign-in + Firestore sync proof
-# before pushing to main, so a sign-in or Firestore rules regression is caught
-# locally instead of waiting for CI. Enabled with:
+# .githooks/pre-push — run the full post-deploy verification suite before
+# pushing to main, so sign-in, Firestore rules, authorized-domains, and cron
+# email regressions are all caught locally instead of waiting for CI.
+# Enabled with:
 #
 #     npm run hooks:install      (git config core.hooksPath .githooks)
 #
-# Skips (with a notice) when: the push does not target main, FIREBASE_WEB_API_KEY
-# is not set, Chrome is unavailable, or SKIP_VERIFY_SIGNIN=1 is exported.
+# Runs, in order, each gated on what it needs:
+#   1. scripts/verify-auth-domains.mjs   (needs FIREBASE_WEB_API_KEY)
+#   2. scripts/verify-cron-email.mjs     (needs CRON_SECRET)
+#   3. scripts/verify-prod-signin.mjs    (needs FIREBASE_WEB_API_KEY + Chrome)
+# A check that cannot run (missing key / secret / Chrome) is skipped with a
+# notice, not a failure — so machines without the deployment secrets are
+# never blocked. Any check that DOES run and fails aborts the push.
+# SKIP_VERIFY_SIGNIN=1 skips everything.
 # ============================================================================
 set -euo pipefail
 
 if [ "${SKIP_VERIFY_SIGNIN:-0}" = "1" ]; then
-  echo "pre-push: SKIP_VERIFY_SIGNIN=1 — skipping sign-in proof"
+  echo "pre-push: SKIP_VERIFY_SIGNIN=1 — skipping verification"
   exit 0
 fi
 
@@ -25,27 +32,58 @@ if [ "$PUSHES_TO_MAIN" != "1" ]; then
   exit 0
 fi
 
-# Gate on the Firebase key and Chrome availability so dev machines without
-# the deployment secrets / Chrome are never blocked.
-KEY="${FIREBASE_WEB_API_KEY:-}"
-if [ -z "$KEY" ] && [ -f .env.local ]; then
-  KEY="$(grep -m1 '^NEXT_PUBLIC_FIREBASE_API_KEY=' .env.local | cut -d= -f2- | tr -d '"' || true)"
-fi
-if [ -z "$KEY" ]; then
-  echo "pre-push: FIREBASE_WEB_API_KEY not set — skipping sign-in proof"
-  exit 0
-fi
+# Resolve deployment secrets from env, then .env.local (never printed).
+read_env() { # $1=var name -> echoes value or empty
+  local v
+  v="${!1:-}"
+  if [ -z "$v" ] && [ -f .env.local ]; then
+    v="$(grep -m1 "^$1=" .env.local | cut -d= -f2- | tr -d '"' || true)"
+  fi
+  printf '%s' "$v"
+}
+KEY="$(read_env FIREBASE_WEB_API_KEY)"
+CRON="$(read_env CRON_SECRET)"
 
-CHROME="${CHROME_PATH:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
-if [ ! -x "$CHROME" ]; then
-  echo "pre-push: Chrome not found — skipping sign-in proof"
-  exit 0
-fi
-
-echo "pre-push: verifying production sign-in + Firestore sync…"
-if node scripts/verify-prod-signin.mjs; then
-  echo "pre-push: sign-in proof passed ✓"
+# ── 1. Authorized-domains gate (fast, no Chrome) ───────────────────────────
+if [ -n "$KEY" ]; then
+  echo "pre-push: verifying production authorized domains…"
+  if node scripts/verify-auth-domains.mjs; then
+    echo "pre-push: authorized-domains proof passed ✓"
+  else
+    echo "pre-push: authorized-domains proof FAILED — fix before pushing (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+    exit 1
+  fi
 else
-  echo "pre-push: sign-in proof FAILED — fix before pushing (SKIP_VERIFY_SIGNIN=1 to override)" >&2
-  exit 1
+  echo "pre-push: FIREBASE_WEB_API_KEY not set — skipping authorized-domains proof"
 fi
+
+# ── 2. Cron-email gate (needs CRON_SECRET) ─────────────────────────────────
+if [ -n "$CRON" ]; then
+  echo "pre-push: verifying deployed cron-email bodies…"
+  if node scripts/verify-cron-email.mjs; then
+    echo "pre-push: cron-email proof passed ✓"
+  else
+    echo "pre-push: cron-email proof FAILED — fix before pushing (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+    exit 1
+  fi
+else
+  echo "pre-push: CRON_SECRET not set — skipping cron-email proof"
+fi
+
+# ── 3. Sign-in + Firestore sync gate (needs Chrome) ─────────────────────────
+if [ -n "$KEY" ]; then
+  CHROME="${CHROME_PATH:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
+  if [ -x "$CHROME" ]; then
+    echo "pre-push: verifying production sign-in + Firestore sync…"
+    if node scripts/verify-prod-signin.mjs; then
+      echo "pre-push: sign-in proof passed ✓"
+    else
+      echo "pre-push: sign-in proof FAILED — fix before pushing (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+      exit 1
+    fi
+  else
+    echo "pre-push: Chrome not found — skipping sign-in proof"
+  fi
+fi
+
+echo "pre-push: all applicable checks passed ✓"

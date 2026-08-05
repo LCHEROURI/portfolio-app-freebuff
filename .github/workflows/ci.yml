@@ -99,6 +99,7 @@ jobs:
 
     env:
       FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
 
     steps:
       - name: Check out repository
@@ -114,6 +115,18 @@ jobs:
         run: node scripts/verify-auth-domains.mjs
         env:
           FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+
+      # Service-account key validity: run the auto-authorize script against
+      # the production URL. The production domain is already authorized, so
+      # this is an idempotent no-op that proves the SA key itself can mint a
+      # token and read the admin config — catching a rotated/expired
+      # FIREBASE_SERVICE_ACCOUNT before a deployment_status event needs it.
+      - name: Verify auto-authorize service account key
+        if: ${{ env.FIREBASE_SERVICE_ACCOUNT != '' }}
+        run: node scripts/authorize-domain.mjs --domain "https://portfolio-app-freebuff.vercel.app"
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        continue-on-error: false
 
   # Post-deploy sign-in smoke test against the LIVE production URL. Drives a
   # real headless-Chrome session via CDP: mints a throwaway Firebase user,
