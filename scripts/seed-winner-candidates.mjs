@@ -15,7 +15,7 @@
 // never drift from what the app reads.
 //
 // Usage:
-//   node scripts/seed-winner-candidates.mjs [--owner demo-user] [--clear]
+//   node scripts/seed-winner-candidates.mjs [--owner demo-user] [--clear] [--list]
 //
 // Every doc is written with `userId = --owner` (default 'demo-user'), so the
 // fixture is scoped to a dedicated owner id and can never pollute a real
@@ -23,6 +23,13 @@
 // pass --owner demo-user explicitly. The cron reads scoped by REPORT_OWNER_ID,
 // so set that env var on Vercel to the SAME owner id to make the weekly email
 // see the fixture; leave REPORT_OWNER_ID unset (default demo-user) otherwise.
+//
+// --list (read-only safety mode): prints which owner (userId) currently owns
+// each fixture doc, without touching anything. Run it BEFORE --clear (or a
+// reseed) to confirm no fixture doc is owned by a real account — if a doc's
+// userId is not the demo/expected owner, the fixture was seeded into the wrong
+// account and --clear would delete real data. Exits nonzero when a non-expected
+// owner is found, so the mode can gate automation.
 //
 // Credentials resolve from FIREBASE_SERVICE_ACCOUNT (JSON string) or
 // FIREBASE_SERVICE_ACCOUNT_PATH (file), then .env.local. Project id comes from
@@ -46,6 +53,7 @@ const flag = (name, fallback) => {
 
 const OWNER = flag('--owner', 'demo-user'); // matches cron REPORT_OWNER_ID default
 const CLEAR = args.includes('--clear');
+const LIST = args.includes('--list'); // read-only: print who owns the fixture
 
 // Credential resolution + token mint come from the shared module so this
 // seeder can never drift from the cron's lib/server/firestoreAdmin.ts flow.
@@ -70,6 +78,24 @@ try {
 const BASE = `https://firestore.googleapis.com/v1/projects/${PROJECT}/databases/(default)/documents`;
 
 // Firestore Value <-> JS conversion (mirrors lib/server/firestoreAdmin.ts).
+const decodeValue = (v) => {
+  if (v === null || typeof v !== 'object') return null;
+  if ('stringValue' in v) return v.stringValue;
+  if ('integerValue' in v) return Number(v.integerValue);
+  if ('doubleValue' in v) return Number(v.doubleValue);
+  if ('booleanValue' in v) return v.booleanValue;
+  if ('timestampValue' in v) return v.timestampValue;
+  if ('referenceValue' in v) return v.referenceValue;
+  if ('arrayValue' in v) return ((v.arrayValue?.values) ?? []).map(decodeValue);
+  if ('mapValue' in v) return decodeFields(v.mapValue?.fields ?? {});
+  return null;
+};
+const decodeFields = (fields) => {
+  const out = {};
+  for (const [k, val] of Object.entries(fields)) out[k] = decodeValue(val);
+  return out;
+};
+
 const encodeValue = (v) => {
   if (v === null || v === undefined) return { nullValue: null };
   if (typeof v === 'string') return { stringValue: v };
@@ -118,6 +144,22 @@ const del = async (collection, id) => {
     const body = await res.text().catch(() => '');
     throw new Error(`delete ${collection}/${id} failed (${res.status}): ${body.slice(0, 300)}`);
   }
+};
+
+/** Read one doc by id (GET). Returns null on 404; throws on other failures. */
+const get = async (collection, id) => {
+  const res = await fetch(`${BASE}/${collection}/${encodeURIComponent(id)}`, {
+    method: 'GET',
+    headers: { authorization: `Bearer ${bearer}` },
+    cache: 'no-store',
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`get ${collection}/${id} failed (${res.status}): ${body.slice(0, 300)}`);
+  }
+  const json = await res.json();
+  return { id, ...decodeFields(json.fields ?? {}) };
 };
 
 const ts = () => new Date().toISOString();
@@ -214,7 +256,50 @@ const evaluation = (id, versionId, builder, model, overall, scores) => ({
   updatedAt: ts(),
 });
 
+const FIXTURE_DOCS = [
+  ['projects', PROJECT_ID],
+  ['project_versions', VERSION_A],
+  ['project_versions', VERSION_B],
+  ['model_evaluations', EVAL_A],
+  ['model_evaluations', EVAL_B],
+];
+
+/** --list: print who owns each fixture doc; never writes. */
+const listMode = async () => {
+  console.log(`[seed-winner-candidates] --list: reading fixture docs (project ${PROJECT})…`);
+  let suspicious = 0;
+  let found = 0;
+  for (const [collection, id] of FIXTURE_DOCS) {
+    const doc = await get(collection, id);
+    if (!doc) {
+      console.log(`  - ${collection}/${id}: MISSING`);
+      continue;
+    }
+    found += 1;
+    const owner = String(doc.userId ?? '(none)');
+    const expected = owner === OWNER || owner === 'demo-user';
+    if (!expected) suspicious += 1;
+    console.log(`  - ${collection}/${id}: userId=${owner}${expected ? '' : '  ⚠ NOT the expected/demo owner'}`);
+  }
+  console.log();
+  if (found === 0) {
+    console.log('No fixture docs found — clean state, safe to seed.');
+    return 0;
+  }
+  console.log(`${found}/${FIXTURE_DOCS.length} fixture docs present.`);
+  if (suspicious > 0) {
+    console.error(`✗ ${suspicious} fixture doc(s) are owned by an unexpected account — `
+      + 'an accidental real-account seed is possible. Do NOT run --clear until verified.');
+    return 1;
+  }
+  console.log(`All fixture docs are owned by ${OWNER}/demo-user — safe to --clear or reseed.`);
+  return 0;
+};
+
 const main = async () => {
+  if (LIST) {
+    process.exit(await listMode());
+  }
   if (CLEAR) {
     console.log('[seed-winner-candidates] --clear: deleting existing fixture docs…');
     await Promise.all([
@@ -253,6 +338,8 @@ const main = async () => {
   console.log('Note: FIREBASE_SERVICE_ACCOUNT must also be set on Vercel (and the app');
   console.log('redeployed) or the deployed cron will not see these docs. Set REPORT_OWNER_ID');
   console.log('to the same owner id you passed --owner so the cron scopes to this fixture.');
+  console.log('Safety: run with --list before --clear to confirm no fixture doc is owned');
+  console.log('by a real account.');
 };
 
 main().catch((err) => {

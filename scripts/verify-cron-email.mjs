@@ -12,10 +12,21 @@
 //      friendly label, the raw-id footer, and the structured narration field.
 //
 // Usage:
-//   node scripts/verify-cron-email.mjs [--base https://...] [--secret <CRON_SECRET>]
+//   node scripts/verify-cron-email.mjs [--base https://...] [--secret <CRON_SECRET>] [--owner <uid>]
 //
 // Reads CRON_SECRET from --secret, then CRON_SECRET env, then .env.local.
 // Exits nonzero on any failed assertion so CI can gate on it.
+//
+// --owner <uid>: owner-scoped strict mode. The deployed cron reads the owner
+// from its own REPORT_OWNER_ID env var, so this flag only ASSERTS (it cannot
+// change server behavior). When passed:
+//   1. Fails if the response's ownerId does not match (the deployed
+//      REPORT_OWNER_ID is unset/wrong — a Vercel env drift that would silently
+//      scope the email to demo-user and hide the fixture).
+//   2. Requires the weekly winner-recommendation section to render — the live
+//      proof that FIREBASE_SERVICE_ACCOUNT + the seeded fixture work end to
+//      end. Without --owner the section stays optional (graceful path), so
+//      the default check keeps passing on unseeded setups.
 // ============================================================================
 
 import { readFileSync } from 'node:fs';
@@ -40,6 +51,8 @@ const SECRET =
       return '';
     }
   })();
+
+const OWNER = flag('--owner');
 
 let failures = 0;
 const fail = (msg) => {
@@ -92,6 +105,19 @@ console.log('\n[3/4] Weekly email body (?kind=weekly&previewBody=1)');
 const weekly = await getJson('/api/cron/reports?kind=weekly&previewBody=1', auth);
 const weeklyReport = weekly.json?.reports?.find((r) => r.kind === 'weekly');
 const weeklyBody = weeklyReport?.body ?? '';
+// Owner-scoped strict mode: the deployed cron reads REPORT_OWNER_ID server-side,
+// so when --owner is passed the response's ownerId must match it — anything else
+// means the Vercel env never got the real uid and the email is scoped to the
+// wrong account (or demo-user).
+if (OWNER) {
+  if (!weekly.json?.ownerId) {
+    fail(`response missing ownerId — cannot verify --owner ${OWNER}`);
+  } else if (weekly.json.ownerId !== OWNER) {
+    fail(`deployed REPORT_OWNER_ID is "${weekly.json.ownerId}" but --owner expects "${OWNER}". Set REPORT_OWNER_ID=${OWNER} on Vercel and redeploy.`);
+  } else {
+    ok(`deployed REPORT_OWNER_ID matches --owner (${OWNER})`);
+  }
+}
 if (!weeklyBody) fail('weekly body missing from response');
 if (!weeklyBody.includes('## ✨ AI executive summary (DeepSeek Chat)'))
   fail('weekly body missing friendly heading "(DeepSeek Chat)"');
@@ -103,8 +129,11 @@ if (!weeklyBody.includes('# Weekly Command Center Report'))
 // narration: when live data has projects with multiple versions + evaluations
 // but no winner, the AI section must carry the friendly model label in its
 // heading and never print the raw id inline; when there are no such projects
-// the section is omitted cleanly (the deterministic body still ships).
+// the section is omitted cleanly (the deterministic body still ships). In
+// --owner strict mode the section is REQUIRED: the fixture is seeded under
+// that owner, so its absence means the SA wiring or the seed itself failed.
 const weeklyRecs = weeklyReport?.winnerRecommendations;
+const ownerScoped = OWNER && weekly.json?.ownerId === OWNER;
 if (weeklyRecs && weeklyRecs.length > 0) {
   if (!weeklyBody.includes('## 🏆 AI winner recommendations (DeepSeek Chat)'))
     fail('weekly winner section missing friendly heading "(DeepSeek Chat)"');
@@ -113,6 +142,9 @@ if (weeklyRecs && weeklyRecs.length > 0) {
   if (weeklyRecs.some((r) => !r.projectName || !r.versionName || !r.note))
     fail('weekly winner section has an incomplete structured entry');
   ok(`weekly winner-recommendation section present with friendly label (${weeklyRecs.length} project(s))`);
+} else if (ownerScoped) {
+  fail(`--owner ${OWNER}: no winner recommendations returned — the fixture should exist under this owner. `
+    + `Run npm run seed:winner-candidates --owner ${OWNER} (with FIREBASE_SERVICE_ACCOUNT set on Vercel and the app redeployed).`);
 } else {
   ok('no rule-10 winner candidates in live data — winner recommendation gracefully omitted');
 }
