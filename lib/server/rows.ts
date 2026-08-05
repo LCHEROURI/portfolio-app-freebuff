@@ -1,4 +1,4 @@
-import type { Task, Reminder, Project, ProjectVersion, ModelEvaluation } from '@/types';
+import type { Task, Reminder, Project, ProjectVersion, ModelEvaluation, ActivityEntry } from '@/types';
 
 // ============================================================================
 // Shared DB row mappers (Task/Reminder ↔ Supabase snake_case rows).
@@ -201,7 +201,30 @@ export const fromVersionRow = (r: Row): ProjectVersion => ({
   updatedAt: String(r.updated_at),
 });
 
-// ─── Model Evaluations ──────────────────────────────────────────────────────
+// ─── Activity (report delivery history + event feed) ────────────────────────
+// Shared row shape for the Supabase activity table. The cron writes one row per
+// report email attempt and the client store overlays them when Supabase is
+// wired, so the Activity page shows the full delivery history.
+
+export const toActivityRow = (a: ActivityEntry): Row => ({
+  id: a.id,
+  owner_id: a.userId,
+  project_id: a.projectId ?? null,
+  project_version_id: a.projectVersionId ?? null,
+  kind: a.kind,
+  message: a.message,
+  created_at: a.createdAt,
+});
+
+export const fromActivityRow = (r: Row): ActivityEntry => ({
+  id: String(r.id),
+  userId: String(r.owner_id),
+  projectId: r.project_id != null ? String(r.project_id) : undefined,
+  projectVersionId: r.project_version_id != null ? String(r.project_version_id) : undefined,
+  kind: r.kind as ActivityEntry['kind'],
+  message: String(r.message),
+  createdAt: String(r.created_at),
+});
 
 export const toEvaluationRow = (e: ModelEvaluation): Row => ({
   id: e.id,

@@ -17,6 +17,7 @@ import {
   fetchLiveProjects, saveLiveProject, deleteLiveProject,
   fetchLiveVersions, saveLiveVersion, deleteLiveVersion,
   fetchLiveEvaluations, saveLiveEvaluation, deleteLiveEvaluation,
+  fetchLiveActivity,
   type LiveFlags,
 } from '@/lib/liveData';
 import {
@@ -182,6 +183,19 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
           } catch { /* live projects unavailable → keep local */ }
         }
 
+        // The activity feed (report delivery history) lives in the same Supabase
+        // DB as tasks/projects; overlay it whenever the Supabase layer is wired
+        // so the Activity page shows the full email delivery history (client
+        // sends + every cron send).
+        if (flags.tasks || flags.projects) {
+          try {
+            const a = await fetchLiveActivity(userId);
+            if (a?.configured && Array.isArray(a.activity)) {
+              all.activity = a.activity;
+            }
+          } catch { /* live activity unavailable → keep local */ }
+        }
+
         if (cancelled) return;
         setData({ mode: service.mode, userId, ...all, tasks, reminders, repositories, deployments, projects, versions, evaluations, live });
       } catch (e) {
@@ -281,6 +295,12 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
             if (e?.configured && Array.isArray(e.evaluations)) next.evaluations = e.evaluations;
             live.projects = true;
           }
+        } catch { /* keep current */ }
+      }
+      if (flags.tasks || flags.projects) {
+        try {
+          const a = await fetchLiveActivity(userId);
+          if (a?.configured && Array.isArray(a.activity)) next.activity = a.activity;
         } catch { /* keep current */ }
       }
       await mutate((prev) => ({ ...prev, ...next, live }));

@@ -27,6 +27,14 @@ vi.mock('@/lib/server/reporting/email', () => ({
   sendReportEmail: vi.fn(async () => ({ sent: true, emailId: 'email-1' })),
 }));
 
+// Supabase is mocked so tests can assert the activity log write without a real
+// project; default unconfigured so existing tests never touch it.
+vi.mock('@/lib/server/supabase', () => ({
+  isSupabaseConfigured: vi.fn(() => false),
+  supabaseSelect: vi.fn(async () => []),
+  supabaseUpsert: vi.fn(async (table: string, row: Record<string, unknown>) => row),
+}));
+
 vi.mock('@/lib/openrouter', async (importOriginal) => {
   const mod = await importOriginal<typeof import('@/lib/openrouter')>();
   return {
@@ -40,6 +48,7 @@ import { GET } from './route';
 import { loadLiveSnapshot } from '@/lib/server/reporting/data';
 import { sendReportEmail } from '@/lib/server/reporting/email';
 import { narrateTopThree } from '@/lib/openrouter';
+import { isSupabaseConfigured, supabaseUpsert } from '@/lib/server/supabase';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -127,12 +136,20 @@ beforeEach(() => {
     projectIds: ['p-1'],
   });
   vi.mocked(sendReportEmail).mockClear();
+  vi.mocked(isSupabaseConfigured).mockReturnValue(false);
+  vi.mocked(supabaseUpsert).mockClear();
 });
 
 afterEach(() => {
   delete process.env.CRON_SECRET;
   vi.clearAllMocks();
 });
+
+// ?sendTest=1 — Resend test-mode delivery
+const makeSendTestReq = (kind: string) =>
+  new NextRequest(`http://localhost/api/cron/reports?kind=${kind}&sendTest=1`, {
+    headers: { authorization: 'Bearer test-secret' },
+  });
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
@@ -262,6 +279,48 @@ describe('GET /api/cron/reports — previewBody=1', () => {
     const res = await GET(makeReq('weekly'));
     const json = (await res.json()) as { reports: Array<Record<string, unknown>> };
     expect(json.reports[0].body).toBeUndefined();
+  });
+});
+
+// ─── Test-mode send (?sendTest=1) ───────────────────────────────────────────
+
+describe('GET /api/cron/reports — sendTest=1', () => {
+  it('delivers via the Resend test/sandbox path and returns the test emailId', async () => {
+    const res = await GET(makeSendTestReq('daily'));
+    expect(res.status).toBe(200);
+    // sendReportEmail was called with the test option so it uses the sandbox
+    // recipient instead of REPORT_EMAIL.
+    expect(sendReportEmail).toHaveBeenCalledTimes(1);
+    expect(sendReportEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'daily', title: expect.any(String) }),
+      { test: true },
+    );
+    const json = (await res.json()) as {
+      reports: Array<{ email: { sent: boolean; emailId?: string; reason?: string } }>;
+    };
+    expect(json.reports[0].email.sent).toBe(true);
+    expect(json.reports[0].email.emailId).toBe('email-1');
+  });
+});
+
+// ─── Activity logging (Supabase) ────────────────────────────────────────────
+
+describe('GET /api/cron/reports — activity logging', () => {
+  it('writes a report_generated activity row with the emailId when Supabase is configured', async () => {
+    vi.mocked(isSupabaseConfigured).mockReturnValue(true);
+    await GET(makeReq('daily'));
+
+    expect(supabaseUpsert).toHaveBeenCalledTimes(1);
+    const row = vi.mocked(supabaseUpsert).mock.calls[0][1] as Record<string, unknown>;
+    expect(row.kind).toBe('report_generated');
+    expect(row.owner_id).toBe('demo-user');
+    expect(String(row.message)).toContain('daily report');
+    expect(String(row.message)).toContain('email-1');
+  });
+
+  it('does not touch Supabase when it is unconfigured', async () => {
+    await GET(makeReq('weekly'));
+    expect(supabaseUpsert).not.toHaveBeenCalled();
   });
 });
 

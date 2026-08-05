@@ -190,6 +190,38 @@ create index if not exists evaluations_owner_idx on public.evaluations (owner_id
 create index if not exists evaluations_project_idx on public.evaluations (project_id);
 create index if not exists evaluations_version_idx on public.evaluations (project_version_id);
 
+-- ─── Activity (report delivery history + event feed) ────────────────────────
+-- Shared by the client store (Save and email now / retry) and the cron (every
+-- scheduled send) so the Activity page shows the full email delivery history.
+create table if not exists public.activity (
+  id                    text primary key,
+  owner_id              text not null,
+  project_id            text,
+  project_version_id    text,
+  kind                  text not null default 'report_generated',
+  message               text not null,
+  created_at            text not null
+);
+
+create index if not exists activity_owner_idx on public.activity (owner_id);
+create index if not exists activity_created_idx on public.activity (created_at);
+
+alter table public.activity enable row level security;
+
+drop policy if exists activity_owner_select on public.activity;
+drop policy if exists activity_owner_insert on public.activity;
+drop policy if exists activity_owner_update on public.activity;
+drop policy if exists activity_owner_delete on public.activity;
+
+create policy activity_owner_select on public.activity
+  for select using (auth.uid()::text = owner_id);
+create policy activity_owner_insert on public.activity
+  for insert with check (auth.uid()::text = owner_id);
+create policy activity_owner_update on public.activity
+  for update using (auth.uid()::text = owner_id);
+create policy activity_owner_delete on public.activity
+  for delete using (auth.uid()::text = owner_id);
+
 -- ─── RLS for projects / versions / evaluations ─────────────────────────────
 -- Same owner-scoped policy shape as tasks/reminders (defense-in-depth; the
 -- app's server routes use the service-role key which bypasses RLS).

@@ -300,6 +300,18 @@ curl -H "Authorization: Bearer $CRON_SECRET" \
   "https://portfolio-app-freebuff.vercel.app/api/cron/reports?kind=daily&previewBody=1&format=text"
 ```
 
+**Checking a generated report in a real inbox without configuring
+`REPORT_EMAIL`:** the route also accepts `&sendTest=1` (same CRON_SECRET auth),
+which delivers the composed body via Resend's **test/sandbox mode** — the send
+succeeds without a verified sender and returns the test `emailId` in the JSON
+response. The sandbox email can be opened from the Resend dashboard's
+Test Inbox; nothing is sent to a real recipient:
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" \
+  "https://portfolio-app-freebuff.vercel.app/api/cron/reports?kind=daily&sendTest=1"
+```
+
 The packaged smoke test asserts the auth gate, the friendly model heading, and
 the raw-id footer for both daily and weekly bodies:
 
@@ -330,6 +342,12 @@ node scripts/verify-send-auth.mjs --base http://localhost:3000   # local dev
 
 It reads `NEXT_PUBLIC_FIREBASE_API_KEY` / `NEXT_PUBLIC_FIREBASE_PROJECT_ID`
 from env, then `.env.local`, and exits nonzero on any failed assertion.
+
+**Delivery history on the Activity page:** every "Save and email now", retry,
+and cron send writes a `report_generated` activity entry (kind, emailId, and
+delivery status) into the Supabase `activity` table when a live source is
+wired, so the `/activity` feed shows the full delivery trail next to the
+in-app delivery badges.
 
 **Rotating `CRON_SECRET`** (do this whenever it may have leaked, or to keep the
 local `.env.local` and the Vercel/GitHub values in lockstep):
@@ -432,7 +450,7 @@ Scheduled functions: `runAutomation` (every 6h), `generateDailyReports` (daily
 | `/deployments` | Health + status of every environment |
 | `/repositories` | Repo cards + scanner instructions |
 | `/model-comparison` | Weighted score matrix + winner selection |
-| `/reports` | Generate/save daily & weekly reports (preview-before-save, "Save and email now", delivery badge on saved cards) |
+| `/reports` | Generate/save daily & weekly reports (preview-before-save, "Save and email now", delivery badge + Retry email on skipped/failed cards) |
 | `/activity` | Event feed with kind filters |
 | `/integrations` | GitHub / Vercel / Calendar / Gemini connection UI |
 | `/gallery` | Every module's screenshot pair (light/dark) on the live site |

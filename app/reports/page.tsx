@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { FileText, RefreshCw, Clock4, Sparkles, CalendarClock, Send, Trash2 } from 'lucide-react';
+import { FileText, RefreshCw, Clock4, Sparkles, CalendarClock, Send, Trash2, RotateCcw } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
@@ -33,6 +33,7 @@ export default function ReportsPage() {
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendNote, setSendNote] = useState<string | null>(null);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
 
   // Build the report and open a preview modal instead of saving immediately, so
   // the user sees the exact emailed body (freshness section + AI summary)
@@ -130,12 +131,21 @@ export default function ReportsPage() {
         aiSummary: preview.aiSummary,
         aiModel: preview.aiModel,
       });
-      await store.saveReport({
+      const delivered: Report = {
         ...report,
         emailStatus: res.sent ? 'sent' : 'skipped',
         emailId: res.emailId ?? undefined,
         emailReason: res.sent ? undefined : (res.reason ?? 'not configured'),
         emailAttemptedAt: new Date().toISOString(),
+      };
+      await store.saveReport(delivered);
+      // Log the delivery to the activity feed so the Activity page shows the
+      // full delivery history (emailId + status) for client-triggered sends.
+      await store.logActivity({
+        kind: 'report_generated',
+        message: res.sent
+          ? `${preview.kind} report "${preview.title}" emailed (${res.emailId ?? 'no id'})`
+          : `${preview.kind} report "${preview.title}" email skipped: ${res.reason ?? 'not configured'}`,
       });
       setSendNote(res.sent ? 'Emailed ✓' : `Saved — email skipped: ${res.reason ?? 'not configured'}.`);
     } catch {
@@ -152,6 +162,47 @@ export default function ReportsPage() {
       // (Close instead of Save) — an accidental second 'Save report' click can
       // never write a duplicate row.
       setPreview((p) => (p ? { ...p, pendingSave: false } : p));
+    }
+  };
+
+  // Re-attempt email delivery for a saved report whose emailStatus is skipped
+  // or failed. Re-POSTs to /api/reports/send and updates the badge in place via
+  // the upsert-by-id saveReport, so the card flips to Emailed ✓ without a
+  // reload.
+  const retryEmail = async (r: Report) => {
+    setRetryingId(r.id);
+    try {
+      const res = await sendReportNow(store.userId, {
+        kind: r.kind,
+        title: r.title,
+        body: r.body,
+        attentionCount: r.attentionCount,
+        aiSummary: r.aiSummary,
+        aiModel: r.aiModel,
+      });
+      const delivered: Report = {
+        ...r,
+        emailStatus: res.sent ? 'sent' : 'skipped',
+        emailId: res.emailId ?? undefined,
+        emailReason: res.sent ? undefined : (res.reason ?? 'not configured'),
+        emailAttemptedAt: new Date().toISOString(),
+      };
+      await store.saveReport(delivered);
+      await store.logActivity({
+        kind: 'report_generated',
+        message: res.sent
+          ? `retried: ${r.kind} report "${r.title}" emailed (${res.emailId ?? 'no id'})`
+          : `retried: ${r.kind} report "${r.title}" email skipped: ${res.reason ?? 'not configured'}`,
+      });
+    } catch {
+      await store.saveReport({
+        ...r,
+        emailStatus: 'failed',
+        emailReason: 'Email delivery failed.',
+        emailAttemptedAt: new Date().toISOString(),
+      });
+    } finally {
+      setRetryingId(null);
     }
   };
 
@@ -229,6 +280,23 @@ export default function ReportsPage() {
                       ? 'Emailed ✓'
                       : `Email ${r.emailStatus}${r.emailReason ? ` — ${r.emailReason}` : ''}`}
                   </Badge>
+                )}
+                {(r.emailStatus === 'skipped' || r.emailStatus === 'failed') && (
+                  <button
+                    type="button"
+                    aria-label={`Retry email for ${r.title}`}
+                    className="btn-ghost rounded-md px-2 py-1 text-xs"
+                    disabled={retryingId === r.id}
+                    onClick={(e) => {
+                      // Don't toggle the <details> — only retry the email.
+                      e.preventDefault();
+                      e.stopPropagation();
+                      void retryEmail(r);
+                    }}
+                  >
+                    <RotateCcw size={12} className={retryingId === r.id ? 'animate-spin' : ''} aria-hidden="true" />
+                    {retryingId === r.id ? 'Retrying…' : 'Retry email'}
+                  </button>
                 )}
                 <span className="flex-1 font-semibold">{r.title}</span>
                 <span className="text-xs text-pepper-400">{r.attentionCount} attention items · {timeAgo(r.createdAt)}</span>

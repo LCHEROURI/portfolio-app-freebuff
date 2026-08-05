@@ -4,9 +4,11 @@ import type { AutomationAlert } from '@/lib/engine';
 // ============================================================================
 // Report email client — Resend REST API via fetch (no SDK, matching the
 // project's PostgREST-over-fetch convention). Config is all env-driven:
-//   RESEND_API_KEY   → required to send
-//   REPORT_EMAIL     → recipient inbox
-//   REPORT_FROM      → optional sender (default Command Center <onboarding@resend.dev>)
+//   RESEND_API_KEY      → required to send
+//   REPORT_EMAIL        → recipient inbox
+//   REPORT_FROM         → optional sender (default Command Center <onboarding@resend.dev>)
+//   RESEND_TEST_API_KEY → optional; when set, ?sendTest=1 sends go to the Resend
+//                         test (sandbox) inbox instead of REPORT_EMAIL
 // ============================================================================
 
 export interface ReportEmailInput {
@@ -17,6 +19,14 @@ export interface ReportEmailInput {
   alerts: AutomationAlert[];
 }
 
+export interface ReportEmailOptions {
+  /** Resend test/sandbox mode: sends with RESEND_TEST_API_KEY (falling back to
+   *  RESEND_API_KEY) to the sandbox recipient, so a generated report lands in
+   *  the Resend test inbox without configuring REPORT_EMAIL. Returns the test
+   *  emailId so verifiers can assert the delivery. */
+  test?: boolean;
+}
+
 export interface EmailResult {
   sent: boolean;
   emailId?: string;
@@ -24,13 +34,26 @@ export interface EmailResult {
 }
 
 const RESEND_URL = 'https://api.resend.com/emails';
+// Resend sandbox recipient — test-mode emails appear in the Resend dashboard's
+// test inbox regardless of the to-address, but this keeps the API call valid
+// when REPORT_EMAIL isn't configured yet.
+const TEST_RECIPIENT = 'delivered@resend.dev';
 
-export const sendReportEmail = async (input: ReportEmailInput): Promise<EmailResult> => {
-  const apiKey = process.env.RESEND_API_KEY;
+export const sendReportEmail = async (
+  input: ReportEmailInput,
+  opts: ReportEmailOptions = {},
+): Promise<EmailResult> => {
+  const apiKey = opts.test
+    ? (process.env.RESEND_TEST_API_KEY ?? process.env.RESEND_API_KEY)
+    : process.env.RESEND_API_KEY;
   const to = process.env.REPORT_EMAIL;
-  if (!apiKey || !to) {
-    return { sent: false, reason: !apiKey ? 'RESEND_API_KEY not set' : 'REPORT_EMAIL not set' };
+  if (!apiKey) {
+    return { sent: false, reason: opts.test ? 'RESEND_TEST_API_KEY not set' : 'RESEND_API_KEY not set' };
   }
+  if (!opts.test && !to) {
+    return { sent: false, reason: 'REPORT_EMAIL not set' };
+  }
+  const recipient = opts.test ? TEST_RECIPIENT : to!;
 
   const from = process.env.REPORT_FROM ?? 'Command Center <onboarding@resend.dev>';
   const html = renderReportHtml(input.title, input.body);
@@ -39,7 +62,7 @@ export const sendReportEmail = async (input: ReportEmailInput): Promise<EmailRes
     const res = await fetch(RESEND_URL, {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to, subject: input.title, html, text: input.body }),
+      body: JSON.stringify({ from, to: recipient, subject: input.title, html, text: input.body }),
       cache: 'no-store',
     });
     const data = (await res.json().catch(() => null)) as { id?: string; message?: string } | null;

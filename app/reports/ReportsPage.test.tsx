@@ -15,6 +15,9 @@ import type { Report } from '@/types';
 // declaration above the mock and never import '@/lib/store' eagerly in tests.
 const savedReports: Report[] = [];
 let profileOverride: { aiModel?: string } = {};
+// Activity entries logged by save-and-email-now / retry, captured so tests can
+// assert the delivery history reaches the activity feed.
+const loggedActivity: Array<{ kind: string; message: string }> = [];
 
 vi.mock('@/lib/store', () => ({
   useStore: () => ({
@@ -36,6 +39,7 @@ vi.mock('@/lib/store', () => ({
       if (i >= 0) savedReports[i] = r;
       else savedReports.unshift(r);
     },
+    logActivity: async (e: { kind: string; message: string }) => { loggedActivity.push(e); },
   }),
 }));
 
@@ -95,6 +99,7 @@ const stubSummarizeFetch = () => {
 
 beforeEach(() => {
   savedReports.length = 0;
+  loggedActivity.length = 0;
   queue = [];
   lastRequestModel = undefined;
   sendQueue = [];
@@ -262,6 +267,8 @@ describe('ReportsPage — AI executive summary', () => {
     expect(saved.emailStatus).toBe('sent');
     expect(saved.emailId).toBe('email-1');
     expect(saved.emailAttemptedAt).toBeDefined();
+    // The delivery lands in the activity feed with the emailId.
+    expect(loggedActivity.some((a) => a.kind === 'report_generated' && a.message.includes('email-1'))).toBe(true);
 
     // The preview is now view-only (Close, no Save) so a second click can't duplicate.
     const dialog = screen.getByRole('dialog');
@@ -296,6 +303,65 @@ describe('ReportsPage — AI executive summary', () => {
     // Close the modal: the skip reason badge survives on the card.
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }));
     expect(screen.getByText('Email skipped — RESEND_API_KEY not set')).toBeInTheDocument();
+  });
+});
+
+// ─── Retry email on a saved card ─────────────────────────────────────────────
+
+describe('ReportsPage — Retry email', () => {
+  it('re-POSTs to /api/reports/send and flips a skipped card to Emailed ✓ in place', async () => {
+    // A previously saved report that was skipped (email unconfigured at the time).
+    savedReports.push({
+      id: 'r-skipped',
+      userId: 'e2e-user',
+      kind: 'daily',
+      title: 'Daily Report 8/4/2026',
+      body: '# Daily Command Center Report',
+      attentionCount: 3,
+      createdAt: new Date().toISOString(),
+      emailStatus: 'skipped',
+      emailReason: 'RESEND_API_KEY not set',
+    });
+    // The retry send succeeds this time.
+    sendQueue = [{ sent: true }];
+    render(<ReportsPage />);
+
+    const retryButton = screen.getByRole('button', { name: 'Retry email for Daily Report 8/4/2026' });
+    fireEvent.click(retryButton);
+
+    // The badge flips in place to Emailed ✓ with the emailId in the tooltip.
+    const emailed = await screen.findByText('Emailed ✓');
+    expect(emailed).toHaveAttribute('title', 'Resend email id: email-1');
+    expect(savedReports[0].emailStatus).toBe('sent');
+    expect(savedReports[0].emailId).toBe('email-1');
+    // Still exactly one report (upsert, no duplicate) and a retry activity entry.
+    expect(savedReports).toHaveLength(1);
+    expect(loggedActivity.some((a) => a.kind === 'report_generated' && a.message.includes('retried') && a.message.includes('email-1'))).toBe(true);
+  });
+
+  it('keeps a failed card flagged when the retry also fails', async () => {
+    savedReports.push({
+      id: 'r-failed',
+      userId: 'e2e-user',
+      kind: 'weekly',
+      title: 'Weekly Report',
+      body: '# Weekly Command Center Report',
+      attentionCount: 0,
+      createdAt: new Date().toISOString(),
+      emailStatus: 'failed',
+      emailReason: 'Email delivery failed.',
+    });
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new Error('network down');
+    }));
+    render(<ReportsPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry email for Weekly Report' }));
+
+    // The card stays flagged failed with the retry timestamp refreshed.
+    await waitFor(() => expect(savedReports[0].emailStatus).toBe('failed'));
+    expect(savedReports[0].emailReason).toBe('Email delivery failed.');
+    expect(savedReports[0].emailAttemptedAt).toBeDefined();
   });
 });
 

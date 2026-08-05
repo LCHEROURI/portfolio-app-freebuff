@@ -14,7 +14,7 @@
 // ============================================================================
 
 import { getFirebaseAuth } from '@/lib/firebase';
-import type { Task, Reminder, Repository, Deployment, Project, ProjectVersion, ModelEvaluation } from '@/types';
+import type { Task, Reminder, Repository, Deployment, Project, ProjectVersion, ModelEvaluation, ActivityEntry } from '@/types';
 
 export interface LiveFlags {
   tasks: boolean;
@@ -148,6 +148,10 @@ export const deleteLiveVersion = (userId: string, id: string) =>
 // ─── Evaluations (Supabase-backed) ──────────────────────────────────────────
 export const fetchLiveEvaluations = (userId: string) =>
   call<{ evaluations: ModelEvaluation[]; configured: boolean }>('/api/evaluations', userId);
+
+// ─── Activity feed (Supabase-backed — report delivery history) ──────────────
+export const fetchLiveActivity = (userId: string) =>
+  call<{ activity: ActivityEntry[]; configured: boolean }>('/api/activity', userId);
 
 // ─── Manual report delivery (POST /api/reports/send) ────────────────────────
 export interface SendReportNowInput {

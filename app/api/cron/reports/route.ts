@@ -8,6 +8,8 @@ import { narrateTopThree, summarizeReport, withExecutiveSummary, withTopThreeNar
 import type { ReportPreviewPayload } from '@/lib/reportPreview';
 import { loadLiveSnapshot, serverProfile } from '@/lib/server/reporting/data';
 import { sendReportEmail } from '@/lib/server/reporting/email';
+import { toActivityRow } from '@/lib/server/rows';
+import { isSupabaseConfigured, supabaseUpsert } from '@/lib/server/supabase';
 
 // ============================================================================
 // GET /api/cron/reports — automation engine entry point.
@@ -31,6 +33,17 @@ import { sendReportEmail } from '@/lib/server/reporting/email';
 //                    scheduled cron. (A manual trigger WITHOUT format=text
 //                    still delivers to REPORT_EMAIL immediately — that is the
 //                    "check it in a real inbox" path.)
+//   ?sendTest=1 → send via Resend test/sandbox mode: uses RESEND_TEST_API_KEY
+//                    (falling back to RESEND_API_KEY) and the sandbox recipient
+//                    instead of REPORT_EMAIL, so a generated report lands in the
+//                    Resend test inbox without configuring a real inbox. The
+//                    per-report email object in the response carries the test
+//                    emailId.
+//
+// Every send (real or test) also logs a `report_generated` activity row to the
+// Supabase activity table when Supabase is configured, so the Activity page
+// shows the full delivery history — cron sends, test sends, and the client's
+// 'Save and email now' / retry all land in the same feed.
 //
 // The 14 automation rules run against a live snapshot (Supabase tasks/projects/
 // versions/evaluations + live GitHub repos + Vercel/Firebase deployments) using
@@ -71,6 +84,10 @@ export async function GET(req: NextRequest) {
   // Dev-only plain-text preview: when set, the composed body is returned as
   // text/plain and the email is NOT sent.
   const textPreview = previewBody && req.nextUrl.searchParams.get('format') === 'text';
+  // Dev-only test-mode send: deliver to the Resend sandbox instead of the real
+  // inbox so a generated report can be checked in the Resend test inbox without
+  // configuring REPORT_EMAIL.
+  const sendTest = req.nextUrl.searchParams.get('sendTest') === '1';
   const weeklyDay = Number(process.env.REPORT_WEEKLY_DAY ?? 1);
   const todayUtc = new Date().getUTCDay();
 
@@ -167,14 +184,18 @@ export async function GET(req: NextRequest) {
 
   for (const s of summarized) {
     // Plain-text preview skips delivery entirely (no inbox write, no wait); the
-    // default path always sends like the scheduled cron does.
+    // default path always sends like the scheduled cron does; sendTest delivers
+    // to the Resend sandbox.
     const email = textPreview
       ? { sent: false, reason: 'text preview — email not sent' }
-      : await sendReportEmail({
-          kind: s.kind, title: s.title,
-          body: s.body,
-          attentionCount: s.attentionCount, alerts,
-        });
+      : await sendReportEmail(
+          {
+            kind: s.kind, title: s.title,
+            body: s.body,
+            attentionCount: s.attentionCount, alerts,
+          },
+          { test: sendTest },
+        );
     reports.push({
       kind: s.kind, title: s.title, attentionCount: s.attentionCount, email,
       aiModel: s.model, narrationModel: s.narration?.model ?? null,
@@ -184,6 +205,24 @@ export async function GET(req: NextRequest) {
       body: s.body,
       narration: s.narration,
     });
+
+    // Log a report_generated activity row (Supabase) so the Activity page shows
+    // the delivery history. Best-effort: never fail the cron on a log write.
+    if (isSupabaseConfigured()) {
+      try {
+        await supabaseUpsert('activity', toActivityRow({
+          id: `a-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+          userId: ownerId,
+          kind: 'report_generated',
+          message: email.sent
+            ? `${s.kind} report "${s.title}" emailed (${email.emailId ?? 'no id'})${sendTest ? ' [test]' : ''}`
+            : `${s.kind} report "${s.title}" email ${email.reason ?? 'not sent'}`,
+          createdAt: new Date().toISOString(),
+        }));
+      } catch (e) {
+        console.warn('activity log skipped (cron):', e instanceof Error ? e.message : e);
+      }
+    }
   }
 
   // Dev-only plain-text email preview: serve the composed body as text/plain
