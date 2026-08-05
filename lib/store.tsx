@@ -42,6 +42,10 @@ export interface CommandCenterData {
   userId: string;
   /** Which collections are currently backed by a live integration. */
   live: LiveFlags;
+  /** True when the activity feed came from the live Supabase activity table
+   *  (i.e. /api/activity returned configured:true). False when the app is
+   *  showing local-only activity — the page surfaces a warning in that case. */
+  activityLive: boolean;
 }
 
 interface StoreApi extends CommandCenterData {
@@ -186,18 +190,21 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
         // The activity feed (report delivery history) lives in the same Supabase
         // DB as tasks/projects; overlay it whenever the Supabase layer is wired
         // so the Activity page shows the full email delivery history (client
-        // sends + every cron send).
+        // sends + every cron send). Track whether the overlay actually applied
+        // so the page can warn when it's running local-only.
+        let activityLive = false;
         if (flags.tasks || flags.projects) {
           try {
             const a = await fetchLiveActivity(userId);
             if (a?.configured && Array.isArray(a.activity)) {
               all.activity = a.activity;
+              activityLive = true;
             }
           } catch { /* live activity unavailable → keep local */ }
         }
 
         if (cancelled) return;
-        setData({ mode: service.mode, userId, ...all, tasks, reminders, repositories, deployments, projects, versions, evaluations, live });
+        setData({ mode: service.mode, userId, ...all, tasks, reminders, repositories, deployments, projects, versions, evaluations, live, activityLive });
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load data.');
       } finally {
@@ -300,7 +307,10 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
       if (flags.tasks || flags.projects) {
         try {
           const a = await fetchLiveActivity(userId);
-          if (a?.configured && Array.isArray(a.activity)) next.activity = a.activity;
+          if (a?.configured && Array.isArray(a.activity)) {
+            next.activity = a.activity;
+            next.activityLive = true;
+          }
         } catch { /* keep current */ }
       }
       await mutate((prev) => ({ ...prev, ...next, live }));
@@ -330,7 +340,7 @@ export const StoreProvider = ({ children }: { children: ReactNode }) => {
         const next = new FirestoreService();
         serviceRef.current = next;
         const all = await next.loadAll(user.uid);
-        setData({ mode: 'firestore', userId: user.uid, ...all, reminders: [], live: { ...NO_LIVE } });
+        setData({ mode: 'firestore', userId: user.uid, ...all, reminders: [], live: { ...NO_LIVE }, activityLive: false });
         await refreshLive();
         return count;
       },

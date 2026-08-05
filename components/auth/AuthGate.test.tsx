@@ -93,7 +93,28 @@ describe('AuthGate — forgot password flow', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send Reset Link' }));
 
     const alert = await screen.findByRole('alert');
-    expect(alert).toHaveTextContent('Error (auth/user-not-found).');
+    // The raw Firebase string is mapped to friendly guidance.
+    expect(alert).toHaveTextContent('Those credentials do not match our records.');
+  });
+
+  it('renders an actionable banner with the console deep-link for unauthorized-domain', async () => {
+    vi.stubEnv('NEXT_PUBLIC_FIREBASE_PROJECT_ID', 'meal-planner-lcherouri');
+    authApi.signIn.mockRejectedValueOnce(
+      new Error('Firebase: Error (auth/unauthorized-domain).'),
+    );
+    render(<AuthGate />);
+    fireEvent.change(screen.getByPlaceholderText('you@example.com'), {
+      target: { value: 'chef@example.com' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('••••••••'), {
+      target: { value: 'hunter2' },
+    });
+    // Two 'Sign in' buttons exist (tab toggle + submit); click the submit one.
+    fireEvent.click(screen.getAllByRole('button', { name: 'Sign in' })[1]);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/authorized domains/);
+    expect(alert).toHaveTextContent(/Open Firebase/);
   });
 
   it('returns to the sign-in view from Back to Sign In', () => {

@@ -61,7 +61,7 @@ const SETUP_GUIDES: Record<string, SetupStep[]> = {
   supabase: [
     {
       label: 'Create a Supabase project and run the schema',
-      note: 'Dashboard → SQL Editor → run supabase/schema.sql. It creates public.tasks, reminders, projects, versions, and evaluations with row-level security.',
+      note: 'Run supabase db push (or Dashboard → SQL Editor → paste supabase/schema.sql). It creates public.tasks, reminders, projects, versions, evaluations, and the activity table (report delivery history) with row-level security.',
     },
     {
       label: 'Copy the project URL and service-role key',

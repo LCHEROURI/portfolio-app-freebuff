@@ -203,11 +203,12 @@ stays usable.
 
 **Setup (full detail in `.env.example`):**
 
-1. **Supabase** — create a project, run `supabase/schema.sql` in the SQL editor
-   (creates `tasks`, `reminders`, `projects`, `versions` and `evaluations`
-   tables with owner-scoped RLS), then add the project URL + service-role key
-   to your env. Set `NEXT_PUBLIC_LIVE_PROJECTS=1` to persist projects/versions/
-   evaluations there as well.
+1. **Supabase** — create a project, then apply `supabase/schema.sql` with
+   `supabase db push` (or paste it into the Dashboard's SQL Editor). It creates
+   `tasks`, `reminders`, `projects`, `versions`, `evaluations` and `activity`
+   (the report-delivery history table) with owner-scoped RLS. Then add the
+   project URL + service-role key to your env. Set `NEXT_PUBLIC_LIVE_PROJECTS=1`
+   to persist projects/versions/evaluations there as well.
 2. **GitHub** — create a fine-grained PAT (repo read). Owner defaults to
    `LCHEROURI`; the repo list defaults to your 7 active repos and is
    overridable via `GITHUB_REPOS`.
@@ -475,7 +476,7 @@ app/api/        Live API routes: tasks, reminders, projects, versions,
 lib/server/     github.ts, deployments.ts, supabase.ts, rows.ts,
                 reporting/ (data assembly + email)
 supabase/       schema.sql — tasks, reminders, projects, versions,
-                evaluations tables with RLS
+                evaluations, activity tables with RLS
 types/          Full domain model + zod schemas + scoring
 scripts/        repo-scanner.mjs (local CLI companion)
 functions/      Firebase Cloud Functions (automation + scheduled reports)

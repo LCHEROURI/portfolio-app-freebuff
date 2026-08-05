@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useState, type FormEvent, type ReactNode } from 'react';
 import { Loader2, Sparkles } from 'lucide-react';
 
 import { useAuth } from '@/lib/auth';
+import { authConsoleUrl, authErrorCode, authErrorMessage } from '@/lib/authErrors';
 import { Card } from '@/components/ui/Card';
 import { Field, Input } from '@/components/ui/Field';
 import { VercelEnvSettingsLink } from '@/components/integrations/VercelEnvSettingsLink';
@@ -28,12 +29,23 @@ export const AuthGate = () => {
   const [resetSent, setResetSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
+  // The origin the page is served from — the value Firebase's Authorized
+  // domains gate compares against. Computed client-side so the error message
+  // names the exact domain that needs adding.
+  const origin = typeof window !== 'undefined' ? window.location.origin : undefined;
+
+  const showError = (err: unknown) => {
+    setError(authErrorMessage(err, origin));
+    setErrorCode(authErrorCode(err));
+  };
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (busy) return;
     setBusy(true);
     setError(null);
+    setErrorCode(null);
     try {
       if (mode === 'signin') {
         await signIn(email, password);
@@ -41,7 +53,7 @@ export const AuthGate = () => {
         await signUp(email, password, displayName);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message.replace('Firebase: ', '') : 'Authentication failed.');
+      showError(err);
     } finally {
       setBusy(false);
     }
@@ -51,10 +63,11 @@ export const AuthGate = () => {
     if (busy) return;
     setBusy(true);
     setError(null);
+    setErrorCode(null);
     try {
       await signInWithGoogle();
     } catch (err) {
-      setError(err instanceof Error ? err.message.replace('Firebase: ', '') : 'Google sign-in failed.');
+      showError(err);
     } finally {
       setBusy(false);
     }
@@ -65,12 +78,13 @@ export const AuthGate = () => {
     if (busy) return;
     setBusy(true);
     setError(null);
+    setErrorCode(null);
     setResetSent(false);
     try {
       await sendPasswordReset(resetEmail);
       setResetSent(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message.replace('Firebase: ', '') : 'Could not send the reset link.');
+      showError(err);
     } finally {
       setBusy(false);
     }
@@ -80,9 +94,35 @@ export const AuthGate = () => {
   const openReset = () => {
     if (!resetEmail && email) setResetEmail(email);
     setError(null);
+    setErrorCode(null);
     setResetSent(false);
     setView('reset');
   };
+
+  const consoleUrl = authConsoleUrl(errorCode, process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID);
+  const ErrorBanner = ({ children }: { children: ReactNode }) => (
+    <div
+      className="rounded-lg border border-paprika-200 bg-paprika-50 px-3 py-2 text-xs font-medium text-paprika-700 dark:border-paprika-800 dark:bg-paprika-950 dark:text-paprika-300"
+      role="alert"
+    >
+      {children}
+      {consoleUrl && (
+        <span className="mt-1.5 block">
+          <a
+            href={consoleUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 font-semibold text-tomato-600 underline underline-offset-2 hover:text-tomato-700 dark:text-tomato-300"
+          >
+            Open Firebase → Authentication → Authorized domains ↗
+          </a>
+          <span className="mt-0.5 block font-normal text-paprika-600 dark:text-paprika-300">
+            Add {origin} to the list and Save — no redeploy needed.
+          </span>
+        </span>
+      )}
+    </div>
+  );
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-flour-50 px-4 py-8 dark:bg-pepper-900">
@@ -129,11 +169,7 @@ export const AuthGate = () => {
                 </p>
               )}
 
-              {error && (
-                <p className="rounded-lg border border-paprika-200 bg-paprika-50 px-3 py-2 text-xs font-medium text-paprika-700 dark:border-paprika-800 dark:bg-paprika-950 dark:text-paprika-300" role="alert">
-                  {error}
-                </p>
-              )}
+              {error && <ErrorBanner>{error}</ErrorBanner>}
 
               <button type="submit" className="btn-primary w-full" disabled={busy}>
                 {busy ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : null}
@@ -213,11 +249,7 @@ export const AuthGate = () => {
               </div>
             )}
 
-            {error && (
-              <p className="rounded-lg border border-paprika-200 bg-paprika-50 px-3 py-2 text-xs font-medium text-paprika-700 dark:border-paprika-800 dark:bg-paprika-950 dark:text-paprika-300" role="alert">
-                {error}
-              </p>
-            )}
+            {error && <ErrorBanner>{error}</ErrorBanner>}
 
             <button type="submit" className="btn-primary w-full" disabled={busy}>
               {busy ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : null}
