@@ -45,6 +45,10 @@ End-to-end proof after the fix, all PASS:
 - The CI gates stay in place: every push re-proves the production domain is authorized, and every Vercel deployment re-proves the exact URL it shipped.
 - Adding a domain is now a one-line idempotent helper call instead of a manual console step, so future projects can be unblocked without hunting through the console.
 
+## Gotcha: fresh deployment URLs sit behind Vercel's SSO wall
+
+Validating a freshly deployed URL from CI hit a second wall: Vercel's deployment protection 302-redirects the raw deployment URL to `vercel.com/sso-api`, so a script following redirects lands on an HTML page (HTTP 200, no JSON) and reports "no firebase.authDomains" instead of the real domain verdict. The gallery capture workflow already solved this with the `VERCEL_PROTECTION_BYPASS` secret sent as an `x-vercel-protection-bypass` header; the authorized-domains gate now uses the same header when that secret is set (`scripts/verify-auth-domains.mjs` + `.github/workflows/preview-gate.yml`). Without the secret set on the repo, the preview gate cannot reach the API behind protection, so it fails at the wall rather than at the domain check.
+
 ## Files
 
 - `.freebuff/add-auth-domains.py` (gitignored helper, not committed)

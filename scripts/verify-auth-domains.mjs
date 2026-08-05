@@ -82,10 +82,18 @@ if (!token) {
 }
 console.log(`  ✓ test user minted (${uid})`);
 
-// 2. Call the deployed /api/status with the override.
+// 2. Call the deployed /api/status with the override. When the target URL is
+// SSO-protected (Vercel deployment protection on fresh deploy URLs), send the
+// project's protection-bypass secret as x-vercel-protection-bypass — the same
+// header the gallery capture workflow uses — so the check reaches the real
+// route instead of following a redirect to the SSO wall.
 console.log(`\n[2/3] ${APP}/api/status?project=${DOMAIN}`);
+const headers = { authorization: `Bearer ${token}` };
+if (process.env.VERCEL_PROTECTION_BYPASS) {
+  headers['x-vercel-protection-bypass'] = process.env.VERCEL_PROTECTION_BYPASS;
+}
 const res = await fetch(`${APP}/api/status?project=${encodeURIComponent(DOMAIN)}`, {
-  headers: { authorization: `Bearer ${token}` },
+  headers,
   cache: 'no-store',
 });
 const body = await res.json().catch(() => null);
