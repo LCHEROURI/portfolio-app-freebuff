@@ -1,21 +1,235 @@
 rules_version = '2';
-
-// App Portfolio Command Center — Firestore security rules.
+// ============================================================================
+// MERGED Firestore security rules — shared project `meal-planner-lcherouri`.
 //
-// Phase 3: real Authentication + Firestore. Every document carries a `userId`
-// field and is isolated per signed-in user. Anonymous / signed-out clients can
-// read or write nothing.
-
+// Two apps share this Firestore database:
+//   SECTION A  Weeknight Meal Planner  (verbatim copy of ../firestore.rules)
+//   SECTION B  App Portfolio Command Center  (this repo's collections)
+//
+// Firestore security rules use "grant if ANY matching allow is true" (union
+// semantics) with the recursive catch-all deny at the end, so the explicit
+// per-collection grants in both sections coexist safely — the same pattern the
+// meal-planner already relies on. Neither app's collections collide (meal
+// planner: users / mealPlans / publicShares / generationUsage /
+// cookingSessions / pantryItems; portfolio: profiles / projects /
+// project_versions / repositories / deployments / tasks / model_evaluations /
+// activity / reports).
+//
+// Deploy with:
+//   firebase deploy --only firestore:rules --project meal-planner-lcherouri
+// ============================================================================
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Per-user isolation: a user may only read/write their own documents.
-    // `userId` on every document must equal the authenticated uid.
-    match /{collection}/{document} {
-      allow read, update, delete: if request.auth != null
-        && resource.data.userId == request.auth.uid;
 
-      allow create: if request.auth != null
+    // ═══════════════════════════════════════════════════════════════════════
+    // SECTION A — Weeknight Meal Planner (kept verbatim)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function isAuthed() {
+      return request.auth != null;
+    }
+    function isOwner(uid) {
+      return isAuthed() && request.auth.uid == uid;
+    }
+    // Field-level validation: positive int, etc.
+    function isPositiveInt(x) {
+      return x is int && x > 0;
+    }
+
+    // --- Users ---
+    match /users/{uid} {
+      allow read, update, delete: if isOwner(uid);
+      allow create: if isOwner(uid)
+        && request.resource.data.keys().hasAll(['displayName'])
+        && request.resource.data.displayName is string
+        && request.resource.data.householdSize is int
+        && request.resource.data.householdSize >= 1;
+      // No client may flip owner-related fields.
+      allow update: if isOwner(uid)
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'displayName', 'householdSize', 'defaultServings', 'defaultPlanLength',
+          'maxTotalTimeMinutes', 'dietaryPattern', 'allergens',
+          'excludedIngredients', 'favoriteCuisines', 'dislikedCuisines',
+          'preferredProteins', 'availableEquipment',
+          'customFavoriteCuisines', 'customEquipment',
+          'skillLevel', 'budgetPreference', 'leftoverPreference',
+          'measurementSystem', 'timezone', 'onboardingCompleted', 'updatedAt'
+        ])
+        // Defensive bounds on the user-controlled custom-category lists —
+        // mirrors the Zod `max(20)` and blocks a client pushing empty
+        // strings or runaway sizes at the trust boundary.
+        && (!('customFavoriteCuisines' in request.resource.data)
+            || request.resource.data.customFavoriteCuisines.size() <= 20)
+        && (!('customEquipment' in request.resource.data)
+            || request.resource.data.customEquipment.size() <= 20);
+    }
+
+    // --- Meal Plans ---
+    match /mealPlans/{planId} {
+      allow read: if isOwner(resource.data.ownerId);
+      allow create: if isAuthed()
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.status in ['draft', 'generating', 'ready', 'failed', 'archived']
+        && isPositiveInt(request.resource.data.planLength)
+        && request.resource.data.planLength <= 7
+        && request.resource.data.promptVersion is string
+        && request.resource.data.modelName is string;
+      allow update: if isOwner(resource.data.ownerId)
+        && request.resource.data.ownerId == resource.data.ownerId // immutable owner
+        && request.resource.data.promptVersion == resource.data.promptVersion // immutable prompt version
+        && request.resource.data.modelName == resource.data.modelName; // immutable model
+      allow delete: if isOwner(resource.data.ownerId);
+
+      // --- Recipes subcollection ---
+      match /recipes/{recipeId} {
+        allow read: if isOwner(get(/databases/$(database)/documents/mealPlans/$(planId)).data.ownerId);
+        allow create, update, delete: if isOwner(get(/databases/$(database)/documents/mealPlans/$(planId)).data.ownerId)
+          && request.resource.data.ownerId == request.auth.uid;
+      }
+
+      // --- ShoppingItems subcollection ---
+      match /shoppingItems/{itemId} {
+        allow read: if isOwner(get(/databases/$(database)/documents/mealPlans/$(planId)).data.ownerId);
+        allow create, update, delete: if isOwner(get(/databases/$(database)/documents/mealPlans/$(planId)).data.ownerId);
+      }
+    }
+
+    // --- Public shares ---
+    match /publicShares/{shareId} {
+      // Single-share get only. No list, no random reads.
+      allow get: if resource.data.isActive == true
+        && resource.data.expiresAt > request.time
+        && resource.data.revokedAt == null;
+      allow list: if false;
+      allow create, update, delete: if isAuthed()
+        && request.resource.data.ownerId == request.auth.uid;
+    }
+
+    // --- Usage counters (server-managed) ---
+    match /generationUsage/{uid} {
+      allow read: if isOwner(uid);
+      allow write: if false; // only callable functions may write
+      match /periods/{periodId} {
+        allow read: if isOwner(uid);
+        allow write: if false;
+      }
+    }
+
+    // --- Cooking agent sessions (server-managed reads/writes) ---
+    //    Owner can read their own sessions; events + state subcollections
+    //    inherit the same ownership check.
+    match /cookingSessions/{sessionId} {
+      allow read: if isOwner(resource.data.ownerId);
+      allow create: if isAuthed()
+        && request.resource.data.ownerId == request.auth.uid
+        && isPositiveInt(request.resource.data.currentStepIndex)
+        && request.resource.data.id is string
+        && request.resource.data.id.size() > 0
+        && request.resource.data.status in ['active', 'paused', 'completed', 'abandoned', 'error']
+        && request.resource.data.phase is string;
+      // Server-only writes (callable tools bypass rules via Admin SDK).
+      allow update, delete: if false;
+
+      match /events/{eventId} {
+        allow read: if isOwner(get(/databases/$(database)/documents/cookingSessions/$(sessionId)).data.ownerId);
+        allow write: if false;
+      }
+      match /state/{stateId} {
+        allow read: if isOwner(get(/databases/$(database)/documents/cookingSessions/$(sessionId)).data.ownerId);
+        allow write: if false;
+      }
+    }
+
+    // --- Per-user pantry items (PR #43, ambient voice pantry).
+    //     Flat collection of `{name, quantity, condition, ...}`. Owner can
+    //     read their own. Writes are server-only: the canonical write path
+    //     is the `addPantryItems` onCall, which uses the Admin SDK and
+    //     bypasses rules. The onSnapshot listener on the client reads via
+    //     the user's own token.
+    match /pantryItems/{itemId} {
+      allow read: if isAuthed()
+        && resource.data.ownerId == request.auth.uid;
+      // Establish dedupeKey server-side mirror so the Admin-SDK path can
+      // match against it without paying a normalizedName recompute. The
+      // client never builds this directly (defense in depth: refuse any
+      // client-side write through this rule path).
+      allow create, update, delete: if false;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // SECTION B — App Portfolio Command Center
+    // ═══════════════════════════════════════════════════════════════════════
+    // Per-user isolation: every document is scoped to the authenticated uid.
+    // `profiles` docs are keyed by the user's uid (the app writes the profile
+    // at profiles/<uid> with no inner userId field), so that rule matches on
+    // the document id. All other collections carry a `userId` field which must
+    // equal the authenticated uid. Reads of a not-yet-existing document are
+    // allowed (resource == null) so a first-run `getDoc` returns NOT_FOUND
+    // instead of a spurious 403.
+
+    // --- Profiles (keyed by uid) ---
+    match /profiles/{profileId} {
+      allow read: if isAuthed()
+        && (resource == null || profileId == request.auth.uid);
+      allow create, update, delete: if isAuthed()
+        && profileId == request.auth.uid;
+    }
+
+    // --- Portfolio collections (userId field isolation) ---
+    match /projects/{document} {
+      allow read, update, delete: if isAuthed()
+        && (resource == null || resource.data.userId == request.auth.uid);
+      allow create: if isAuthed()
         && request.resource.data.userId == request.auth.uid;
+    }
+    match /project_versions/{document} {
+      allow read, update, delete: if isAuthed()
+        && (resource == null || resource.data.userId == request.auth.uid);
+      allow create: if isAuthed()
+        && request.resource.data.userId == request.auth.uid;
+    }
+    match /repositories/{document} {
+      allow read, update, delete: if isAuthed()
+        && (resource == null || resource.data.userId == request.auth.uid);
+      allow create: if isAuthed()
+        && request.resource.data.userId == request.auth.uid;
+    }
+    match /deployments/{document} {
+      allow read, update, delete: if isAuthed()
+        && (resource == null || resource.data.userId == request.auth.uid);
+      allow create: if isAuthed()
+        && request.resource.data.userId == request.auth.uid;
+    }
+    match /tasks/{document} {
+      allow read, update, delete: if isAuthed()
+        && (resource == null || resource.data.userId == request.auth.uid);
+      allow create: if isAuthed()
+        && request.resource.data.userId == request.auth.uid;
+    }
+    match /model_evaluations/{document} {
+      allow read, update, delete: if isAuthed()
+        && (resource == null || resource.data.userId == request.auth.uid);
+      allow create: if isAuthed()
+        && request.resource.data.userId == request.auth.uid;
+    }
+    match /activity/{document} {
+      allow read, update, delete: if isAuthed()
+        && (resource == null || resource.data.userId == request.auth.uid);
+      allow create: if isAuthed()
+        && request.resource.data.userId == request.auth.uid;
+    }
+    match /reports/{document} {
+      allow read, update, delete: if isAuthed()
+        && (resource == null || resource.data.userId == request.auth.uid);
+      allow create: if isAuthed()
+        && request.resource.data.userId == request.auth.uid;
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Catch-all (deny everything else) — keep last.
+    // ═══════════════════════════════════════════════════════════════════════
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

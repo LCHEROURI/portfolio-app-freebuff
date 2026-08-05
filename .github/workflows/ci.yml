@@ -41,17 +41,17 @@ jobs:
       - name: Production build
         run: npm run build
 
-  # Deployed cron-email smoke test. Runs the live /api/cron/reports endpoint
-  # (which requires ?previewBody=1 + CRON_SECRET) and asserts the composed
-  # email bodies carry the friendly model heading and raw-id footer. Gated on
-  # the CRON_SECRET secret so forks / unconfigured repos stay green and only
-  # run where a real deploy exists.
-  verify-deployed-cron:
-    name: Verify deployed cron email
+  # Post-deploy smoke tests against the LIVE app. Every push proves the
+  # deployed cron-email bodies (gated on CRON_SECRET) and the deployed
+  # Firestore rules (gated on FIREBASE_WEB_API_KEY) behave end to end, in one
+  # job. Each step is gated on its secret so forks / unconfigured repos stay
+  # green and only run where a real deploy exists.
+  verify-deployed:
+    name: Verify deployed email + rules
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: validate
-    if: ${{ github.event_name == 'push' && secrets.CRON_SECRET != '' }}
+    if: ${{ github.event_name == 'push' }}
 
     steps:
       - name: Check out repository
@@ -63,6 +63,42 @@ jobs:
           node-version: 20
 
       - name: Verify deployed cron email bodies
+        if: ${{ secrets.CRON_SECRET != '' }}
         run: node scripts/verify-cron-email.mjs
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+
+      - name: Verify deployed Firestore rules
+        if: ${{ secrets.FIREBASE_WEB_API_KEY != '' }}
+        run: node scripts/verify-firestore-rules.mjs
+        env:
+          FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: meal-planner-lcherouri
+
+  # Post-deploy authorized-domains smoke test. Mints a throwaway Firebase
+  # user, calls the deployed /api/status?project=<domain> and fails the run
+  # when the validated domain is NOT in the project's authorized list — so an
+  # unauthorized (preview) domain blocks shipping before any user hits the
+  # sign-in gate. Defaults to validating the production URL; pass a preview
+  # deployment URL to validate it before it ships. Gated on the
+  # FIREBASE_WEB_API_KEY secret so forks / unconfigured repos stay green.
+  verify-auth-domains:
+    name: Verify authorized domains
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: validate
+    if: ${{ github.event_name == 'push' && secrets.FIREBASE_WEB_API_KEY != '' }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Verify deployed authorized domains
+        run: node scripts/verify-auth-domains.mjs
+        env:
+          FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
