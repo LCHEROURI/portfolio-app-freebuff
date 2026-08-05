@@ -87,7 +87,7 @@ if (probe.status === 401) {
   fail(`authenticated probe returned unexpected status ${probe.status}`);
 }
 
-// 3. Weekly email body: friendly heading + raw footer.
+// 3. Weekly email body: friendly heading + raw footer + winner recommendation.
 console.log('\n[3/4] Weekly email body (?kind=weekly&previewBody=1)');
 const weekly = await getJson('/api/cron/reports?kind=weekly&previewBody=1', auth);
 const weeklyReport = weekly.json?.reports?.find((r) => r.kind === 'weekly');
@@ -99,6 +99,23 @@ if (!weeklyBody.includes('Model: `deepseek/deepseek-chat`'))
   fail('weekly body missing raw-id footer "Model: `deepseek/deepseek-chat`"');
 if (!weeklyBody.includes('# Weekly Command Center Report'))
   fail('weekly body missing report title');
+// Weekly winner recommendation (rule 10) — data-dependent like the daily
+// narration: when live data has projects with multiple versions + evaluations
+// but no winner, the AI section must carry the friendly model label in its
+// heading and never print the raw id inline; when there are no such projects
+// the section is omitted cleanly (the deterministic body still ships).
+const weeklyRecs = weeklyReport?.winnerRecommendations;
+if (weeklyRecs && weeklyRecs.length > 0) {
+  if (!weeklyBody.includes('## 🏆 AI winner recommendations (DeepSeek Chat)'))
+    fail('weekly winner section missing friendly heading "(DeepSeek Chat)"');
+  if (weeklyBody.includes('AI winner recommendations (deepseek/deepseek-chat)'))
+    fail('weekly winner heading prints the raw model id inline');
+  if (weeklyRecs.some((r) => !r.projectName || !r.versionName || !r.note))
+    fail('weekly winner section has an incomplete structured entry');
+  ok(`weekly winner-recommendation section present with friendly label (${weeklyRecs.length} project(s))`);
+} else {
+  ok('no rule-10 winner candidates in live data — winner recommendation gracefully omitted');
+}
 if (!failures) {
   ok(`weekly body carries friendly heading + raw footer (${weeklyBody.length} chars)`);
   if (weeklyReport?.aiModel) ok(`weekly aiModel=${weeklyReport.aiModel}`);

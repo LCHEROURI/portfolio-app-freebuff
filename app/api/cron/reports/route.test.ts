@@ -41,13 +41,14 @@ vi.mock('@/lib/openrouter', async (importOriginal) => {
     ...mod,
     summarizeReport: vi.fn(async () => ({ summary: 'Executive summary text.', model: 'deepseek/deepseek-chat' })),
     narrateTopThree: vi.fn(),
+    recommendWinner: vi.fn(),
   };
 });
 
 import { GET } from './route';
 import { loadLiveSnapshot } from '@/lib/server/reporting/data';
 import { sendReportEmail } from '@/lib/server/reporting/email';
-import { narrateTopThree } from '@/lib/openrouter';
+import { narrateTopThree, recommendWinner } from '@/lib/openrouter';
 import { isSupabaseConfigured, supabaseUpsert } from '@/lib/server/supabase';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -229,6 +230,118 @@ describe('GET /api/cron/reports — weekly report', () => {
     expect(body).not.toContain('Why these three matter today');
     expect(body).toContain('AI executive summary');
     expect(body).toContain('# Weekly Command Center Report');
+  });
+});
+
+// ─── Weekly AI winner recommendation (rule 10) ───────────────────────────────
+
+describe('GET /api/cron/reports — weekly AI winner recommendation', () => {
+  /** Snapshot with two active versions, no winner, and evaluations → rule 10. */
+  const snapshotWithWinnerCandidates: LiveSnapshot = {
+    ...snapshotWithTopThree,
+    collections: {
+      ...snapshotWithTopThree.collections,
+      versions: [
+        {
+          id: 'v-1', projectId: 'p-1', userId: 'demo-user', versionName: 'Gemini Build',
+          builder: 'Google AI Studio', model: 'Gemini 1.5 Pro', developmentPlatform: 'web',
+          status: 'TESTING', progress: 70, branch: 'main', isWinner: false, isArchived: false,
+          deploymentIds: [], estimatedCost: 0, actualCost: 0, developmentHours: 0,
+          lastActivityAt: new Date().toISOString(),
+          createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(),
+        },
+        {
+          id: 'v-2', projectId: 'p-1', userId: 'demo-user', versionName: 'Codex Build',
+          builder: 'Codex', model: 'openai/gpt-4.1', developmentPlatform: 'web',
+          status: 'TESTING', progress: 65, branch: 'main', isWinner: false, isArchived: false,
+          deploymentIds: [], estimatedCost: 0, actualCost: 0, developmentHours: 0,
+          lastActivityAt: new Date().toISOString(),
+          createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(),
+        },
+      ],
+      evaluations: [
+        {
+          id: 'e-1', userId: 'demo-user', projectId: 'p-1', projectVersionId: 'v-1',
+          builder: 'Google AI Studio', model: 'Gemini 1.5 Pro',
+          uiScore: 8, featureScore: 9, codeQualityScore: 8, stabilityScore: 8,
+          performanceScore: 8, maintainabilityScore: 8, mobileScore: 7, accessibilityScore: 8,
+          developmentSpeedScore: 8, costScore: 8, overallScore: 8.2,
+          evaluatedAt: new Date().toISOString(),
+          createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(),
+        },
+        {
+          id: 'e-2', userId: 'demo-user', projectId: 'p-1', projectVersionId: 'v-2',
+          builder: 'Codex', model: 'openai/gpt-4.1',
+          uiScore: 7, featureScore: 7, codeQualityScore: 7, stabilityScore: 7,
+          performanceScore: 7, maintainabilityScore: 7, mobileScore: 6, accessibilityScore: 7,
+          developmentSpeedScore: 7, costScore: 7, overallScore: 7.1,
+          evaluatedAt: new Date().toISOString(),
+          createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(),
+        },
+      ],
+    },
+  };
+
+  beforeEach(() => {
+    vi.mocked(recommendWinner).mockResolvedValue({
+      recommendedVersionId: 'v-1',
+      note: 'Gemini wins on features and overall score.',
+      model: 'deepseek/deepseek-chat',
+    });
+  });
+
+  it('calls recommendWinner with the sorted candidate scores for rule-10 projects', async () => {
+    vi.mocked(loadLiveSnapshot).mockResolvedValue(snapshotWithWinnerCandidates);
+    await GET(makeReq('weekly'));
+    expect(recommendWinner).toHaveBeenCalledTimes(1);
+    const input = vi.mocked(recommendWinner).mock.calls[0][0];
+    expect(input.projectName).toBe('Takeout Voice 2');
+    expect(input.candidates).toHaveLength(2);
+    // Sorted by overall score desc — the strongest version first.
+    expect(input.candidates[0].versionId).toBe('v-1');
+    expect(input.candidates[0].overallScore).toBe(8.2);
+    expect(input.candidates[0].scores.Features).toBe(9);
+    expect(input.candidates[1].versionId).toBe('v-2');
+  });
+
+  it('prepends the winner-recommendation section with the friendly model label', async () => {
+    vi.mocked(loadLiveSnapshot).mockResolvedValue(snapshotWithWinnerCandidates);
+    await GET(makeReq('weekly'));
+    const body = vi.mocked(sendReportEmail).mock.calls[0][0].body;
+    // Friendly label in the heading, raw id only in the footer line.
+    expect(body).toContain('## 🏆 AI winner recommendations (DeepSeek Chat)');
+    expect(body).toContain('**Takeout Voice 2** → Gemini Build: Gemini wins on features and overall score.');
+    expect(body).toContain('Model: `deepseek/deepseek-chat`');
+    // The raw id must never appear inline in the winner heading — only in the
+    // footer lines (the executive summary carries its own footer, so multiple
+    // `Model:` lines are expected and fine).
+    expect(body).not.toContain('AI winner recommendations (deepseek/deepseek-chat)');
+  });
+
+  it('omits the winner section (keeps the deterministic body) when recommendWinner returns null', async () => {
+    vi.mocked(loadLiveSnapshot).mockResolvedValue(snapshotWithWinnerCandidates);
+    vi.mocked(recommendWinner).mockResolvedValue(null);
+    await GET(makeReq('weekly'));
+    const body = vi.mocked(sendReportEmail).mock.calls[0][0].body;
+    expect(body).not.toContain('AI winner recommendations');
+    expect(body).toContain('# Weekly Command Center Report');
+  });
+
+  it('does not call recommendWinner when no rule-10 project exists', async () => {
+    // snapshotWithTopThree has a single version → no winner candidates.
+    await GET(makeReq('weekly'));
+    expect(recommendWinner).not.toHaveBeenCalled();
+  });
+
+  it('exposes the structured winnerRecommendations in the previewBody response', async () => {
+    vi.mocked(loadLiveSnapshot).mockResolvedValue(snapshotWithWinnerCandidates);
+    const res = await GET(makePreviewReq('weekly'));
+    const json = (await res.json()) as {
+      reports: Array<{ winnerRecommendations?: Array<{ projectName: string; versionName: string; model: string }> }>;
+    };
+    expect(json.reports[0].winnerRecommendations).toEqual([
+      { projectName: 'Takeout Voice 2', versionName: 'Gemini Build', note: 'Gemini wins on features and overall score.', model: 'deepseek/deepseek-chat' },
+    ]);
   });
 });
 

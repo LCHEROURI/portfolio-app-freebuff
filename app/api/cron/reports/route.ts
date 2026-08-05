@@ -1,10 +1,15 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
 import {
-  buildDailyReportBody, buildTopThree, buildWeeklyReportBody, runAutomationRules,
+  buildDailyReportBody, buildTopThree, buildWeeklyReportBody, buildWinnerCandidates,
+  runAutomationRules,
   type AppState, type AutomationAlert,
 } from '@/lib/engine';
-import { narrateTopThree, summarizeReport, withExecutiveSummary, withTopThreeNarration } from '@/lib/openrouter';
+import {
+  narrateTopThree, recommendWinner, summarizeReport,
+  withExecutiveSummary, withTopThreeNarration, withWinnerRecommendations,
+  type WinnerRecommendationSection,
+} from '@/lib/openrouter';
 import type { ReportPreviewPayload } from '@/lib/reportPreview';
 import { loadLiveSnapshot, serverProfile } from '@/lib/server/reporting/data';
 import { sendReportEmail } from '@/lib/server/reporting/email';
@@ -136,6 +141,11 @@ export async function GET(req: NextRequest) {
   if (wantDaily) pending.push({ r: buildDailyReportBody(state), kind: 'daily' });
   if (wantWeekly) pending.push({ r: buildWeeklyReportBody(state), kind: 'weekly' });
 
+  // Weekly AI winner recommendations: projects with multiple active versions,
+  // no winner, and evaluations (rule 10). Bounded to 3 projects so a slow
+  // provider can't eat the cron budget; graceful null → section omitted.
+  const winnerCandidates = wantWeekly ? buildWinnerCandidates(state) : [];
+
   // Deterministic top three, computed once — the same actions the dashboard
   // shows — so the AI narration in the email matches the UI briefing. The
   // narration, like the executive summary, uses the OPENROUTER_MODEL env default
@@ -155,32 +165,54 @@ export async function GET(req: NextRequest) {
     projectName: projectNameOf(a.projectId),
   }));
 
-  const summarized = await Promise.all(
-    pending.map(async ({ r, kind }) => {
-      const [ai, narration] = await Promise.all([
-        summarizeReport({ kind, title: r.title, body: r.body, attentionCount: r.attentionCount }),
-        // The 'why these three matter today' briefing is a daily feature; weekly
-        // reports keep the executive summary only.
-        kind === 'daily'
-          ? narrateTopThree({ actions: topThreeActions })
-          : Promise.resolve(null),
-      ]);
-      let body = withExecutiveSummary(withAlertsSection(r.body, alerts), ai?.summary ?? null, ai?.model ?? null);
-      if (kind === 'daily') {
-        body = withTopThreeNarration(body, narration?.paragraph ?? null, narration?.model ?? null);
-      }
-      return {
-        kind,
-        title: r.title,
-        attentionCount: r.attentionCount,
-        body,
-        model: ai?.model ?? null,
-        // Structured narration (daily only) so verifiers can assert the exact
-        // paragraph and model without parsing the composed body text.
-        narration,
-      };
-    }),
-  );
+  // Per-project AI winner picks (weekly only, rule 10), computed once and in
+  // parallel with the summaries; bounded to 3 projects so a slow provider can't
+  // eat the cron budget. Graceful null → section omitted.
+  const buildWinnerSections = async (): Promise<WinnerRecommendationSection[]> => {
+    if (!wantWeekly || winnerCandidates.length === 0) return [];
+    const rows = await Promise.all(winnerCandidates.map(async (c): Promise<WinnerRecommendationSection | null> => {
+      const rec = await recommendWinner({ projectName: c.projectName, candidates: c.candidates });
+      if (!rec) return null;
+      const versionName =
+        c.candidates.find((x) => x.versionId === rec.recommendedVersionId)?.versionName
+        ?? rec.recommendedVersionId;
+      return { projectName: c.projectName, versionName, note: rec.note, model: rec.model };
+    }));
+    return rows.filter((r): r is WinnerRecommendationSection => r !== null);
+  };
+
+  const winnerPromise = buildWinnerSections();
+
+  const summarized = await Promise.all(pending.map(async ({ r, kind }) => {
+    const ai = await summarizeReport({ kind, title: r.title, body: r.body, attentionCount: r.attentionCount });
+    // The 'why these three matter today' briefing is a daily feature; weekly
+    // reports keep the executive summary + winner recommendation instead.
+    const narration = kind === 'daily'
+      ? await narrateTopThree({ actions: topThreeActions })
+      : null;
+    // Awaited inside the map so weekly bodies always render the freshest winner
+    // sections; the promise is computed once, in parallel with the summaries.
+    const winnerSections = await winnerPromise;
+    let body = withExecutiveSummary(withAlertsSection(r.body, alerts), ai?.summary ?? null, ai?.model ?? null);
+    if (kind === 'daily') {
+      body = withTopThreeNarration(body, narration?.paragraph ?? null, narration?.model ?? null);
+    }
+    if (kind === 'weekly') {
+      body = withWinnerRecommendations(body, winnerSections);
+    }
+    return {
+      kind,
+      title: r.title,
+      attentionCount: r.attentionCount,
+      body,
+      model: ai?.model ?? null,
+      // Structured narration (daily only) so verifiers can assert the exact
+      // paragraph and model without parsing the composed body text.
+      narration,
+      // Structured winner recommendations (weekly only) for the same reason.
+      winnerRecommendations: winnerSections,
+    };
+  }));
 
   for (const s of summarized) {
     // Plain-text preview skips delivery entirely (no inbox write, no wait); the
@@ -204,6 +236,7 @@ export async function GET(req: NextRequest) {
       // below strips the heavy fields unless ?previewBody=1 asks for them.
       body: s.body,
       narration: s.narration,
+      winnerRecommendations: s.winnerRecommendations,
     });
 
     // Log a report_generated activity row (Supabase) so the Activity page shows

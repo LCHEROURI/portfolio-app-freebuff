@@ -14,6 +14,7 @@ import {
   summarizeReport,
   withExecutiveSummary,
   withTopThreeNarration,
+  withWinnerRecommendations,
 } from './openrouter';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -457,5 +458,71 @@ describe('withTopThreeNarration', () => {
   it('omits the footer line when no model is known', () => {
     const out = withTopThreeNarration('# body', 'Fix the failing deploy first.', null);
     expect(out).not.toContain('Model:');
+  });
+});
+
+// ─── withWinnerRecommendations ───────────────────────────────────────────────
+
+describe('withWinnerRecommendations', () => {
+  it('returns the body unchanged when there are no sections', () => {
+    expect(withWinnerRecommendations('# body', [])).toBe('# body');
+  });
+
+  it('prepends a headed section with the friendly model label when present', () => {
+    const out = withWinnerRecommendations('# body', [
+      {
+        projectName: 'Takeout Voice 2', versionName: 'Gemini Build',
+        note: 'Gemini wins on features and overall score.', model: 'deepseek/deepseek-chat',
+      },
+    ]);
+    expect(out).toContain('## 🏆 AI winner recommendations (DeepSeek Chat)');
+    expect(out).toContain('**Takeout Voice 2** → Gemini Build: Gemini wins on features and overall score.');
+    expect(out).toContain('# body');
+    expect(out.indexOf('Gemini wins on features')).toBeLessThan(out.indexOf('# body'));
+  });
+
+  it('renders every project on its own line', () => {
+    const out = withWinnerRecommendations('# body', [
+      {
+        projectName: 'Takeout Voice 2', versionName: 'Gemini Build',
+        note: 'Wins on features.', model: 'deepseek/deepseek-chat',
+      },
+      {
+        projectName: 'Meal Planner', versionName: 'Codex Build',
+        note: 'Wins on stability.', model: 'deepseek/deepseek-chat',
+      },
+    ]);
+    expect(out).toContain('**Takeout Voice 2** → Gemini Build: Wins on features.');
+    expect(out).toContain('**Meal Planner** → Codex Build: Wins on stability.');
+  });
+
+  it('shows the raw model id in the heading when the id is unknown', () => {
+    const out = withWinnerRecommendations('# body', [
+      {
+        projectName: 'Takeout Voice 2', versionName: 'Gemini Build',
+        note: 'Wins.', model: 'some-vendor/unknown-model',
+      },
+    ]);
+    expect(out).toContain('## 🏆 AI winner recommendations (some-vendor/unknown-model)');
+  });
+
+  it('appends the exact raw model id as a footer line for inbox traceability', () => {
+    const out = withWinnerRecommendations('# body', [
+      {
+        projectName: 'Takeout Voice 2', versionName: 'Gemini Build',
+        note: 'Wins.', model: 'deepseek/deepseek-chat',
+      },
+    ]);
+    expect(out).toContain('Model: `deepseek/deepseek-chat`');
+    expect(out.indexOf('Model: `deepseek/deepseek-chat`')).toBeGreaterThan(out.indexOf('Wins.'));
+    expect(out.indexOf('Model: `deepseek/deepseek-chat`')).toBeLessThan(out.indexOf('# body'));
+  });
+
+  it('omits the footer line when no model is known', () => {
+    const out = withWinnerRecommendations('# body', [
+      { projectName: 'Takeout Voice 2', versionName: 'Gemini Build', note: 'Wins.', model: null },
+    ]);
+    expect(out).not.toContain('Model:');
+    expect(out).toContain('## 🏆 AI winner recommendations');
   });
 });

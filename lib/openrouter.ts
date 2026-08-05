@@ -424,3 +424,37 @@ export const withTopThreeNarration = (
   const heading = `## 🎯 Why these three matter today${model ? ` (${modelLabel(model)})` : ''}`;
   return `${withRawModelFooter(`${heading}\n\n${paragraph}`, model)}\n\n${body}`;
 };
+
+// ============================================================================
+// WEEKLY WINNER RECOMMENDATION
+// ============================================================================
+
+/** One project's AI winner recommendation, ready to render into an email body. */
+export interface WinnerRecommendationSection {
+  projectName: string;
+  /** Name of the version the AI recommends (resolved server-side). */
+  versionName: string;
+  note: string;
+  /** Model id that wrote the recommendation (friendly label in heading). */
+  model: string | null;
+}
+
+/**
+ * Prepend an AI winner-recommendation section to an email body. Renders the
+ * friendly model label in the heading (matching the in-app badges) and the
+ * exact raw id in a footer line, mirroring withExecutiveSummary /
+ * withTopThreeNarration so no emailed AI surface ever shows a raw id inline.
+ * Empty sections → body unchanged.
+ */
+export const withWinnerRecommendations = (
+  body: string,
+  sections: WinnerRecommendationSection[],
+): string => {
+  if (sections.length === 0) return body;
+  const model = sections.find((s) => s.model)?.model ?? null;
+  const heading = `## 🏆 AI winner recommendations${model ? ` (${modelLabel(model)})` : ''}`;
+  const lines = sections.map(
+    (s) => `- **${s.projectName}** → ${s.versionName}: ${s.note}`,
+  );
+  return `${withRawModelFooter(`${heading}\n\n${lines.join('\n')}`, model)}\n\n${body}`;
+};

@@ -3,6 +3,7 @@ import {
   type Task, type ModelEvaluation, type UserProfile, type ActivityEntry,
 } from '@/types';
 import { LOCAL_SCAN_EMAIL_HEADING, SCAN_STALE_MS } from './scan';
+import { modelLabel } from './labels';
 
 // ============================================================================
 // DATE HELPERS
@@ -637,7 +638,7 @@ export const buildWeeklyReportBody = (state: AppState): { title: string; body: s
     '',
     '## Model performance breakdown',
     ...(state.evaluations.length
-      ? state.evaluations.map((e) => `- ${e.model} (${e.builder}): overall **${e.overallScore}/10**`)
+      ? state.evaluations.map((e) => `- ${modelLabel(e.model)} (${e.builder}): overall **${e.overallScore}/10**`)
       : ['- No evaluations yet.']),
     '',
     '## Winner recommendation',
@@ -671,3 +672,60 @@ export const buildComparison = (state: AppState): ComparisonRow[] =>
       evaluations: state.evaluations.filter((e) => e.projectId === project.id),
     }))
     .filter((row) => row.evaluations.length > 0);
+
+// ============================================================================
+// WEEKLY WINNER RECOMMENDATION CANDIDATES
+// ============================================================================
+
+/** One project's AI winner-recommendation input (mirrors the Model Comparison UI). */
+export interface WinnerCandidateInput {
+  projectName: string;
+  candidates: Array<{
+    versionId: string;
+    versionName: string;
+    builder: string;
+    model: string;
+    overallScore: number;
+    scores: Record<string, number>;
+  }>;
+}
+
+/**
+ * Projects ripe for an AI winner pick (rule 10: multiple active versions, no
+ * winner selected, and at least one evaluation to reason over). Candidates are
+ * the project's evaluations sorted by overall score so the model always sees
+ * the strongest version first. Bounded to `limit` projects so the weekly cron's
+ * OpenRouter budget stays predictable.
+ */
+export const buildWinnerCandidates = (state: AppState, limit = 3): WinnerCandidateInput[] => {
+  const scoreKeys: Array<[string, keyof ModelEvaluation]> = [
+    ['UI', 'uiScore'], ['Features', 'featureScore'], ['Code', 'codeQualityScore'],
+    ['Stability', 'stabilityScore'], ['Performance', 'performanceScore'],
+    ['Maint.', 'maintainabilityScore'], ['Speed', 'developmentSpeedScore'],
+    ['Cost', 'costScore'], ['Mobile', 'mobileScore'], ['A11y', 'accessibilityScore'],
+  ];
+  const out: WinnerCandidateInput[] = [];
+  for (const project of state.projects) {
+    if (project.archived || project.overallStatus === 'ARCHIVED') continue;
+    const versions = activeVersions(state, project.id);
+    if (versions.length <= 1) continue;
+    if (project.winningVersionId || versions.some((v) => v.isWinner)) continue;
+    const evals = state.evaluations.filter((e) => e.projectId === project.id);
+    if (evals.length === 0) continue;
+    out.push({
+      projectName: project.name,
+      candidates: [...evals]
+        .sort((a, b) => b.overallScore - a.overallScore)
+        .map((e) => ({
+          versionId: e.projectVersionId,
+          versionName: state.versions.find((v) => v.id === e.projectVersionId)?.versionName ?? e.model,
+          builder: e.builder,
+          model: e.model,
+          overallScore: e.overallScore,
+          scores: Object.fromEntries(scoreKeys.map(([label, key]) => [label, e[key] as number])),
+        })),
+    });
+    if (out.length >= limit) break;
+  }
+  return out;
+};

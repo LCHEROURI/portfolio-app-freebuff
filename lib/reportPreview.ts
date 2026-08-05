@@ -8,7 +8,7 @@
 // (a client component) imports the type too.
 // ============================================================================
 
-import type { TopThreeNarration } from '@/lib/openrouter';
+import type { TopThreeNarration, WinnerRecommendationSection } from '@/lib/openrouter';
 
 /** A report preview: the exact emailed body plus the AI fields that produced it. */
 export interface ReportPreviewPayload {
@@ -20,4 +20,10 @@ export interface ReportPreviewPayload {
   aiModel: string | null;
   /** Structured top-three narration (daily reports; null when none/fallback). */
   narration: TopThreeNarration | null;
+  /**
+   * Structured per-project AI winner recommendations (weekly reports). The
+   * cron route always provides it; the client-side Reports preview does not
+   * compute winner picks, so it stays optional here.
+   */
+  winnerRecommendations?: WinnerRecommendationSection[];
 }
