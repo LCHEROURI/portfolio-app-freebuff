@@ -39,6 +39,28 @@ if [ "$PUSHES_TO_MAIN" != "1" ]; then
   exit 0
 fi
 
+# ─── 0. Chrome health (best-effort, before any verifier runs) ──────────────
+# A GUI Chrome that died uncleanly leaves stale Singleton locks and refuses to
+# open until they are cleared. The verifiers use their own headless profiles,
+# so they would still pass — but the user's browser would stay silently broken
+# on every push. chrome-revive.sh sweeps leftover headless instances, clears
+# the stale locks, and relaunches Chrome; it is an instant no-op when Chrome is
+# healthy (it detects the running windowed process and exits 0 immediately).
+# Timeboxed to 15s so a slow relaunch can never stall a routine push. Never
+# blocks the push: if revival fails, the verifiers still run and decide the
+# outcome.
+CHROME_BIN="${CHROME_PATH:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
+if [ -x "$CHROME_BIN" ] && [ -f scripts/chrome-revive.sh ]; then
+  echo "pre-push: checking Chrome health…"
+  if perl -e 'alarm shift; exec @ARGV' 15 bash scripts/chrome-revive.sh; then
+    echo "pre-push: Chrome healthy ✓"
+  else
+    echo "pre-push: chrome-revive did not finish cleanly (non-fatal, verifiers will judge)" >&2
+  fi
+else
+  echo "pre-push: chrome-revive.sh not available — skipping Chrome health check"
+fi
+
 # Resolve deployment secrets from env, then .env.local (never printed).
 read_env() { # $1=var name -> echoes value or empty
   local v
