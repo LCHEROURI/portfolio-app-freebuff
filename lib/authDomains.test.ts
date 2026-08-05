@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { isDomainAuthorized, originHostname } from '../lib/authDomains';
+import { isDomainAuthorized, normalizeProjectOrigin, originHostname } from '../lib/authDomains';
 
 const PROD_LIST = [
   'localhost',
@@ -33,5 +33,34 @@ describe('isDomainAuthorized', () => {
 
   it('handles an empty list', () => {
     expect(isDomainAuthorized([], 'https://anything.example')).toBe(false);
+  });
+});
+
+describe('normalizeProjectOrigin', () => {
+  it('accepts a bare hostname, assuming https', () => {
+    expect(normalizeProjectOrigin('portfolio-app-freebuff.vercel.app')).toBe(
+      'https://portfolio-app-freebuff.vercel.app',
+    );
+  });
+
+  it('accepts a full URL and strips path/query', () => {
+    expect(normalizeProjectOrigin('https://preview-abc.vercel.app/foo?x=1')).toBe(
+      'https://preview-abc.vercel.app',
+    );
+  });
+
+  it('preserves a non-default port', () => {
+    expect(normalizeProjectOrigin('http://localhost:3000')).toBe('http://localhost:3000');
+  });
+
+  it('allows localhost', () => {
+    expect(normalizeProjectOrigin('localhost')).toBe('https://localhost');
+  });
+
+  it('rejects garbage, single-label hostnames, and empties', () => {
+    expect(normalizeProjectOrigin('not a url')).toBeNull();
+    expect(normalizeProjectOrigin('foo')).toBeNull();
+    expect(normalizeProjectOrigin('')).toBeNull();
+    expect(normalizeProjectOrigin('   ')).toBeNull();
   });
 });

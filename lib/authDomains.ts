@@ -26,3 +26,27 @@ export const isDomainAuthorized = (
     (d) => d.trim().toLowerCase().replace(/\.$/, '') === host,
   );
 };
+
+/**
+ * Normalize a `?project=` override value into an origin string, or null when
+ * it can't be used. Accepts a full URL (scheme, port, path tolerated) or a
+ * bare hostname (scheme assumed to be https); `localhost` is allowed. This
+ * lets the status check validate a deployment preview domain BEFORE it ships
+ * — the check evaluates the override hostname against the project's
+ * authorized list instead of the current request origin.
+ */
+export const normalizeProjectOrigin = (raw: string): string | null => {
+  const value = raw.trim();
+  if (!value) return null;
+  const candidate = /^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `https://${value}`;
+  try {
+    const url = new URL(candidate);
+    const host = url.hostname.replace(/\.$/, '');
+    // A usable origin hostname must be localhost or contain a dot; bare
+    // single-label values (e.g. "foo") can't resolve to a real domain.
+    if (!host || (!host.includes('.') && host !== 'localhost')) return null;
+    return `${url.protocol}//${host}${url.port ? `:${url.port}` : ''}`;
+  } catch {
+    return null;
+  }
+};

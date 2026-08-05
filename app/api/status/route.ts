@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
+import { normalizeProjectOrigin } from '@/lib/authDomains';
 import { checkIntegrations } from '@/lib/server/status';
 import { getRequestUserId } from '@/lib/server/user';
 
@@ -24,7 +25,14 @@ export async function GET(req: NextRequest) {
   const refresh = req.nextUrl.searchParams.get('refresh') === '1';
   // The request origin is the domain Firebase's sign-in gate compares against —
   // used by the Firebase authorized-domains check.
-  const integrations = await checkIntegrations(refresh, req.nextUrl.origin);
+  const origin = req.nextUrl.origin;
+  // ?project=<origin-or-hostname> overrides that origin so a deployment
+  // preview domain can be validated BEFORE it ships: the check runs from the
+  // current origin but evaluates the override hostname against the project's
+  // authorized list. Invalid values fall back to the request origin.
+  const projectParam = req.nextUrl.searchParams.get('project');
+  const projectOrigin = projectParam ? normalizeProjectOrigin(projectParam) : null;
+  const integrations = await checkIntegrations(refresh, origin, projectOrigin ?? undefined);
   return NextResponse.json(
     { ok: true, checkedAt: new Date().toISOString(), integrations },
     { headers: { 'Cache-Control': 'no-store' } },

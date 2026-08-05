@@ -189,7 +189,7 @@ const checkVercel = async (): Promise<IntegrationStatus> => {
 };
 
 // ─── Firebase ───────────────────────────────────────────────────────────────
-const checkFirebase = async (origin?: string): Promise<IntegrationStatus> => {
+const checkFirebase = async (origin?: string, projectOrigin?: string): Promise<IntegrationStatus> => {
   const clientConfigured =
     varSet('NEXT_PUBLIC_FIREBASE_API_KEY') && varSet('NEXT_PUBLIC_FIREBASE_PROJECT_ID');
   const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? '';
@@ -221,9 +221,12 @@ const checkFirebase = async (origin?: string): Promise<IntegrationStatus> => {
   // that isn't in the project's list, so flag it here — before the user ever
   // hits the AuthGate — using the public getProjectConfig endpoint (no secret
   // needed; the API key is already public). Skipped when the origin is unknown
-  // or the client SDK isn't configured.
+  // or the client SDK isn't configured. A ?project= override (deployment
+  // preview domain) takes precedence over the request origin so a domain can
+  // be validated before it ships.
   let authDomains: IntegrationAuthDomains | undefined;
-  if (clientConfigured && origin) {
+  if (clientConfigured && (origin || projectOrigin)) {
+    const target = projectOrigin ?? (origin as string);
     const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY ?? '';
     const r = await cachedPing(
       'firebase-domains',
@@ -231,8 +234,8 @@ const checkFirebase = async (origin?: string): Promise<IntegrationStatus> => {
     );
     const list = (r.json as { authorizedDomains?: string[] } | null)?.authorizedDomains ?? [];
     authDomains = {
-      ok: isDomainAuthorized(list, origin),
-      origin: originHostname(origin),
+      ok: isDomainAuthorized(list, target),
+      origin: originHostname(target),
       href: `https://console.firebase.google.com/project/${projectId}/authentication/settings`,
     };
   }
@@ -267,10 +270,11 @@ const checkAutomation = (): IntegrationStatus => {
 export const checkIntegrations = async (
   refresh = false,
   origin?: string,
+  projectOrigin?: string,
 ): Promise<IntegrationStatus[]> => {
   if (refresh) pingCache.clear();
   const [supabase, github, vercel, firebase] = await Promise.all([
-    checkSupabase(), checkGithub(), checkVercel(), checkFirebase(origin),
+    checkSupabase(), checkGithub(), checkVercel(), checkFirebase(origin, projectOrigin),
   ]);
   return [supabase, github, vercel, firebase, checkAutomation()];
 };
