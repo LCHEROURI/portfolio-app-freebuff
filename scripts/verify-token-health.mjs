@@ -30,8 +30,8 @@
 //   node scripts/verify-token-health.mjs
 //
 // Exports (for the unit test): fetchTokenList, pickActiveToken, formatExpiry,
-// plus re-exports of the shared isInvalidToken / INVALID_TOKEN_MESSAGE /
-// InvalidTokenError.
+// expiryVerdict, plus re-exports of the shared isInvalidToken /
+// INVALID_TOKEN_MESSAGE / InvalidTokenError.
 // Read-only against the Vercel API.
 // ============================================================================
 
@@ -83,6 +83,26 @@ export function formatExpiry(expiresAt) {
   return new Date(expiresAt).toISOString().slice(0, 10);
 }
 
+/**
+ * Pure expiry decision, extracted from main() so it is unit-testable.
+ * Returns a verdict object the CLI renders:
+ *   { kind: 'none' }                          — no expiry date set
+ *   { kind: 'expired',  daysLeft }            — already past expiry
+ *   { kind: 'due-soon', daysLeft }            — within the 90-day window
+ *   { kind: 'ok',       daysLeft }            — dated but comfortably out
+ * The 90-day window is deliberately a constant so the reminder and its test
+ * read from the same source.
+ */
+export const EXPIRY_WINDOW_DAYS = 90;
+
+export function expiryVerdict(expiresAt, now = Date.now()) {
+  if (!expiresAt) return { kind: 'none' };
+  const daysLeft = Math.floor((expiresAt - now) / 86_400_000);
+  if (daysLeft < 0) return { kind: 'expired', daysLeft };
+  if (daysLeft <= EXPIRY_WINDOW_DAYS) return { kind: 'due-soon', daysLeft };
+  return { kind: 'ok', daysLeft };
+}
+
 async function main() {
   const token = readToken();
   if (!token) {
@@ -122,19 +142,22 @@ async function main() {
 
   // A 90-day reminder: even a no-expiration token can be revoked by account
   // changes, but a DATED token is on a real clock — surface it early so the
-  // rotation steps in the README are run before the credential dies.
-  if (active.expiresAt) {
-    const daysLeft = Math.floor((active.expiresAt - Date.now()) / 86_400_000);
-    if (daysLeft < 0) {
-      console.log(`\n  ✗ EXPIRED ${Math.abs(daysLeft)} day${Math.abs(daysLeft) === 1 ? '' : 's'} ago — rotate now (see README → Rotating VERCEL_TOKEN)`);
-      console.error('RESULT: FAIL — the active VERCEL_TOKEN is past its expiry date.');
-      process.exit(1);
-    }
-    if (daysLeft <= 90) {
-      console.log(`\n  ⏰ expires in ~${daysLeft} day${daysLeft === 1 ? '' : 's'} — rotate soon (see README → Rotating VERCEL_TOKEN)`);
-    } else {
-      console.log(`\n  ✓ expires in ~${daysLeft} days`);
-    }
+  // rotation steps in the README are run before the credential dies. The
+  // decision (expired / due-soon / ok / none) lives in the pure expiryVerdict
+  // helper so the reminder behavior is unit-testable.
+  const verdict = expiryVerdict(active.expiresAt);
+  if (verdict.kind === 'expired') {
+    // Note: an expired token normally fails the /v2/user/tokens call first, so
+    // this branch is defensive (clock skew, a token the API still honors past
+    // its date). Keep it as a hard fail regardless.
+    console.error(`\n  ✗ EXPIRED ${Math.abs(verdict.daysLeft)} day${Math.abs(verdict.daysLeft) === 1 ? '' : 's'} ago — rotate now (see README → Rotating VERCEL_TOKEN)`);
+    console.error('RESULT: FAIL — the active VERCEL_TOKEN is past its expiry date.');
+    process.exit(1);
+  }
+  if (verdict.kind === 'due-soon') {
+    console.log(`\n  ⏰ expires in ~${verdict.daysLeft} day${verdict.daysLeft === 1 ? '' : 's'} — rotate soon (see README → Rotating VERCEL_TOKEN)`);
+  } else if (verdict.kind === 'ok') {
+    console.log(`\n  ✓ expires in ~${verdict.daysLeft} days`);
   } else {
     console.log('\n  ✓ no expiration — but account changes can still revoke it (the invalid/revoked check guards this)');
   }

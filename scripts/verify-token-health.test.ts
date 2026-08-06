@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  expiryVerdict,
   fetchTokenList,
   formatExpiry,
   INVALID_TOKEN_MESSAGE,
@@ -69,6 +70,42 @@ describe('formatExpiry', () => {
     expect(formatExpiry(undefined)).toBe('no expiration');
     expect(formatExpiry(null)).toBe('no expiration');
     expect(formatExpiry(0)).toBe('no expiration');
+  });
+});
+
+// ── expiryVerdict (the pure expiry decision extracted from main) ──────────────
+describe('expiryVerdict', () => {
+  // A fixed "now" so the tests are deterministic regardless of run time.
+  const NOW = 1_800_000_000_000; // ~2027-01-15 UTC
+  const DAY = 86_400_000;
+
+  it('reports none for a token with no expiry date', () => {
+    expect(expiryVerdict(null, NOW)).toEqual({ kind: 'none' });
+    expect(expiryVerdict(undefined, NOW)).toEqual({ kind: 'none' });
+    expect(expiryVerdict(0, NOW)).toEqual({ kind: 'none' });
+  });
+
+  it('flags a token already past its expiry as expired with a negative day count', () => {
+    expect(expiryVerdict(NOW - 5 * DAY, NOW)).toEqual({ kind: 'expired', daysLeft: -5 });
+    expect(expiryVerdict(NOW - 1 * DAY, NOW)).toEqual({ kind: 'expired', daysLeft: -1 });
+  });
+
+  it('flags a token inside the 90-day window as due-soon', () => {
+    expect(expiryVerdict(NOW + 30 * DAY, NOW)).toEqual({ kind: 'due-soon', daysLeft: 30 });
+    expect(expiryVerdict(NOW + 90 * DAY, NOW)).toEqual({ kind: 'due-soon', daysLeft: 90 });
+    // Exactly on the boundary still counts as due-soon (<= 90).
+    expect(expiryVerdict(NOW + 90 * DAY, NOW).kind).toBe('due-soon');
+  });
+
+  it('reports ok for a dated token comfortably beyond the 90-day window', () => {
+    expect(expiryVerdict(NOW + 91 * DAY, NOW)).toEqual({ kind: 'ok', daysLeft: 91 });
+    expect(expiryVerdict(NOW + 365 * DAY, NOW)).toEqual({ kind: 'ok', daysLeft: 365 });
+  });
+
+  it('uses the real clock when no now is passed', () => {
+    const v = expiryVerdict(Date.now() + 30 * DAY);
+    expect(v.kind).toBe('due-soon');
+    expect(v.daysLeft).toBe(30);
   });
 });
 
