@@ -23,6 +23,7 @@
     "verify:prod-signin": "node scripts/verify-prod-signin.mjs",
     "verify:google-idp": "node scripts/verify-google-idp.mjs",
     "verify:all": "node scripts/verify-all.mjs",
+    "verify:deployed-hash": "node scripts/verify-deployed-hash.mjs",
     "verify:launch-checklist": "node scripts/verify-launch-checklist.mjs",
     "authorize:domain": "node scripts/authorize-domain.mjs",
     "seed:winner-candidates": "node scripts/seed-winner-candidates.mjs",

@@ -9,6 +9,8 @@
 #     node scripts/install-push-hook.mjs <path>   (shared installer, any repo)
 #
 # Runs, in order, each gated on what it needs:
+#   0. scripts/verify-deployed-hash.mjs  (needs VERCEL_TOKEN — asserts the
+#      last PUSHED commit is actually what production is serving)
 #   1. scripts/verify-auth-domains.mjs   (needs FIREBASE_WEB_API_KEY)
 #   2. scripts/verify-cron-email.mjs     (needs CRON_SECRET)
 #   3. scripts/verify-prod-signin.mjs    (needs FIREBASE_WEB_API_KEY + Chrome)
@@ -30,10 +32,17 @@ if [ "${SKIP_VERIFY_SIGNIN:-0}" = "1" ]; then
   exit 0
 fi
 
-# Only guard pushes that touch main.
+# Only guard pushes that touch main. Capture the remote tip (the last commit
+# already on origin/main) so the deployed-hash gate can assert production is
+# actually serving it — closing the infer-vs-verify gap: a push that "succeeded"
+# but never deployed is caught before the next push piles on top.
 PUSHES_TO_MAIN=0
+REMOTE_MAIN_SHA=""
 while read -r _local_ref _local_sha remote_ref _remote_sha; do
-  [ "$remote_ref" = "refs/heads/main" ] && PUSHES_TO_MAIN=1
+  if [ "$remote_ref" = "refs/heads/main" ]; then
+    PUSHES_TO_MAIN=1
+    REMOTE_MAIN_SHA="$_remote_sha"
+  fi
 done
 if [ "$PUSHES_TO_MAIN" != "1" ]; then
   exit 0
@@ -99,6 +108,40 @@ if [ -z "$KEY" ]; then
   KEY="$(read_env NEXT_PUBLIC_FIREBASE_API_KEY)"
 fi
 CRON="$(read_env CRON_SECRET)"
+VERCEL="$(read_env VERCEL_TOKEN)"
+
+# ── 0. Deployed-hash gate (needs VERCEL_TOKEN; asserts the LAST pushed ──────
+#    commit is what production is actually serving). The commit being pushed
+#    right now cannot be live yet — Vercel deploys after the push lands — so
+#    the meaningful assertion is against the remote tip (origin/main), the
+#    commit the previous push claimed to ship. If that deploy silently failed
+#    or is still in progress, this blocks the next push with a clear message
+#    instead of letting the gap grow.
+# Skips (with a notice) when: the token is unavailable, the remote tip is all
+# zeros (first push to an empty main — nothing to have deployed yet), or the
+# script file is missing.
+if [ -f scripts/verify-deployed-hash.mjs ]; then
+  if [ -z "$VERCEL" ]; then
+    echo "pre-push: VERCEL_TOKEN not set — skipping deployed-hash proof"
+  elif [ "${REMOTE_MAIN_SHA//0/}" = "" ]; then
+    echo "pre-push: first push to main (no previous remote commit) — skipping deployed-hash proof"
+  else
+    echo "pre-push: verifying production serves the last pushed commit (${REMOTE_MAIN_SHA:0:12}…)…"
+    if perl -e 'alarm shift; exec @ARGV' 90 node scripts/verify-deployed-hash.mjs --expect "$REMOTE_MAIN_SHA"; then
+      echo "pre-push: production deployed-hash matches origin/main ✓"
+    else
+      local_rc=$?
+      if [ "$local_rc" -eq 142 ]; then
+        echo "pre-push: deployed-hash check exceeded 90s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+      else
+        echo "pre-push: production is NOT serving the last pushed commit — the deploy may have failed or is still in progress. Fix or wait, then re-push (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+      fi
+      exit 1
+    fi
+  fi
+else
+  echo "pre-push: verify suite not present — skipping deployed-hash proof"
+fi
 
 # ── 1. Authorized-domains gate (fast, no Chrome) ───────────────────────────
 if [ -n "$KEY" ] && [ -f scripts/verify-auth-domains.mjs ]; then

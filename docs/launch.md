@@ -85,8 +85,18 @@ exiting nonzero on any failure. `--only a,b` / `--skip a,b` narrow a run.
 
 CI runs the cron-email + firestore-rules + auth-domains gates after every push
 (`ci.yml`), a sign-in gate, and `preview-gate.yml` validates every Vercel
-preview URL via `deployment_status`. The local `.githooks/pre-push` hook runs
-the same verifiers (timeboxed 90s each) before any push.
+preview URL via `deployment_status`. A separate `verify-deployed-hash.yml`
+workflow (also `deployment_status`-triggered) closes the GitHub↔Vercel drift
+gap in CI: it resolves the freshly deployed `target_url` via the Vercel API
+(`verify-deployed-hash.mjs --url <target_url> --expect <deployment.sha>`) and
+fails if the commit Vercel is serving doesn't match the pushed head — gated on
+`VERCEL_TOKEN`. The local `.githooks/pre-push` hook runs
+the same verifiers (timeboxed 90s each) before any push, and now also runs the
+deployed-hash gate first: it asserts production is actually serving the last
+pushed commit (`origin/main` tip) via `verify-deployed-hash.mjs --expect`, so a
+deploy that silently failed is caught before the next push piles on top. It
+skips (with a notice) on first push to an empty main, or when `VERCEL_TOKEN`
+isn't set locally.
 
 **Known transient:** the auth-domains gate can briefly FAIL right after a
 deploy because the deployed `/api/status` serves a 2-minute cached
