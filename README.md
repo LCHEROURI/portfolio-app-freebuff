@@ -426,6 +426,31 @@ the `CRON_SECRET` in the deployed environment, and the smoke test only passes
 when that value matches the one in `.env.local`. If a `401` shows up in the
 cron logs or the CI job, re-run the rotation steps above in both places.
 
+**Rotating `VERCEL_TOKEN`** (do this whenever it expires, is revoked, or the
+pre-push hook / CI reports `VERCEL_TOKEN is invalid or revoked`):
+
+```bash
+# 1. Generate a fresh token at https://vercel.com/account/tokens, then update
+#    it in BOTH places at once — the two must never drift:
+NEW_TOKEN="vca_..."   # paste the fresh value
+sed -i.bak "s|^VERCEL_TOKEN=.*|VERCEL_TOKEN=${NEW_TOKEN}|" .env.local && rm .env.local.bak
+printf '%s' "$NEW_TOKEN" | gh secret set VERCEL_TOKEN --repo LCHEROURI/portfolio-app-freebuff
+
+# 2. Optional but recommended: refresh the Vercel CLI store too, so local
+#    `vercel` deploys don't keep using a revoked credential. The CLI keeps its
+#    config at ~/Library/Application Support/com.vercel.cli/auth.json (not
+#    ~/.vercel/):
+printf '{"token":"%s"}\n' "$NEW_TOKEN" > "$HOME/Library/Application Support/com.vercel.cli/auth.json"
+chmod 600 "$HOME/Library/Application Support/com.vercel.cli/auth.json"
+```
+
+**Keep the two in sync:** the pre-push hook and the deployed-hash/`gallery.yml`
+CI jobs read `VERCEL_TOKEN` from `.env.local` and the GitHub repo secret
+respectively — if only one is rotated, the local push gate passes while the CI
+gate fails (or vice versa) with the `invalid or revoked` message. Rotate both
+together and verify with `node scripts/verify-deployed-hash.mjs --url
+https://portfolio-app-freebuff.vercel.app`.
+
 ### Local Repository Scanner companion
 
 ```bash
