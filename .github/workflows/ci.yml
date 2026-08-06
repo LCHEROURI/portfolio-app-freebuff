@@ -68,6 +68,25 @@ jobs:
       - name: Production build
         run: npm run build
 
+  # Drift guard for the launch checklist: parses docs/launch.md's §4 gate
+  # table and asserts every documented command is actually runnable from
+  # package.json (npm scripts exist, target files exist, node scripts/ gates
+  # have a canonical alias). A gate added to the doc without a matching script
+  # — or a script renamed without updating the doc — fails the run, so the
+  # checklist can never promise a command the repo can't run. Static and
+  # secret-free: runs on every push and PR, no Node install needed.
+  verify-launch-checklist:
+    name: Verify launch checklist matches scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify launch-checklist gates are runnable
+        run: node scripts/verify-launch-checklist.mjs
+
   # Post-deploy smoke tests against the LIVE app. Every push proves the
   # deployed cron-email bodies (gated on CRON_SECRET) and the deployed
   # Firestore rules (gated on FIREBASE_WEB_API_KEY) behave end to end, in one
