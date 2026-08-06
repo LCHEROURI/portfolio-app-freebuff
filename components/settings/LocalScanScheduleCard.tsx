@@ -1,11 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { CalendarClock, FileDiff, RefreshCw } from 'lucide-react';
 
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { ScanFreshnessBadge } from '@/components/ui/ScanFreshnessBadge';
+import { fetchScans, type ScansRow } from '@/lib/liveData';
+import { useStore } from '@/lib/store';
 
 interface ScannedRepo {
   id: string;
@@ -25,28 +27,29 @@ const INSTALL_CMDS = [
 ];
 
 export const LocalScanScheduleCard = () => {
+  const { userId } = useStore();
   const [repos, setRepos] = useState<ScannedRepo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/scans', { cache: 'no-store' });
-      const json = (await res.json()) as { ok: boolean; repos: ScannedRepo[] };
-      setRepos(json.repos ?? []);
+      // Identity-aware: the route is user-scoped (Firestore-backed feed).
+      const json = await fetchScans(userId);
+      setRepos((json.repos as ScansRow[]) ?? []);
     } catch {
       setError('Could not load local scan data. Start the dev server (npm run dev) to read data/scans.json.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [userId]);
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
 
   const copy = async (cmd: string) => {
     try {

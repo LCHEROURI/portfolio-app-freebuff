@@ -1,12 +1,19 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { NextRequest } from 'next/server';
 
 // Mock the small server helper (not the node:fs/promises builtin, which is
 // flaky to mock). Same pattern as the cron route test mocking
 // @/lib/server/reporting/data. vi.hoisted runs before the mock factory so the
 // shared fn is safe from hoisting-order issues.
-const { readScansFileMock } = vi.hoisted(() => ({ readScansFileMock: vi.fn() }));
+const { readScannedRepositoriesMock, getRequestUserIdMock } = vi.hoisted(() => ({
+  readScannedRepositoriesMock: vi.fn(),
+  getRequestUserIdMock: vi.fn().mockResolvedValue('demo-user'),
+}));
 vi.mock('@/lib/server/scans', () => ({
-  readScansFile: readScansFileMock,
+  readScannedRepositories: readScannedRepositoriesMock,
+}));
+vi.mock('@/lib/server/user', () => ({
+  getRequestUserId: getRequestUserIdMock,
 }));
 
 import { GET } from './route';
@@ -37,18 +44,20 @@ const makeRepo = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+const request = () => new NextRequest('http://localhost/api/scans');
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
 
 describe('GET /api/scans', () => {
   it('returns one row per repo with lastScannedAt, sorted newest first', async () => {
-    readScansFileMock.mockResolvedValue([
+    readScannedRepositoriesMock.mockResolvedValue([
       makeRepo({ id: 'r-old', repositoryName: 'old-repo', lastScannedAt: '2026-08-01T06:30:00.000Z' }),
       makeRepo({ repositoryName: 'fresh-repo' }),
     ]);
 
-    const res = await GET();
+    const res = await GET(request());
     expect(res.status).toBe(200);
     const json = (await res.json()) as { ok: boolean; repos: Array<{ repositoryName: string; lastScannedAt: string }> };
 
@@ -60,21 +69,21 @@ describe('GET /api/scans', () => {
   });
 
   it('omits rows without a repositoryName (malformed / partial scans)', async () => {
-    readScansFileMock.mockResolvedValue([
+    readScannedRepositoriesMock.mockResolvedValue([
       makeRepo(),
       { id: 'r-broken', lastScannedAt: '2026-08-04T06:30:00.000Z' }, // no repositoryName
       'not-an-object',
     ]);
 
-    const res = await GET();
+    const res = await GET(request());
     const json = (await res.json()) as { repos: unknown[] };
     expect(json.repos).toHaveLength(1);
   });
 
-  it('returns an empty feed when the scans file is missing or unreadable', async () => {
-    readScansFileMock.mockRejectedValue(new Error('ENOENT'));
+  it('returns an empty feed when the scans feed is missing or unreadable', async () => {
+    readScannedRepositoriesMock.mockRejectedValue(new Error('ENOENT'));
 
-    const res = await GET();
+    const res = await GET(request());
     expect(res.status).toBe(200);
     const json = (await res.json()) as { ok: boolean; repos: unknown[] };
     expect(json.ok).toBe(true);
@@ -82,10 +91,26 @@ describe('GET /api/scans', () => {
   });
 
   it('returns an empty feed for non-array JSON', async () => {
-    readScansFileMock.mockResolvedValue({ not: 'an array' });
+    readScannedRepositoriesMock.mockResolvedValue({ not: 'an array' });
 
-    const res = await GET();
+    const res = await GET(request());
     const json = (await res.json()) as { repos: unknown[] };
     expect(json.repos).toEqual([]);
+  });
+
+  it('requires an authenticated user (401 without identity)', async () => {
+    getRequestUserIdMock.mockResolvedValue(null);
+
+    const res = await GET(request());
+    expect(res.status).toBe(401);
+    expect(readScannedRepositoriesMock).not.toHaveBeenCalled();
+  });
+
+  it('scopes the Firestore-backed feed to the acting user', async () => {
+    getRequestUserIdMock.mockResolvedValue('owner-123');
+    readScannedRepositoriesMock.mockResolvedValue([makeRepo()]);
+
+    await GET(request());
+    expect(readScannedRepositoriesMock).toHaveBeenCalledWith('owner-123');
   });
 });

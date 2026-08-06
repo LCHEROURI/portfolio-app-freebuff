@@ -211,6 +211,29 @@ export const fetchWinnerRecommendation = (
     body: JSON.stringify(input),
   });
 
+// ─── Local scanner feed (GET /api/scans) ───────────────────────────────────
+export interface ScansRow {
+  id: string;
+  owner: string;
+  repositoryName: string;
+  repositoryUrl: string;
+  currentBranch: string;
+  lastScannedAt: string;
+  hasUncommittedChanges: boolean;
+  hasUnpushedCommits: boolean;
+  commitsAhead: number;
+  commitsBehind: number;
+}
+
+/**
+ * Fetch the per-repo local scan freshness feed. Goes through the same identity
+ * facade as every other live route (verified Firebase ID token, or the demo
+ * x-app-user header), because the route scopes the Firestore-backed feed to
+ * the acting user — it is NOT a public endpoint.
+ */
+export const fetchScans = (userId: string) =>
+  call<{ ok: boolean; repos: ScansRow[] }>('/api/scans', userId);
+
 // ─── Integration connection status ──────────────────────────────────────────
 export interface IntegrationEnvVar {
   name: string;

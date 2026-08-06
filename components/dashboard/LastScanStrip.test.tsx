@@ -3,6 +3,17 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { LastScanStrip } from './LastScanStrip';
 
+// The strip now reads the acting userId from the store and sends it through
+// the identity-aware fetchScans facade (liveData), which resolves a token via
+// getFirebaseAuth. Stub both so the component renders in demo mode.
+vi.mock('@/lib/store', () => ({
+  useStore: () => ({ userId: 'e2e-user' }),
+}));
+
+vi.mock('@/lib/firebase', () => ({
+  getFirebaseAuth: () => null,
+}));
+
 const makeRow = (overrides: Record<string, unknown> = {}) => ({
   id: 'r-1',
   owner: 'LCHEROURI',

@@ -15,6 +15,7 @@ let profileSeed: { aiModel?: string } = {};
 vi.mock('@/lib/store', () => ({
   useStore: () => ({
     mode: 'demo',
+    userId: 'e2e-user',
     profile: {
       id: 'e2e-user', name: 'E2E', email: 'e2e@local', timezone: 'UTC',
       dailyReportEnabled: true, dailyReportTime: '07:00',

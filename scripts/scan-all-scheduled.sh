@@ -11,6 +11,9 @@
 #
 # Point the scanner at a specific API with SCAN_ALL_API (defaults to the local
 # dev server):   SCAN_ALL_API=https://portfolio-app-freebuff.vercel.app/api/scanner
+# Authenticate Firestore writes with SCAN_ALL_TOKEN (the CRON_SECRET value),
+# which the deployed /api/scanner requires as `Authorization: Bearer`:
+#   SCAN_ALL_TOKEN=<cron-secret>   # same value as CRON_SECRET in Vercel
 # ============================================================================
 set -euo pipefail
 
@@ -50,13 +53,19 @@ trap 'rmdir "${LOCK_DIR}" 2>/dev/null || rm -rf "${LOCK_DIR}"' EXIT
 
 echo "[$(date '+%F %T')] scan-all scheduled run starting" >> "${LOG_FILE}"
 cd "${PROJECT_ROOT}"
-# macOS bash 3.2 cannot expand an empty array under `set -u`, so pass the API
-# flag as a plain string when set (SCAN_ALL_API) and as nothing otherwise.
+# macOS bash 3.2 cannot expand an empty array under `set -u`, so pass flags as
+# plain strings when set (SCAN_ALL_API / SCAN_ALL_TOKEN) and as nothing
+# otherwise. SCAN_ALL_TOKEN is the bearer token the deployed /api/scanner
+# requires for Firestore writes (the same value as CRON_SECRET) — the scanner
+# forwards it as `Authorization: Bearer`.
+ARGS=(--notify)
 if [[ -n "${SCAN_ALL_API:-}" ]]; then
-  node scripts/scan-all.mjs --notify --api "${SCAN_ALL_API}" >> "${LOG_FILE}" 2>&1
-else
-  node scripts/scan-all.mjs --notify >> "${LOG_FILE}" 2>&1
+  ARGS+=(--api "${SCAN_ALL_API}")
 fi
+if [[ -n "${SCAN_ALL_TOKEN:-}" ]]; then
+  ARGS+=(--token "${SCAN_ALL_TOKEN}")
+fi
+node scripts/scan-all.mjs "${ARGS[@]}" >> "${LOG_FILE}" 2>&1
 STATUS=$?
 echo "[$(date '+%F %T')] scan-all scheduled run finished (exit ${STATUS})" >> "${LOG_FILE}"
 exit ${STATUS}

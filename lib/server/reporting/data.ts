@@ -77,16 +77,16 @@ export const loadLiveSnapshot = async (ownerId: string): Promise<LiveSnapshot> =
   // Overlay local scanner facts (uncommitted/unpushed, branch, ahead/behind)
   // onto the live GitHub feed using the SAME merge the client store applies,
   // so the emailed report shows the same 'push these repos' items as the
-  // dashboard. Scanner metadata is written server-side by /api/scanner in demo
-  // mode (data/scans.json); when the file is absent or unreadable (e.g. a
-  // read-only serverless filesystem) this degrades to the live feed untouched.
+  // dashboard. Scanner metadata is source-aware (lib/server/scans.ts): with
+  // FIREBASE_SERVICE_ACCOUNT configured it comes from the Firestore
+  // `repositories` rows written by POST /api/scanner; without one it falls
+  // back to the demo-mode data/scans.json file. Either source degrades to []
+  // when absent or unreadable (e.g. a read-only serverless filesystem), which
+  // leaves the live feed untouched.
   const scanned = await safe(async () => {
-    const { readFile } = await import('node:fs/promises');
-    const { join } = await import('node:path');
-    const raw = await readFile(join(process.cwd(), 'data', 'scans.json'), 'utf8');
-    const parsed = JSON.parse(raw) as unknown[];
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((s): s is import('@/types').Repository =>
+    const { readScannedRepositories } = await import('@/lib/server/scans');
+    const rows = await readScannedRepositories(ownerId);
+    return rows.filter((s): s is import('@/types').Repository =>
       typeof s === 'object' && s !== null && typeof (s as { id?: unknown }).id === 'string');
   });
   const merged = mergeScannerOverlay(repositories ?? [], scanned ?? []);

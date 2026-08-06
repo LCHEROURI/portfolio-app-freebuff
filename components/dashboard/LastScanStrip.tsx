@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { ArrowRight, RefreshCw } from 'lucide-react';
 
@@ -10,6 +10,8 @@ import { ScanFreshnessBadge } from '@/components/ui/ScanFreshnessBadge';
 import { LocalScanHeader } from '@/components/dashboard/LocalScanHeader';
 import { timeAgo } from '@/lib/engine';
 import { SCAN_STALE_MS } from '@/lib/scan';
+import { fetchScans, type ScansRow } from '@/lib/liveData';
+import { useStore } from '@/lib/store';
 
 interface ScanRow {
   id: string;
@@ -33,25 +35,26 @@ const repoName = (r: ScanRow) => `${r.owner}/${r.repositoryName}`;
  * (e.g. the launchd schedule on the Reports page).
  */
 export const LastScanStrip = ({ headerAction }: { headerAction?: ReactNode }) => {
+  const { userId } = useStore();
   const [rows, setRows] = useState<ScanRow[] | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/scans', { cache: 'no-store' });
-      const json = (await res.json()) as { ok: boolean; repos: ScanRow[] };
-      setRows(Array.isArray(json.repos) ? json.repos : []);
+      // Identity-aware: the route is user-scoped (Firestore-backed feed).
+      const json = await fetchScans(userId);
+      setRows(Array.isArray(json.repos) ? (json.repos as ScansRow[]) : []);
     } catch {
       setRows([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [userId]);
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
 
   const newest = rows && rows.length > 0
     ? rows.reduce((a, b) => (a.lastScannedAt > b.lastScannedAt ? a : b))
