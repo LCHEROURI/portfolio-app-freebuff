@@ -90,8 +90,10 @@ export function formatExpiry(expiresAt) {
  *   { kind: 'expired',  daysLeft }            — already past expiry
  *   { kind: 'due-soon', daysLeft }            — within the 90-day window
  *   { kind: 'ok',       daysLeft }            — dated but comfortably out
- * The 90-day window is deliberately a constant so the reminder and its test
- * read from the same source.
+ * Boundary semantics: exactly 90 days out counts as due-soon (<= window),
+ * and 0 days out (expiring today) counts as expired since daysLeft < 0 is
+ * false only past the exact timestamp. The 90-day window is deliberately a
+ * constant so the reminder and its test read from the same source.
  */
 export const EXPIRY_WINDOW_DAYS = 90;
 
