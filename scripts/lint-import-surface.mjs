@@ -33,12 +33,12 @@
 // interface member, and enum member names. Computed keys ({ [X]: 1 }) and
 // shorthand properties ({ X }) ARE genuine uses, as are template
 // interpolations. Runs from the repo root only:
-// scanRoots hard-fails if scripts/ or lib/ is absent, so a wrong cwd can never
-// silently report a clean scan.
+// scanRoots hard-fails if a root is absent, so a wrong cwd can never silently
+// report a clean scan.
 //
-// Scans scripts/ and lib/ recursively (.mjs / .ts / .tsx). Exits 1 with the
-// offending symbols when any finding exists; prints a clean message and exits
-// 0 otherwise.
+// Scans scripts/, lib/, and app/ recursively (.mjs / .ts / .tsx). Exits 1
+// with the offending symbols when any finding exists; prints a clean message
+// and exits 0 otherwise.
 //
 // Usage:
 //   node scripts/lint-import-surface.mjs
@@ -54,7 +54,7 @@ import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
 const REPO_ROOT = process.cwd();
-const DEFAULT_ROOTS = ['scripts', 'lib'];
+const DEFAULT_ROOTS = ['scripts', 'lib', 'app'];
 const SOURCE_EXT = /\.(mjs|js|ts|tsx)$/;
 
 const scriptKindFor = (fileName) => {
@@ -210,7 +210,7 @@ export function scanDir(root) {
 }
 
 /**
- * Scan every default root (scripts/, lib/) and merge findings.
+ * Scan every default root (scripts/, lib/, app/) and merge findings.
  * Hard-fails if a root is missing, so running from the wrong cwd can never
  * silently produce a clean (false) scan.
  */

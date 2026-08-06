@@ -259,7 +259,7 @@ describe('auditSource · unused-import', () => {
 
 // ── scanDir / scanRoots: the real working tree must stay clean ───────────────
 describe('scanRoots (live repo)', () => {
-  it('finds no re-export or unused-import violations across scripts/ and lib/', () => {
+  it('finds no re-export or unused-import violations across scripts/, lib/, and app/', () => {
     const findings = scanRoots();
     expect(findings).toEqual([]);
   });

@@ -101,11 +101,11 @@ const GATES = [
   { name: 'google-idp', label: 'Google IdP record', script: 'verify:google-idp', secrets: ['FIREBASE_WEB_API_KEY', 'NEXT_PUBLIC_FIREBASE_PROJECT_ID'] },
   { name: 'auth-domains-direct', label: 'Authorized domains (direct script)', file: 'scripts/verify-auth-domains.mjs', appFlag: '--app', duplicateOf: 'auth-domains', secrets: ['FIREBASE_WEB_API_KEY'] },
   { name: 'deployed-hash', label: 'Deployed commit matches expected', script: 'verify:deployed-hash', expectFlag: '--expect', url: PRODUCTION_URL, secrets: ['VERCEL_TOKEN'] },
-  // Pure static lint over scripts/ + lib/: re-exported or unused imports fail
-  // the run. No secrets, no network, near-instant — it always runs (the
-  // REQUIRES column shows —). Also wired into the pre-push hook (gate 0.6),
-  // npm run lint, and CI's lint step.
-  { name: 'import-surface', label: 'Import-surface lint (scripts + lib)', script: 'verify:import-surface' },
+  // Pure static lint over scripts/ + lib/ + app/: re-exported or unused
+  // imports fail the run. No secrets, no network, near-instant — it always
+  // runs (the REQUIRES column shows —). Also wired into the pre-push hook
+  // (gate 0.6), npm run lint, and CI's lint step.
+  { name: 'import-surface', label: 'Import-surface lint (scripts + lib + app)', script: 'verify:import-surface' },
 ];
 
 const failures = [];

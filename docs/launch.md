@@ -78,7 +78,7 @@ Each exits nonzero on failure. Read secrets from env, then `.env.local`.
 | `node scripts/verify-google-idp.mjs` | `createAuthUri` resolves `google.com` with a classic web client id; admin API confirms the IdP record is enabled |
 | `node scripts/verify-auth-domains.mjs` | same as `verify:auth-domains` with throwaway-user token |
 | `npm run verify:deployed-hash -- --expect <sha>` | Production is actually serving the expected commit — the exact gate the `deployed-hash` CI workflow and pre-push hook run. Pass the commit you expect to be live (`git rev-parse origin/main` for the last pushed commit; `--check-local` compares against local HEAD instead) |
-| `npm run verify:import-surface` | Static import-surface lint over `scripts/` + `lib/` (TS-compiler-AST scan): no re-exported imports and no unused imports. No secrets, no network — also wired into `npm run lint`, the pre-push hook (gate 0.6), and CI's lint step |
+| `npm run verify:import-surface` | Static import-surface lint over `scripts/` + `lib/` + `app/` (TS-compiler-AST scan): no re-exported imports and no unused imports. No secrets, no network — also wired into `npm run lint`, the pre-push hook (gate 0.6), and CI's lint step |
 
 Run **all nine in one command** with `npm run verify:all` — it preflights the
 drift guard above, runs every gate sequentially against the production URL
@@ -119,6 +119,13 @@ the one-command checklist covers it too.
 **Known transient:** the auth-domains gate can briefly FAIL right after a
 deploy because the deployed `/api/status` serves a 2-minute cached
 `getProjectConfig` snapshot. Re-run it; it passes with `refresh=1`.
+
+**Known transient (GitHub Actions outage):** a gate stuck **queued** for many
+minutes, or one failing at the **Set up job** step with `Service Unavailable`
+/ `Failed to resolve action download info`, means GitHub's action-download
+service is degraded — not your code. No redeploy is needed: wait for the
+outage to clear and re-run the run (`gh run rerun <id>`); the deployed app is
+unaffected.
 
 ## 5. Go-live checklist (order matters)
 
