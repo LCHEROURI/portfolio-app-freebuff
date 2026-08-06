@@ -76,12 +76,14 @@ Each exits nonzero on failure. Read secrets from env, then `.env.local`.
 | `node scripts/verify-prod-signin.mjs` | AuthGate renders, email/password + Google buttons present, both IdPs enabled (admin API), sign-in releases into the Command Center, Firestore write/read sync proven; `[3b]` asserts the classic OAuth client |
 | `node scripts/verify-google-idp.mjs` | `createAuthUri` resolves `google.com` with a classic web client id; admin API confirms the IdP record is enabled |
 | `node scripts/verify-auth-domains.mjs` | same as `verify:auth-domains` with throwaway-user token |
+| `npm run verify:deployed-hash -- --expect <sha>` | Production is actually serving the expected commit — the exact gate the `deployed-hash` CI workflow and pre-push hook run. Pass the commit you expect to be live (`git rev-parse origin/main` for the last pushed commit; `--check-local` compares against local HEAD instead) |
 
-Run **all six in one command** with `npm run verify:all` — it preflights the
+Run **all seven in one command** with `npm run verify:all` — it preflights the
 drift guard above, runs every gate sequentially against the production URL
 (or `--app <url>` to target a preview/local server), dedupes the two
 auth-domains rows (they share one script), and prints a summary table,
-exiting nonzero on any failure. `--only a,b` / `--skip a,b` narrow a run.
+exiting nonzero on any failure. `--only a,b` / `--skip a,b` narrow a run;
+`--expect <sha>` forwards a deployed-hash assertion into the runner.
 
 CI runs the cron-email + firestore-rules + auth-domains gates after every push
 (`ci.yml`), a sign-in gate, and `preview-gate.yml` validates every Vercel

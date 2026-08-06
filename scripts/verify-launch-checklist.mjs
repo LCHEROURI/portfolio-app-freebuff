@@ -11,9 +11,10 @@
 //                           package.json script (so it is runnable the same
 //                           canonical way every other gate is).
 //
-// Also enforces the doc's "six gates" claim: if §4 stops listing one of the
-// gates, or a new gate is added to the doc without a matching script, this
-// check fails — so the checklist can never drift from the runnable commands.
+// Also enforces the doc's "seven gates" claim: if §4 stops listing one of
+// the gates, or a new gate is added to the doc without a matching script,
+// this check fails — so the checklist can never drift from the runnable
+// commands.
 //
 // Exit nonzero on any mismatch. No secrets, no network, pure static check —
 // safe to run on every push and PR.
@@ -28,10 +29,12 @@ const read = (path) => readFileSync(resolve(ROOT, path), 'utf8');
 
 const DOC = 'docs/launch.md';
 const GATE_SECTION_HEADING = /^## \d+\. The verification gates/;
-const EXPECTED_GATE_COUNT = 6;
+const EXPECTED_GATE_COUNT = 7;
 // The exact canonical commands §4 must document. Hardcoding the set (not just
 // the count) closes the silent-drift hole: deleting a real gate while adding
-// a different row would keep the count at 6 but fail here.
+// a different row would keep the count at 7 but fail here. The deployed-hash
+// row is documented WITH its --expect argument (that is the gate form the
+// pre-push hook and CI use); the parser tolerates trailing args on npm gates.
 const EXPECTED_GATES = [
   'npm run verify:cron-email',
   'npm run verify:firestore-rules',
@@ -39,6 +42,12 @@ const EXPECTED_GATES = [
   'node scripts/verify-prod-signin.mjs',
   'node scripts/verify-google-idp.mjs',
   'node scripts/verify-auth-domains.mjs',
+  'npm run verify:deployed-hash -- --expect <sha>',
+  // NOTE: the deployed-hash row above keeps the literal "<sha>" placeholder
+  // ON PURPOSE — the exact-set check matches this string verbatim against the
+  // doc row, so the doc must stay in this documented form (a real sha or
+  // --expect=<sha> syntax in the doc would fail the guard by design, forcing
+  // the guard to be updated too).
 ];
 
 const doc = read(DOC);
@@ -121,7 +130,7 @@ for (const [name, value] of Object.entries(npmScripts)) {
 // ── 3. Assert every gate is runnable ────────────────────────────────────────
 console.log('\n[2/3] Cross-referencing against package.json scripts');
 for (const gate of gates) {
-  const npm = gate.match(/^npm run (\S+)$/);
+  const npm = gate.match(/^npm run (\S+)(?:\s+.*)?$/);
   if (npm) {
     const name = npm[1];
     const value = npmScripts[name];

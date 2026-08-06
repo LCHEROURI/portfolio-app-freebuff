@@ -6,10 +6,11 @@
 // against production (or an --app override), so the go-live checklist is
 // executable in a single command:
 //
-//   npm run verify:all                       # all six gates, production URL
+//   npm run verify:all                       # all seven gates, production URL
 //   node scripts/verify-all.mjs --app http://localhost:3000
 //   node scripts/verify-all.mjs --only prod-signin,google-idp
 //   node scripts/verify-all.mjs --skip prod-signin --timeout 900
+//   node scripts/verify-all.mjs --expect <sha>   # forward a deployed-hash assertion
 //
 // Behavior:
 //   - Preflights the static launch-checklist drift guard
@@ -39,10 +40,15 @@ const APP = (flag('--app', process.env.VERIFY_BASE_URL) ?? '').replace(/\/$/, ''
 const TIMEOUT_SEC = Number(flag('--timeout', '600'));
 const onlyArg = flag('--only', '');
 const skipArg = flag('--skip', '');
+const EXPECT_SHA = flag('--expect', '');
+// The canonical production URL the deployed-hash gate's drift watch compares
+// against (the alias must serve the same commit as the deployment-specific
+// URL). Matches scripts/verify-deployed-hash.mjs's PRODUCTION_URL.
+const PRODUCTION_URL = 'https://portfolio-app-freebuff.vercel.app';
 const ONLY = onlyArg ? onlyArg.split(',').map((s) => s.trim()).filter(Boolean) : [];
 const SKIP = skipArg ? skipArg.split(',').map((s) => s.trim()).filter(Boolean) : [];
 
-const GATE_NAMES = ['cron-email', 'firestore-rules', 'auth-domains', 'prod-signin', 'google-idp', 'auth-domains-direct'];
+const GATE_NAMES = ['cron-email', 'firestore-rules', 'auth-domains', 'prod-signin', 'google-idp', 'auth-domains-direct', 'deployed-hash'];
 const unknownOnly = ONLY.filter((n) => !GATE_NAMES.includes(n));
 const unknownSkip = SKIP.filter((n) => !GATE_NAMES.includes(n));
 if (unknownOnly.length > 0 || unknownSkip.length > 0) {
@@ -64,6 +70,7 @@ const GATES = [
   { name: 'prod-signin', label: 'Production sign-in + Firestore sync', script: 'verify:prod-signin', appFlag: '--app' },
   { name: 'google-idp', label: 'Google IdP record', script: 'verify:google-idp' },
   { name: 'auth-domains-direct', label: 'Authorized domains (direct script)', file: 'scripts/verify-auth-domains.mjs', appFlag: '--app', duplicateOf: 'auth-domains' },
+  { name: 'deployed-hash', label: 'Deployed commit matches expected', script: 'verify:deployed-hash', expectFlag: '--expect', compareUrl: PRODUCTION_URL },
 ];
 
 const failures = [];
@@ -80,6 +87,21 @@ const runOne = async (gate) => {
   if (APP) {
     if (gate.baseFlag) cmdArgs.push(gate.baseFlag, APP);
     if (gate.appFlag) cmdArgs.push(gate.appFlag, APP);
+  }
+  // The deployed-hash gate takes its assertion via `-- --expect <sha>`; the
+  // runner forwards the user's --expect value through npm run. Without one,
+  // fall back to --check-local so the row still does a real comparison
+  // (deployed commit vs local HEAD) instead of silently reporting only. It
+  // also runs the alias-routing drift watch (--compare-url <canonical>) so
+  // the one-command checklist covers the same drift the pre-push hook and CI
+  // gate do.
+  if (gate.expectFlag || gate.compareUrl) {
+    cmdArgs.push('--');
+    if (gate.expectFlag) {
+      cmdArgs.push(EXPECT_SHA ? gate.expectFlag : '--check-local');
+      if (EXPECT_SHA) cmdArgs.push(EXPECT_SHA);
+    }
+    if (gate.compareUrl) cmdArgs.push('--compare-url', gate.compareUrl);
   }
 
   console.log(`\n── ▶ ${gate.label} (${cmd} ${cmdArgs.join(' ')})`);
@@ -133,7 +155,7 @@ const runOne = async (gate) => {
 
 // ── Preflight: the doc's gates must be runnable before we run any ───────────
 console.log(`\nLaunch checklist runner — ${APP || 'production URL (default)'}\n`);
-console.log('[0/6] Preflight: launch-checklist drift guard');
+console.log('[0/7] Preflight: launch-checklist drift guard');
 const preflight = spawn('node', ['scripts/verify-launch-checklist.mjs'], { stdio: 'inherit', env: process.env });
 const preflightCode = await new Promise((resolvePromise) => {
   preflight.on('exit', (c) => resolvePromise(c ?? 1));
