@@ -35,7 +35,8 @@
 // together — e.g. the verify:all deployed-hash gate and the CI workflow pass
 // both — and the script exits nonzero if ANY requested check fails.
 //
-// Exports (for the unit test): extractSha, compareDrift, resolveByHost.
+// Exports (for the unit test): extractSha, compareDrift, resolveByHost,
+// parseArgs.
 // Exits nonzero if the token is missing or the target deployment can't be
 // resolved. No source changes; read-only against the Vercel API.
 // ============================================================================
@@ -78,6 +79,28 @@ const readToken = () => {
   } catch { /* no CLI store */ }
   return null;
 };
+
+/**
+ * Parse CLI flags into a plain object. Each raw arg is trimmed first: a
+ * GitHub Actions plain-scalar `run: cmd \` block folds the trailing
+ * backslash-newline into a literal backslash-space, so `--url "…"` arrives
+ * in bash as the single word ` --url` (leading space). Trimming recovers the
+ * flag so the script can never silently fall back to the v6 list branch just
+ * because a flag lost its leading position.
+ */
+export function parseArgs(rawArgs) {
+  const args = rawArgs.map((a) => a.trim());
+  const flag = (name) => {
+    const i = args.indexOf(name);
+    return i >= 0 && args[i + 1] ? args[i + 1] : null;
+  };
+  return {
+    expect: flag('--expect'),
+    checkLocal: args.includes('--check-local'),
+    url: flag('--url'),
+    compareUrl: flag('--compare-url'),
+  };
+}
 
 /**
  * Resolve a deployment by URL host via the v13 single-deployment lookup
@@ -149,23 +172,14 @@ const resolveTeam = async (token) => {
 };
 
 async function main() {
-  const args = process.argv.slice(2);
-  const flag = (name) => {
-    const i = args.indexOf(name);
-    return i >= 0 && args[i + 1] ? args[i + 1] : null;
-  };
-  const hasFlag = (name) => args.includes(name);
-
-  const EXPECT = flag('--expect');
-  const CHECK_LOCAL = hasFlag('--check-local');
+  const { expect: EXPECT, checkLocal: CHECK_LOCAL, url: URL_TARGET, compareUrl: COMPARE_URL } =
+    parseArgs(process.argv.slice(2));
   // The deployment URL to check. When set, the script looks up that exact
   // deployment instead of the latest production one — the CI deployment_status
   // gate passes the event's target_url here.
-  const URL_TARGET = flag('--url');
   // Alias-routing drift watch target: the second URL whose deployment must
   // serve the SAME commit as the primary target (URL_TARGET or the latest
   // production deployment).
-  const COMPARE_URL = flag('--compare-url');
 
   const token = readToken();
   if (!token) {

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   compareDrift,
   extractSha,
+  parseArgs,
   resolveByHost,
 } from './verify-deployed-hash.mjs';
 
@@ -39,6 +40,41 @@ describe('compareDrift', () => {
     expect(compareDrift('', 'abc123')).toBe('unverifiable');
     expect(compareDrift('abc123', '')).toBe('unverifiable');
     expect(compareDrift('', '')).toBe('unverifiable');
+  });
+});
+
+// ── parseArgs (the GitHub Actions plain-scalar folding guard) ──────────────────
+describe('parseArgs', () => {
+  it('parses a normal --url/--expect invocation', () => {
+    const parsed = parseArgs(['--url', 'https://x.vercel.app', '--expect', 'abc123']);
+    expect(parsed.url).toBe('https://x.vercel.app');
+    expect(parsed.expect).toBe('abc123');
+    expect(parsed.compareUrl).toBeNull();
+    expect(parsed.checkLocal).toBe(false);
+  });
+
+  it('recovers flags whose leading space survived a YAML-folded run block', () => {
+    // GitHub Actions folds `run: cmd \` newline into a literal backslash-space,
+    // so bash hands the script ` --url` (leading space) as ONE word. The trim
+    // inside parseArgs must recover the flag so the gate never silently falls
+    // back to the v6 list branch — the exact 403 bug this guards against.
+    const folded = [' --url', 'https://x.vercel.app', ' --expect', 'abc123', ' --compare-url', 'https://y.vercel.app'];
+    const parsed = parseArgs(folded);
+    expect(parsed.url).toBe('https://x.vercel.app');
+    expect(parsed.expect).toBe('abc123');
+    expect(parsed.compareUrl).toBe('https://y.vercel.app');
+  });
+
+  it('handles --check-local as a bare boolean flag', () => {
+    expect(parseArgs(['--check-local']).checkLocal).toBe(true);
+    expect(parseArgs([' --check-local']).checkLocal).toBe(true);
+    expect(parseArgs([]).checkLocal).toBe(false);
+  });
+
+  it('returns null for a flag missing its value', () => {
+    expect(parseArgs(['--url']).url).toBeNull();
+    expect(parseArgs(['--expect']).expect).toBeNull();
+    expect(parseArgs([]).url).toBeNull();
   });
 });
 

@@ -79,11 +79,19 @@ jobs:
           echo "state:      ${{ github.event.deployment_status.state }}"
           echo "target_url: ${{ github.event.deployment_status.target_url }}"
           echo "sha:        ${{ github.event.deployment.sha }}"
+      # NOTE: these steps use `run: |` block scalars ON PURPOSE. A plain
+      # scalar `run: cmd \` folds the trailing backslash-newline into a
+      # literal backslash-space, so `--url "…"` arrives in bash as the single
+      # word ` --url` (leading space) and the script never parses the flag —
+      # silently falling back to the v6 list branch, which 403s on the wrong
+      # team scope. Real newlines (block scalar) keep the backslash as a
+      # genuine line continuation.
       - name: Verify deployed commit matches the pushed head
         if: ${{ env.VERCEL_TOKEN != '' }}
-        run: node scripts/verify-deployed-hash.mjs \
-          --url "${{ github.event.deployment_status.target_url }}" \
-          --expect "${{ github.event.deployment.sha }}"
+        run: |
+          node scripts/verify-deployed-hash.mjs \
+            --url "${{ github.event.deployment_status.target_url }}" \
+            --expect "${{ github.event.deployment.sha }}"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
@@ -97,8 +105,9 @@ jobs:
       # so the comparison would false-fail there.
       - name: Alias-routing drift watch (production)
         if: ${{ env.VERCEL_TOKEN != '' && github.event.deployment_status.environment == 'Production' }}
-        run: node scripts/verify-deployed-hash.mjs \
-          --url "${{ github.event.deployment_status.target_url }}" \
-          --compare-url "https://portfolio-app-freebuff.vercel.app"
+        run: |
+          node scripts/verify-deployed-hash.mjs \
+            --url "${{ github.event.deployment_status.target_url }}" \
+            --compare-url "https://portfolio-app-freebuff.vercel.app"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
