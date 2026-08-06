@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { auditSource, main, scanDir, stripCommentsAndStrings } from './lint-import-surface.mjs';
+import { join, relative } from 'node:path';
+import { auditSource, main, scanDir, scanRoots } from './lint-import-surface.mjs';
 
 // ── auditSource: the re-export-of-unused-import rule ─────────────────────────
 describe('auditSource · re-export-of-unused-import', () => {
@@ -69,16 +69,123 @@ describe('auditSource · re-export-of-unused-import', () => {
     ]);
   });
 
-  it('treats a comment that only mentions a used symbol as a real use (no false positive)', () => {
+  it('does not count template-literal TEXT as a use (only interpolations are real)', () => {
     const src = `
-      // The unit test imports readFileSync from node:fs to read fixtures.
-      import { readFileSync } from 'node:fs';
-      console.log('no real usage');
+      import { unusedThing } from './verify-deployed-hash.mjs';
+      const message = \`the unusedThing symbol is just text here\`;
+      console.log(message);
     `;
-    // The doc comment mentions readFileSync, but the import itself is unused.
     expect(auditSource(src)).toEqual([
-      { kind: 'unused-import', symbol: 'readFileSync', module: 'node:fs' },
+      { kind: 'unused-import', symbol: 'unusedThing', module: './verify-deployed-hash.mjs' },
     ]);
+  });
+
+  it('does not count an object-literal KEY as a use ({ X: 1 })', () => {
+    const src = `
+      import { X } from './mod';
+      const o = { X: 1 };
+      console.log(o);
+    `;
+    expect(auditSource(src)).toEqual([{ kind: 'unused-import', symbol: 'X', module: './mod' }]);
+  });
+
+  it('does not count a property-access NAME as a use (obj.X)', () => {
+    const src = `
+      import { X } from './mod';
+      console.log(instance.X);
+    `;
+    expect(auditSource(src)).toEqual([{ kind: 'unused-import', symbol: 'X', module: './mod' }]);
+  });
+
+  it('counts a shorthand property as a genuine use ({ X })', () => {
+    const src = `
+      import { X } from './mod';
+      const o = { X };
+      console.log(o);
+    `;
+    expect(auditSource(src)).toEqual([]);
+  });
+
+  it('counts a computed object key as a genuine use ({ [X]: 1 })', () => {
+    const src = `
+      import { X } from './mod';
+      const o = { [X]: 1 };
+      console.log(o);
+    `;
+    expect(auditSource(src)).toEqual([]);
+  });
+
+  it('does not count an object-literal method key as a use ({ X() {} })', () => {
+    const src = `
+      import { X } from './mod';
+      const o = { X() { return 1; } };
+      console.log(o);
+    `;
+    expect(auditSource(src)).toEqual([{ kind: 'unused-import', symbol: 'X', module: './mod' }]);
+  });
+
+  it('does not count an interface member name as a use (interface A { X })', () => {
+    const src = `
+      import { X } from './mod';
+      interface A { X: string }
+      console.log(A);
+    `;
+    expect(auditSource(src)).toEqual([{ kind: 'unused-import', symbol: 'X', module: './mod' }]);
+  });
+
+  it('does not count an enum member name as a use (enum E { X })', () => {
+    const src = `
+      import { X } from './mod';
+      enum E { X }
+      console.log(E);
+    `;
+    expect(auditSource(src)).toEqual([{ kind: 'unused-import', symbol: 'X', module: './mod' }]);
+  });
+
+  it('does not count a property-access name in assignment-target position (obj.X = 5)', () => {
+    const src = `
+      import { X } from './mod';
+      instance.X = 5;
+    `;
+    expect(auditSource(src)).toEqual([{ kind: 'unused-import', symbol: 'X', module: './mod' }]);
+  });
+
+  it('does not count a property-access name under optional chaining (obj?.X)', () => {
+    const src = `
+      import { X } from './mod';
+      console.log(instance?.X);
+    `;
+    expect(auditSource(src)).toEqual([{ kind: 'unused-import', symbol: 'X', module: './mod' }]);
+  });
+
+  it('counts the LEFT side of a type qualified name as a use but not the right (Foo.Bar)', () => {
+    const usedLeft = `
+      import { Foo } from './ns';
+      type T = Foo.Bar;
+      console.log(T);
+    `;
+    expect(auditSource(usedLeft)).toEqual([]);
+
+    const unusedRight = `
+      import { Bar } from './ns';
+      interface A { b: Foo.Bar }
+      console.log(A);
+    `;
+    expect(auditSource(unusedRight)).toEqual([
+      { kind: 'unused-import', symbol: 'Bar', module: './ns' },
+    ]);
+  });
+
+  it('counts an identifier inside a template interpolation as a real use (engine.ts regression)', () => {
+    // This is the exact case that broke the old regex stripper: an apostrophe
+    // inside a template literal used to open a false string match that
+    // swallowed the modelLabel usage until the next quote.
+    const src = `
+      import { modelLabel } from './labels';
+      const line = \`Chef's pick: \${modelLabel(e.model)} (overall **\${e.overallScore}/10**)\`;
+      console.log(line);
+    `;
+    expect(auditSource(src)).toEqual([]);
   });
 });
 
@@ -128,54 +235,38 @@ describe('auditSource · unused-import', () => {
       { kind: 'unused-import', symbol: 'alpha', module: './a.mjs' },
     ]);
   });
-});
 
-// ── stripCommentsAndStrings ──────────────────────────────────────────────────
-describe('stripCommentsAndStrings', () => {
-  it('removes line and block comments and quoted strings', () => {
-    const src = `import { a } from './m'; // keep a
-      /* block with b */
-      const s = "keep c";
-      const t = 'keep d';
-      a;`;
-    const stripped = stripCommentsAndStrings(src);
-    expect(stripped).not.toContain('keep a');
-    expect(stripped).not.toContain('block with b');
-    expect(stripped).not.toContain('keep c');
-    expect(stripped).not.toContain('keep d');
-    expect(stripped).toContain('a;');
+  it('recognizes type-position uses of a type-only import', () => {
+    const src = `
+      import type { Project } from '@/types';
+      const p: Project = { name: 'x' };
+      console.log(p);
+    `;
+    expect(auditSource(src)).toEqual([]);
+  });
+
+  it('parses .tsx files and counts JSX element uses (script-kind branch)', () => {
+    const src = `
+      import { Foo } from './foo';
+      import { Bar } from './bar';
+      export const el = <Foo />;
+    `;
+    expect(auditSource(src, 'component.tsx')).toEqual([
+      { kind: 'unused-import', symbol: 'Bar', module: './bar' },
+    ]);
   });
 });
 
-// ── main: the CLI exit-code contract ─────────────────────────────────────────
-describe('main (CLI exit-code contract)', () => {
-  it('returns 1 when the scanned dir contains a violating file', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'lint-import-surface-cli-'));
-    try {
-      writeFileSync(
-        join(dir, 'verify-bad.mjs'),
-        `import { X } from './verify-deployed-hash.mjs';\nexport { X };\n`,
-      );
-      expect(main(['node', 'scripts/lint-import-surface.mjs'], dir)).toBe(1);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('returns 0 when the scanned dir is clean', () => {
-    expect(main(['node', 'scripts/lint-import-surface.mjs'])).toBe(0);
-  });
-});
-
-// ── scanDir: the real working tree must stay clean ───────────────────────────
-describe('scanDir (live repo)', () => {
-  it('finds no re-export or unused-import violations across the verify suite', () => {
-    const findings = scanDir();
+// ── scanDir / scanRoots: the real working tree must stay clean ───────────────
+describe('scanRoots (live repo)', () => {
+  it('finds no re-export or unused-import violations across scripts/ and lib/', () => {
+    const findings = scanRoots();
     expect(findings).toEqual([]);
   });
+});
 
+describe('scanDir (planted violations)', () => {
   it('reports findings with the owning file attached when present', () => {
-    // Plant a temporary violating file in a temp dir and scan that dir.
     const dir = mkdtempSync(join(tmpdir(), 'lint-import-surface-'));
     try {
       writeFileSync(
@@ -184,10 +275,50 @@ describe('scanDir (live repo)', () => {
       );
       const findings = scanDir(dir);
       expect(findings).toEqual([
-        { file: 'verify-bad.mjs', kind: 're-export-of-unused-import', symbol: 'X', module: './verify-deployed-hash.mjs' },
+        { file: relative(process.cwd(), join(dir, 'verify-bad.mjs')), kind: 're-export-of-unused-import', symbol: 'X', module: './verify-deployed-hash.mjs' },
       ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it('scans recursively into subdirectories', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lint-import-surface-sub-'));
+    try {
+      writeFileSync(
+        join(dir, 'verify-bad.mjs'),
+        `import { Y } from './verify-deployed-hash.mjs';\nexport { Y };\n`,
+      );
+      const findings = scanDir(dir);
+      expect(findings).toHaveLength(1);
+      expect(findings[0].kind).toBe('re-export-of-unused-import');
+      expect(findings[0].symbol).toBe('Y');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ── main: the CLI exit-code contract ─────────────────────────────────────────
+describe('main (CLI exit-code contract)', () => {
+  it('returns 1 when the scanned roots contain a violating file', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lint-import-surface-cli-'));
+    try {
+      writeFileSync(
+        join(dir, 'verify-bad.mjs'),
+        `import { X } from './verify-deployed-hash.mjs';\nexport { X };\n`,
+      );
+      expect(main([dir])).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('returns 0 when the scanned roots are clean', () => {
+    expect(main()).toBe(0);
+  });
+
+  it('returns 1 with a clear message when a root is missing (wrong cwd guard)', () => {
+    expect(main(['definitely-not-a-real-root'])).toBe(1);
   });
 });

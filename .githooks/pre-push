@@ -12,6 +12,8 @@
 #   0. scripts/verify-deployed-hash.mjs  (needs VERCEL_TOKEN — resolves the
 #      canonical production URL via the v13 by-host lookup and asserts it
 #      serves the last PUSHED commit; a bare fallback needs no team scope)
+#   0.5 scripts/verify-token-health.mjs  (needs VERCEL_TOKEN — cheap, no Chrome)
+#   0.6 scripts/lint-import-surface.mjs  (no secrets, pure static, near-instant)
 #   1. scripts/verify-auth-domains.mjs   (needs FIREBASE_WEB_API_KEY)
 #   2. scripts/verify-cron-email.mjs     (needs CRON_SECRET)
 #   3. scripts/verify-prod-signin.mjs    (needs FIREBASE_WEB_API_KEY + Chrome)
@@ -195,6 +197,18 @@ if [ -n "$VERCEL" ] && [ -f scripts/verify-token-health.mjs ]; then
 else
   [ -f scripts/verify-token-health.mjs ] || echo "pre-push: verify suite not present — skipping token-health proof"
   [ -n "$VERCEL" ] || echo "pre-push: VERCEL_TOKEN not set — skipping token-health proof"
+fi
+
+# ── 0.6 Import-surface lint gate (no secrets, pure static, near-instant) ────
+# Fails the push if any verify script or test re-exports an imported symbol it
+# never uses (the nit the /check review caught) or carries an unused import.
+# No secrets and no network, so it always runs when the script file is present
+# — a reintroduced re-export is caught locally at push time, not just in CI's
+# lint step.
+if [ -f scripts/lint-import-surface.mjs ]; then
+  run_verify "import-surface lint" scripts/lint-import-surface.mjs
+else
+  echo "pre-push: lint-import-surface.mjs not present — skipping import-surface lint"
 fi
 
 # ── 1. Authorized-domains gate (fast, no Chrome) ───────────────────────────

@@ -11,10 +11,9 @@
 //                           package.json script (so it is runnable the same
 //                           canonical way every other gate is).
 //
-// Also enforces the doc's "eight gates" claim: if §4 stops listing one of
-// the gates, or a new gate is added to the doc without a matching script,
-// this check fails — so the checklist can never drift from the runnable
-// commands.
+// Also enforces the doc's "nine gates" claim: if §4 stops listing one of the
+// gates, or a new gate is added to the doc without a matching script, this
+// check fails — so the checklist can never drift from the runnable commands.
 //
 // Exit nonzero on any mismatch. No secrets, no network, pure static check —
 // safe to run on every push and PR.
@@ -29,7 +28,7 @@ const read = (path) => readFileSync(resolve(ROOT, path), 'utf8');
 
 const DOC = 'docs/launch.md';
 const GATE_SECTION_HEADING = /^## \d+\. The verification gates/;
-const EXPECTED_GATE_COUNT = 8;
+const EXPECTED_GATE_COUNT = 9;
 // The exact canonical commands §4 must document. Hardcoding the set (not just
 // the count) closes the silent-drift hole: deleting a real gate while adding
 // a different row would keep the count at 8 but fail here. The deployed-hash
@@ -44,6 +43,7 @@ const EXPECTED_GATES = [
   'npm run verify:token-health',
   'node scripts/verify-auth-domains.mjs',
   'npm run verify:deployed-hash -- --expect <sha>',
+  'npm run verify:import-surface',
   // NOTE: the deployed-hash row above keeps the literal "<sha>" placeholder
   // ON PURPOSE — the exact-set check matches this string verbatim against the
   // doc row, so the doc must stay in this documented form (a real sha or

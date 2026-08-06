@@ -42,7 +42,6 @@
 // service account is not configured, so the step can gate a deploy script.
 // ============================================================================
 
-import { resolve } from 'node:path';
 import { getProjectId, getServiceAccount, mintServiceAccountToken } from '../lib/server/sa-token.mjs';
 
 const args = process.argv.slice(2);

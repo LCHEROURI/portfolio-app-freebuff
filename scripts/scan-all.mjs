@@ -23,7 +23,7 @@
 // Exits nonzero if any repo failed to ingest, so it can gate CI or be chained.
 // ============================================================================
 
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
