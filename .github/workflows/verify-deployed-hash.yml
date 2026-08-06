@@ -17,6 +17,13 @@ name: Deployed-hash gate
 # Vercel sets target_url to the deployment-specific subdomain, which is
 # stable, but if the alias ever races ahead of the event the check would
 # compare against the newer deployment (a rare false-fail, not a silent pass).
+#
+# Event-shape note: the deployment_status webhook payload carries the deployed
+# commit at the TOP level (github.event.deployment.sha), NOT nested under
+# deployment_status (the status object itself has no deployment field — the
+# REST statuses API returns "deployment": null). A job-level if that reads
+# deployment_status.deployment.sha evaluates to empty and silently skips every
+# successful deploy, which is exactly the bug this file was first written with.
 
 on:
   deployment_status:
@@ -35,7 +42,7 @@ jobs:
     if: >-
       github.event.deployment_status.state == 'success' &&
       github.event.deployment_status.target_url != '' &&
-      github.event.deployment_status.deployment.sha != ''
+      github.event.deployment.sha != ''
 
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -50,17 +57,23 @@ jobs:
           node-version: 20
 
       # The event's target_url is the live URL Vercel just deployed (preview
-      # or production) and deployment.sha is the commit that push recorded.
-      # The script's --url mode resolves that exact deployment via the Vercel
-      # API (v13 lookup accepts the canonical alias or the deployment-specific
-      # subdomain) and --expect asserts its githubCommitSha matches the pushed
-      # head. A mismatch — GitHub thinks X is live, Vercel is serving Y — exits
-      # nonzero and fails the check. No VERCEL_PROTECTION_BYPASS needed: this
-      # hits the Vercel API, not the SSO-protected deployment URL.
+      # or production) and deployment.sha (TOP level) is the commit that push
+      # recorded. The script's --url mode resolves that exact deployment via
+      # the Vercel API (v13 lookup accepts the canonical alias or the
+      # deployment-specific subdomain) and --expect asserts its
+      # githubCommitSha matches the pushed head. A mismatch — GitHub thinks X
+      # is live, Vercel is serving Y — exits nonzero and fails the check. No
+      # VERCEL_PROTECTION_BYPASS needed: this hits the Vercel API, not the
+      # SSO-protected deployment URL.
+      - name: Echo the event fields being asserted
+        run: |
+          echo "state:      ${{ github.event.deployment_status.state }}"
+          echo "target_url: ${{ github.event.deployment_status.target_url }}"
+          echo "sha:        ${{ github.event.deployment.sha }}"
       - name: Verify deployed commit matches the pushed head
         if: ${{ env.VERCEL_TOKEN != '' }}
         run: node scripts/verify-deployed-hash.mjs \
           --url "${{ github.event.deployment_status.target_url }}" \
-          --expect "${{ github.event.deployment_status.deployment.sha }}"
+          --expect "${{ github.event.deployment.sha }}"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
