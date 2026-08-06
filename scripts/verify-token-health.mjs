@@ -30,23 +30,19 @@
 //   node scripts/verify-token-health.mjs
 //
 // Exports (for the unit test): fetchTokenList, pickActiveToken, formatExpiry,
-// expiryVerdict, plus re-exports of the shared isInvalidToken /
-// INVALID_TOKEN_MESSAGE / InvalidTokenError.
+// expiryVerdict. The shared dead-token helpers (isInvalidToken /
+// INVALID_TOKEN_MESSAGE / InvalidTokenError) are imported here, not
+// re-exported; the unit test imports them from verify-deployed-hash.mjs
+// directly so each surface reflects what it actually uses.
 // Read-only against the Vercel API.
 // ============================================================================
 
 import { fileURLToPath } from 'node:url';
 import {
   INVALID_TOKEN_MESSAGE,
-  InvalidTokenError,
   isInvalidToken,
   readToken,
 } from './verify-deployed-hash.mjs';
-
-// Re-exported so the unit test imports everything from this module (matching
-// the test's existing import surface) while the implementation lives in one
-// place.
-export { INVALID_TOKEN_MESSAGE, InvalidTokenError, isInvalidToken };
 
 /**
  * Fetch the account's token list. Returns the Response so callers can inspect

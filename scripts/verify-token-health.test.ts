@@ -3,11 +3,16 @@ import {
   expiryVerdict,
   fetchTokenList,
   formatExpiry,
+  pickActiveToken,
+} from './verify-token-health.mjs';
+// The shared dead-token helpers live in verify-deployed-hash.mjs; the
+// token-health script imports them rather than re-exporting, so the test
+// imports them from the same source.
+import {
   INVALID_TOKEN_MESSAGE,
   InvalidTokenError,
   isInvalidToken,
-  pickActiveToken,
-} from './verify-token-health.mjs';
+} from './verify-deployed-hash.mjs';
 
 const TOKEN = 'test-token';
 
