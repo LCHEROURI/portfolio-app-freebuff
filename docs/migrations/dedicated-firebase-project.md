@@ -1,5 +1,13 @@
 # Migration plan: move this app onto its own Firebase project
 
+> **Status: COMPLETE (Aug 2026).** This app now runs on its own dedicated
+> Firebase project, **`portfolio-app-freebuff2`**. The migration below was
+> executed and all four verify gates pass against the new project
+> (cron-email, auth-domains, prod-signin, google-idp). **Everything in this
+> document that mentions `meal-planner-lcherouri` describes the
+> pre-migration state and is historical context only** — the shared project is
+> no longer referenced or touched by this app.
+
 ## Decision (locked Aug 2026)
 
 - **New project id: `portfolio-app-freebuff2`** — created, web app registered.
@@ -9,7 +17,7 @@
 - **The meal-planner project is untouched** — nothing is deleted or modified
   there.
 
-## Status (executed Aug 2026)
+## Status (executed Aug 2026 — all steps done)
 
 Done: project created, web app registered, `.env.local` + Vercel swapped,
 three hardcoded defaults fixed, `firestore.rules` trimmed + deployed
@@ -17,17 +25,18 @@ three hardcoded defaults fixed, `firestore.rules` trimmed + deployed
 PASS), Firestore database created (FIRESTORE_NATIVE, nam5), test fixtures
 updated, `FIREBASE_WEB_API_KEY` repo secret updated to the new project's key.
 
-Pending (manual console steps):
-1. **Open the new project's Authentication page once** —
-   https://console.firebase.google.com/project/portfolio-app-freebuff2/authentication
-   CLI-created projects don't get an Identity Platform config record until
-   the console provisions it (`CONFIGURATION_NOT_FOUND` otherwise). This
-   unblocks authorized domains + sign-in providers.
-2. **Generate the service account** (Project settings → Service accounts →
-   Generate new private key) → `FIREBASE_SERVICE_ACCOUNT` on Vercel.
-3. Optional: `REPORT_OWNER_ID` with a real uid.
+Also done since the original plan was written:
+- **Authentication provisioned** on `portfolio-app-freebuff2` (Email/Password
+  and Google both enabled; the Google provider carries a classic web OAuth
+  client — see `scripts/wire-google-client.mjs` and
+  `docs/reviews/2026-08-04-authorized-domains.md`).
+- **Service account generated** → `FIREBASE_SERVICE_ACCOUNT` on Vercel, and
+  `REPORT_OWNER_ID` set.
+- **All four verify gates PASS against the new project**: `verify:cron-email`,
+  `verify:auth-domains`, `verify-prod-signin`, and `verify:google-idp`.
 
-Then: push the migration commit, redeploy, run all four verify gates.
+The old shared project (`meal-planner-lcherouri`) is untouched and the
+portfolio app no longer references it anywhere in code, config, or CI.
 
 ## Goal
 
@@ -38,11 +47,14 @@ Command Center onto a **dedicated Firebase project** so it owns its Auth,
 rules, domains, and service account — and stops touching the meal-planner's
 data and settings.
 
-## Current state (confirmed by sweep, Aug 2026)
+## Current state (confirmed by sweep, Aug 2026) — pre-migration baseline
+
+> Historical: this table shows where everything pointed *before* the
+> migration. All rows now target `portfolio-app-freebuff2`.
 
 The app resolves its Firebase config **entirely through env vars**, so the
 migration is a config + rules change, not a code rewrite. Everything below
-currently points at `meal-planner-lcherouri`:
+originally pointed at `meal-planner-lcherouri`:
 
 | Touchpoint | Location | Change needed |
 | --- | --- | --- |
