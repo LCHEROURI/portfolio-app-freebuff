@@ -325,6 +325,52 @@ REPORT_EMAIL=you@example.com       # inbox that receives the reports
 # 3. Redeploy — Vercel registers the cron from vercel.json automatically.
 ```
 
+**Sending from your own domain (REPORT_FROM) — the gate that forces it:** the
+resend gate (`npm run verify:resend`) now asserts `REPORT_FROM` points at a
+**verified custom sender domain**, not the `onboarding@resend.dev` sandbox the
+app defaults to (the sandbox can only reach your own verified address). Until
+a real domain is wired, the gate exits 2 and blocks pushes + CI — by design.
+
+```bash
+# 1. Resend dashboard (resend.com → Domains → Add Domain) — enter your domain,
+#    then add the 3 DNS records it generates at your DNS provider. The example
+#    names below are for an apex-domain sender (reports@yourdomain.com); for a
+#    subdomain sender (reports@yourdomain.com where the domain is a subdomain)
+#    the records live at that subdomain instead — the probe keys off whatever
+#    domain is in the email, so either works:
+#      SPF  TXT @                    v=spf1 include:amazonses.com ~all
+#      DKIM TXT resend._domainkey    v=DKIM1; k=rsa; p=…  (long key from Resend)
+#      DMARC TXT _dmarc              v=DMARC1; p=none;    (optional but recommended)
+#    Click Verify in Resend and wait for the domain to show Verified
+#    (minutes to a few hours, DNS-propagation dependent).
+
+# 2. Wire the sender into all THREE stores in one command — it preflights the
+#    domain's DNS with the same probe verify:resend uses, rejects sandbox/
+#    unverified senders, then writes .env.local + Vercel production + the
+#    GitHub Actions secret:
+npm run wire:report-from -- --from "Command Center <reports@yourdomain.com>"
+#    Preview without writing anything:
+npm run wire:report-from -- --from "Command Center <reports@yourdomain.com>" --dry-run
+
+# 3. Redeploy so the running cron reads the new sender, then confirm the gate
+#    flips green:
+vercel --prod
+npm run verify:resend
+
+# 4. Prove the from-header end to end: once the domain is wired, this fires a
+#    REAL daily (or weekly) report to REPORT_EMAIL and asserts Resend accepted
+#    the send with the verified domain as the from-header — a returned emailId
+#    is the live proof (Resend only accepts a custom from-domain after its DNS
+#    verification):
+npm run verify:sender-domain              # real daily send
+npm run verify:sender-domain -- --kind weekly   # real weekly send
+```
+
+Keep the three stores in sync: the pre-push hook reads `REPORT_FROM` from
+`.env.local`, the deployed cron from Vercel production, and the CI
+verify-deployed job from the GitHub secret — wiring one without the others
+keeps the gate red with a clear per-store ✗ in the `verify:all` summary.
+
 The route returns `401` without the `Authorization: Bearer <CRON_SECRET>`
 header, so it can't be triggered by the public. Test a run manually:
 
