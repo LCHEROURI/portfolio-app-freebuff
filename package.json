@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "next lint --max-warnings 0",
+    "lint": "next lint --max-warnings 0 && node scripts/lint-import-surface.mjs",
     "scanner": "node scripts/repo-scanner.mjs",
     "scan:all": "node scripts/scan-all.mjs",
     "scan:schedule": "bash scripts/scan-schedule.sh",
