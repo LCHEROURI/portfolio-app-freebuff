@@ -97,19 +97,22 @@ drift watch (`--compare-url https://portfolio-app-freebuff.vercel.app`): the
 canonical alias must serve the same commit as the deployment-specific
 `target_url`; previews skip it because their URL legitimately differs. The local `.githooks/pre-push` hook runs
 the same verifiers (timeboxed 90s each) before any push, and now also runs the
-deployed-hash gate first: it asserts production is actually serving the last
-pushed commit (`origin/main` tip) via `verify-deployed-hash.mjs --expect`, so a
-deploy that silently failed is caught before the next push piles on top. It
-then runs the alias-routing drift watch: `verify-deployed-hash.mjs
---compare-url <canonical-url>` asserts the canonical production URL resolves to
-the SAME deployment as the deployment-specific URL, catching routing drift
-(alias pointing at an older/newer build) before push. Because the alias can
-transiently lag the latest deploy right after a push, the drift watch **retries
-once after a 30s backoff** before deciding — a transient lag clears and the
-push proceeds, a genuine drift fails both attempts and aborts. It
-skips (with a notice) on first push to an empty main, or when `VERCEL_TOKEN`
-isn't set locally. `npm run verify:all` runs the same `--compare-url` drift
-check on its `deployed-hash` gate, so the one-command checklist covers it too.
+deployed-hash gate first: it resolves the CANONICAL production URL via the v13
+by-host lookup (`verify-deployed-hash.mjs --url
+https://portfolio-app-freebuff.vercel.app --expect <origin/main tip>`) and
+asserts it serves the last pushed commit, so a deploy that silently failed is
+caught before the next push piles on top. Targeting the canonical URL directly
+subsumes the old alias-routing drift watch locally (if the alias pointed at an
+older/newer build, `--expect` fails right there) and — critically — needs NO
+team-scope resolution, so a team-scoped token or a missing `defaultTeamId` can
+never send it down the v6 list branch and 403 the way the bare `--expect` form
+did. Because the alias can transiently lag the latest deploy right after a
+push, the hook **retries once after a 30s backoff** before deciding — a
+transient lag clears and the push proceeds, a genuine mismatch fails both
+attempts and aborts. It skips (with a notice) on first push to an empty main,
+or when `VERCEL_TOKEN` isn't set locally. `npm run verify:all` runs the same
+canonical-URL `deployed-hash` gate (`--url` + `--check-local`/`--expect`), so
+the one-command checklist covers it too.
 
 **Known transient:** the auth-domains gate can briefly FAIL right after a
 deploy because the deployed `/api/status` serves a 2-minute cached

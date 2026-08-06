@@ -70,7 +70,7 @@ const GATES = [
   { name: 'prod-signin', label: 'Production sign-in + Firestore sync', script: 'verify:prod-signin', appFlag: '--app' },
   { name: 'google-idp', label: 'Google IdP record', script: 'verify:google-idp' },
   { name: 'auth-domains-direct', label: 'Authorized domains (direct script)', file: 'scripts/verify-auth-domains.mjs', appFlag: '--app', duplicateOf: 'auth-domains' },
-  { name: 'deployed-hash', label: 'Deployed commit matches expected', script: 'verify:deployed-hash', expectFlag: '--expect', compareUrl: PRODUCTION_URL },
+  { name: 'deployed-hash', label: 'Deployed commit matches expected', script: 'verify:deployed-hash', expectFlag: '--expect', url: PRODUCTION_URL },
 ];
 
 const failures = [];
@@ -88,20 +88,25 @@ const runOne = async (gate) => {
     if (gate.baseFlag) cmdArgs.push(gate.baseFlag, APP);
     if (gate.appFlag) cmdArgs.push(gate.appFlag, APP);
   }
-  // The deployed-hash gate takes its assertion via `-- --expect <sha>`; the
-  // runner forwards the user's --expect value through npm run. Without one,
-  // fall back to --check-local so the row still does a real comparison
-  // (deployed commit vs local HEAD) instead of silently reporting only. It
-  // also runs the alias-routing drift watch (--compare-url <canonical>) so
-  // the one-command checklist covers the same drift the pre-push hook and CI
-  // gate do.
-  if (gate.expectFlag || gate.compareUrl) {
+  // The deployed-hash gate resolves the CANONICAL production URL as its
+  // primary target via `--url <canonical>` (v13 by-host lookup with a bare
+  // unscoped fallback — no team-scope resolution needed, so a team-scoped
+  // token or missing defaultTeamId can never send it down the v6 list branch
+  // and 403). It takes its assertion via `-- --expect <sha>`; the runner
+  // forwards the user's --expect value through npm run. Without one, fall
+  // back to --check-local so the row still does a real comparison (deployed
+  // commit vs local HEAD) instead of silently reporting only. The alias-
+  // routing drift watch is not run here: with the canonical URL as the
+  // primary target, comparing it against itself would be a tautology — its
+  // real home is the CI deployment_status workflow, where the deployment-
+  // specific target_url and the canonical alias are both known.
+  if (gate.expectFlag || gate.url) {
     cmdArgs.push('--');
+    if (gate.url) cmdArgs.push('--url', gate.url);
     if (gate.expectFlag) {
       cmdArgs.push(EXPECT_SHA ? gate.expectFlag : '--check-local');
       if (EXPECT_SHA) cmdArgs.push(EXPECT_SHA);
     }
-    if (gate.compareUrl) cmdArgs.push('--compare-url', gate.compareUrl);
   }
 
   console.log(`\n── ▶ ${gate.label} (${cmd} ${cmdArgs.join(' ')})`);

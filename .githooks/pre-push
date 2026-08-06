@@ -9,10 +9,9 @@
 #     node scripts/install-push-hook.mjs <path>   (shared installer, any repo)
 #
 # Runs, in order, each gated on what it needs:
-#   0. scripts/verify-deployed-hash.mjs  (needs VERCEL_TOKEN — asserts the
-#      last PUSHED commit is actually what production is serving, then runs
-#      the alias-routing drift watch: the canonical production URL must serve
-#      the SAME commit as the deployment-specific URL)
+#   0. scripts/verify-deployed-hash.mjs  (needs VERCEL_TOKEN — resolves the
+#      canonical production URL via the v13 by-host lookup and asserts it
+#      serves the last PUSHED commit; a bare fallback needs no team scope)
 #   1. scripts/verify-auth-domains.mjs   (needs FIREBASE_WEB_API_KEY)
 #   2. scripts/verify-cron-email.mjs     (needs CRON_SECRET)
 #   3. scripts/verify-prod-signin.mjs    (needs FIREBASE_WEB_API_KEY + Chrome)
@@ -132,53 +131,39 @@ if [ -f scripts/verify-deployed-hash.mjs ]; then
     echo "pre-push: first push to main (no previous remote commit) — skipping deployed-hash proof"
   else
     echo "pre-push: verifying production serves the last pushed commit (${REMOTE_MAIN_SHA:0:12}…)…"
-    if perl -e 'alarm shift; exec @ARGV' 90 node scripts/verify-deployed-hash.mjs --expect "$REMOTE_MAIN_SHA"; then
+    # The hash gate resolves the CANONICAL production URL directly via the v13
+    # by-host lookup (with a bare unscoped fallback) and asserts it serves the
+    # pushed commit. Targeting the canonical URL also subsumes the old
+    # alias-routing drift watch: if the alias pointed at an older/newer
+    # deployment, --expect would fail here directly — and this path needs NO
+    # team-scope resolution, so a team-scoped token or a missing defaultTeamId
+    # can never send it down the v6 list branch (the exact failure the gate
+    # used to hit). CI's verify-deployed-hash.yml still runs the
+    # deployment-specific-vs-canonical drift watch, where both URLs are known.
+    # Note: right after a deploy the alias can TRANSIENTLY lag propagation
+    # (tens of seconds), so the check retries once after a 30s backoff — a
+    # transient lag clears on the retry and the push proceeds, a genuine
+    # mismatch fails both attempts and aborts.
+    run_hash_gate() {
+      perl -e 'alarm shift; exec @ARGV' 90 node scripts/verify-deployed-hash.mjs --url "$PRODUCTION_URL" --expect "$REMOTE_MAIN_SHA"
+    }
+    if run_hash_gate; then
       echo "pre-push: production deployed-hash matches origin/main ✓"
-
-      # ── 0b. Alias-routing drift watch ──────────────────────────────────────
-      # After the hash gate proves the deployment-specific URL serves the
-      # right commit, also prove the CANONICAL production URL resolves to that
-      # SAME deployment. If the alias ever points at an older/newer deployment
-      # (routing drift after a redeploy or rollback), the canonical URL would
-      # silently serve a different build than what we just verified — the
-      # drift watch catches that before the next push piles on.
-      # Note: right after a deploy the alias can TRANSIENTLY lag the latest
-      # READY deployment (propagation can take tens of seconds), so the watch
-      # retries once after a 30s backoff before deciding — a transient lag
-      # clears on the retry and the push proceeds, while a genuine routing
-      # drift fails both attempts and aborts. The script exits 0 both on a
-      # true match and on the unverifiable skip, so the message stays neutral
-      # rather than claiming a comparison that may not have run.
-      run_drift_watch() {
-        perl -e 'alarm shift; exec @ARGV' 90 node scripts/verify-deployed-hash.mjs --compare-url "$PRODUCTION_URL"
-      }
-      echo "pre-push: verifying the canonical URL routes to the verified deployment…"
-      if run_drift_watch; then
-        echo "pre-push: canonical URL drift watch passed ✓"
-      else
-        first_rc=$?
-        echo "pre-push: drift watch failed (rc=$first_rc) — waiting 30s and retrying once (transient alias propagation?)…" >&2
-        sleep 30
-        if run_drift_watch; then
-          echo "pre-push: canonical URL drift watch passed on retry ✓"
-        else
-          local_rc=$?
-          if [ "$local_rc" -eq 142 ]; then
-            echo "pre-push: alias-drift check exceeded 90s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
-          else
-            echo "pre-push: ALIAS-ROUTING DRIFT — the canonical URL and the deployment-specific URL still serve different commits after a 30s retry. Check Vercel's alias/routing, then re-push (SKIP_VERIFY_SIGNIN=1 to override)" >&2
-          fi
-          exit 1
-        fi
-      fi
     else
-      local_rc=$?
-      if [ "$local_rc" -eq 142 ]; then
-        echo "pre-push: deployed-hash check exceeded 90s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+      first_rc=$?
+      echo "pre-push: deployed-hash gate failed (rc=$first_rc) — waiting 30s and retrying once (transient alias propagation?)…" >&2
+      sleep 30
+      if run_hash_gate; then
+        echo "pre-push: production deployed-hash matches origin/main ✓ (on retry)"
       else
-        echo "pre-push: production is NOT serving the last pushed commit — the deploy may have failed or is still in progress. Fix or wait, then re-push (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+        local_rc=$?
+        if [ "$local_rc" -eq 142 ]; then
+          echo "pre-push: deployed-hash check exceeded 90s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+        else
+          echo "pre-push: production is NOT serving the last pushed commit — the deploy may have failed, is still in progress, or the canonical alias routes elsewhere. Fix or wait, then re-push (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+        fi
+        exit 1
       fi
-      exit 1
     fi
   fi
 else
