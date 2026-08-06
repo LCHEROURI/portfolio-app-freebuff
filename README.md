@@ -4,7 +4,7 @@
 
 **One dashboard to run every AI-built version of your app idea.**
 
-[![Live demo](https://img.shields.io/badge/Live%20demo-Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://portfolio-app-freebuff.vercel.app)
+[![Live app](https://img.shields.io/badge/Live%20app-Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://portfolio-app-freebuff.vercel.app)
 [![CI](https://img.shields.io/github/actions/workflow/status/LCHEROURI/portfolio-app-freebuff/ci.yml?style=for-the-badge&logo=githubactions&logoColor=white&label=CI)](https://github.com/LCHEROURI/portfolio-app-freebuff/actions/workflows/ci.yml)
 [![Next.js](https://img.shields.io/badge/Next.js%2014-black?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
@@ -33,8 +33,10 @@ desktop-first view.
 
 The same screens in light and dark — the sidebar's connection-status widget
 (per-var console links + copy buttons) is visible on every route. Captured
-from the deployed demo build (`NEXT_PUBLIC_DEMO_OVERRIDE=1`, see below) so
-they match what visitors see at the live link, not a local dev server.
+from a demo build (`NEXT_PUBLIC_DEMO_OVERRIDE=1`, see below) so the shots show
+the app's screens without the sign-in gate; the live production URL
+(`portfolio-app-freebuff.vercel.app`) is **Firebase-live** and starts at the
+auth gate.
 
 | Route | Light | Dark |
 | :--- | :---: | :---: |
@@ -48,15 +50,20 @@ they match what visitors see at the live link, not a local dev server.
 | **Integrations** | ![Integrations light](screenshots/integrations.png) | ![Integrations dark](screenshots/integrations-dark.png) |
 | **Settings** | ![Settings light](screenshots/settings.png) | ![Settings dark](screenshots/settings-dark.png) |
 
-> Try the live demo in either theme: `?theme=light` / `?theme=dark` — e.g.
-> `https://portfolio-app-freebuff.vercel.app/command-center?theme=dark`
+> Try either theme on the live site: `?theme=light` / `?theme=dark` — e.g.
+> `https://portfolio-app-freebuff.vercel.app/command-center?theme=dark` (the
+> site is Firebase-live, so the first screen you meet is the sign-in gate)
 >
 > Regenerate the whole gallery whenever the UI changes with one command
-> (captures from the deployed demo build by default, falls back to `localhost`):
-> `npm run capture:screenshots`. Pass `--diff` to only rewrite PNGs whose pixels
-> actually changed (trivial re-runs leave the git tree clean). Every run also
-> refreshes **`docs/screenshots.html`** — a browsable contact sheet with the
-> light/dark pairs side by side, for local viewing without the README.
+> (targets the production URL by default, falls back to `localhost`):
+> `npm run capture:screenshots`. The committed PNGs were captured from a
+> **demo build** (`NEXT_PUBLIC_DEMO_OVERRIDE=1`) so the cells show the app
+> without the sign-in gate; now that production is Firebase-live, regenerate
+> against a demo source (`--url <demo-deploy>` or localhost in demo mode) or
+> the cells will show the auth gate. Pass `--diff` to only rewrite PNGs whose
+> pixels actually changed (trivial re-runs leave the git tree clean). Every run
+> also refreshes **`docs/screenshots.html`** — a browsable contact sheet with
+> the light/dark pairs side by side, for local viewing without the README.
 >
 > **CI keeps it honest** — `.github/workflows/gallery.yml` runs on every pull
 > request: it deploys a Vercel **preview** of your branch, captures all 18 cells
@@ -83,8 +90,10 @@ they match what visitors see at the live link, not a local dev server.
 - **Ships with a local companion** — `scripts/repo-scanner.mjs` reads your git
   state locally and POSTs metadata (never source) to the scanner API, so repos
   show up in the dashboard.
-- **Runs out of the box** — seeded with 6 realistic demo projects; no Firebase
-  config required to explore every screen.
+- **Runs out of the box locally** — seeded with 6 realistic demo projects; no
+  Firebase config required to explore every screen on a local dev server. The
+  **deployed production URL runs Firebase-live** (sign-in gate + real
+  Firestore under your account), never demo mode.
 
 ## Stack
 
@@ -104,7 +113,10 @@ npm run dev          # http://localhost:3000
 Open http://localhost:3000 → redirected to `/command-center`. The app seeds 6
 demo projects (Classic Chef Video Guide, Weeknight Meal Planner, Restaurant
 Social Media Manager, Restaurant 86-to-0 Board, Menu Competitor Analyzer,
-Takeout Voice 2) and persists changes to localStorage in demo mode.
+Takeout Voice 2) and persists changes to localStorage in **local demo mode**.
+This is the no-config fallback for local development and forks. The **deployed
+production URL does not run in demo mode**: it is Firebase-live, shows a
+sign-in gate, and reads/writes real Firestore under your account.
 
 ### Opt into Firebase (real Auth + Firestore)
 
@@ -161,8 +173,10 @@ client was not found". The `isClassicWebClientId` / `isClassicClientSecret`
 format guards (tested in `scripts/wire-google-client.test.ts`) reject exactly
 that failure mode.
 
-In **Demo Mode** (no env vars) everything still works: seeded data persists to
-localStorage and the app never asks for credentials.
+In **local Demo Mode** (no env vars) everything still works: seeded data
+persists to localStorage and the app never asks for credentials. This is the
+fallback for local dev / forks — the deployed **Production** environment has
+all six Firebase vars set and runs verified Firebase-live, not demo mode.
 
 ### 🌐 Production environment on Vercel
 
@@ -222,11 +236,19 @@ GitHub and Vercel feeds are toggled by a `NEXT_PUBLIC_LIVE_*` flag plus a
 matching server-side credential; if a credential is missing the app falls back
 to local demo data, so every screen stays usable.
 
-| Source | Feeds | Flag | Server env |
-| --- | --- | --- | --- |
-| **Firestore** | `Projects`/`Versions`/`Tasks`/`Activity` — the app's single data store; the cron reads the same docs the client writes | (always on with Firebase) | `FIREBASE_SERVICE_ACCOUNT`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` |
-| **GitHub** | `Repositories` — branches, latest commit, PRs, issues, workflow status | `NEXT_PUBLIC_LIVE_REPOS=1` | `GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPOS` |
-| **Vercel** | `Deployments` — latest deploy per project + live health checks (HTTP status + response time) | `NEXT_PUBLIC_LIVE_DEPLOYMENTS=1` | `VERCEL_TOKEN`, `VERCEL_TEAM_ID` |
+Every integration is activated by an exact set of env vars — the table below is
+the complete map. The `NEXT_PUBLIC_*` flags are **inlined at build time**, so
+flipping one requires a redeploy; the server-side vars are read at runtime and
+only need an env change + redeploy to take effect.
+
+| Source | Feeds | Activating env (build-time flags + server secrets) |
+| --- | --- | --- |
+| **Firebase identity** | The on/off switch for the whole live-data layer: sign-in gate + signed-in user + verified ID-token auth on every API route | `NEXT_PUBLIC_FIREBASE_API_KEY` + `NEXT_PUBLIC_FIREBASE_PROJECT_ID` + `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN` + `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET` + `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID` + `NEXT_PUBLIC_FIREBASE_APP_ID` (all six — missing any one reverts to demo mode) |
+| **Firestore** | `Projects`/`Versions`/`Tasks`/`Activity` — the app's single data store; the cron reads the same docs the client writes | (always on with Firebase identity) · `FIREBASE_SERVICE_ACCOUNT` (cron server reads), `NEXT_PUBLIC_FIREBASE_PROJECT_ID` |
+| **GitHub** | `Repositories` — branches, latest commit, PRs, issues, workflow status | flag `NEXT_PUBLIC_LIVE_REPOS=1` · `GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPOS` |
+| **Vercel** | `Deployments` — latest deploy per project + live health checks (HTTP status + response time) | flag `NEXT_PUBLIC_LIVE_DEPLOYMENTS=1` · `VERCEL_TOKEN`, `VERCEL_TEAM_ID` |
+| **OpenRouter (AI)** | Executive summaries, "Today's Top Three" narration, winner recommendations (AI Explain) | flag `NEXT_PUBLIC_ENABLE_AI_BRIEFINGS=1` (auto-fires the briefing on load) · `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` |
+| **Automation Engine** | Scheduled daily/weekly report emails + manual "Save and email now" | (no build-time flag) · `CRON_SECRET`, `RESEND_API_KEY`, `REPORT_EMAIL`, `REPORT_OWNER_ID` (+ optional `REPORT_WEEKLY_DAY`, `REPORT_STALE_DAYS`, `REPORT_FROM`) |
 
 **Setup (full detail in `.env.example`):**
 
