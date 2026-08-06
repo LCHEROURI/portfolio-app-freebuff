@@ -36,9 +36,12 @@
 // both — and the script exits nonzero if ANY requested check fails.
 //
 // Exports (for the unit test): extractSha, compareDrift, resolveByHost,
-// parseArgs.
+// parseArgs, isInvalidToken, INVALID_TOKEN_MESSAGE, InvalidTokenError.
 // Exits nonzero if the token is missing or the target deployment can't be
-// resolved. No source changes; read-only against the Vercel API.
+// resolved; exit code 2 specifically means VERCEL_TOKEN is invalid or revoked
+// (Vercel flagged invalidToken:true in the error body) so the pre-push hook
+// can skip its transient retry and print the paste-a-fresh-token guidance.
+// No source changes; read-only against the Vercel API.
 // ============================================================================
 
 import { readFileSync } from 'node:fs';
@@ -62,6 +65,30 @@ export function extractSha(dep) {
 export function compareDrift(a, b) {
   if (!a || !b) return 'unverifiable';
   return a === b ? 'match' : 'mismatch';
+}
+
+// ── Token health ─────────────────────────────────────────────────────────────
+/**
+ * Vercel marks a dead/revoked credential by returning invalidToken: true in
+ * the error body (typically a 401 or 403). Detect it so callers can show the
+ * targeted 'paste a fresh token' guidance instead of a generic HTTP status
+ * message — and so the pre-push hook can skip its pointless 30s retry (waiting
+ * cannot revive a revoked token).
+ */
+export function isInvalidToken(body) {
+  return Boolean(body && (body.invalidToken === true || body?.error?.invalidToken === true));
+}
+
+/** The targeted failure message for a dead VERCEL_TOKEN (no "✗ FAIL: " prefix). */
+export const INVALID_TOKEN_MESSAGE =
+  'VERCEL_TOKEN is invalid or revoked — paste a fresh token from https://vercel.com/account/tokens into .env.local';
+
+/** Error used to signal a dead token distinctly from a generic API failure. */
+export class InvalidTokenError extends Error {
+  constructor() {
+    super(INVALID_TOKEN_MESSAGE);
+    this.name = 'InvalidTokenError';
+  }
 }
 
 // ── Token resolution ────────────────────────────────────────────────────────
@@ -127,8 +154,9 @@ export async function resolveByHost(host, what, token, teamId) {
   let lastErr = null;
   for (const url of attempts) {
     const res = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
+    const body = typeof res.json === 'function' ? await res.json().catch(() => null) : null;
     if (res.ok) {
-      const dep = await res.json();
+      const dep = body ?? {};
       // v13 uses createdAt; v6 uses created. Resolve either.
       const ts = dep?.createdAt ?? dep?.created;
       return {
@@ -136,6 +164,11 @@ export async function resolveByHost(host, what, token, teamId) {
         url: dep?.url ?? '',
         created: ts ? new Date(ts).toISOString() : '',
       };
+    }
+    // A dead/revoked credential is flagged by Vercel as invalidToken:true in
+    // the error body — surface the targeted guidance, not a generic status.
+    if (isInvalidToken(body)) {
+      throw new InvalidTokenError();
     }
     lastErr = new Error(
       `Vercel API returned HTTP ${res.status} for ${what} "${host}". (the deployment record may be purged, the URL may be malformed, or the token lacks access to it)`,
@@ -150,9 +183,11 @@ const resolveTeam = async (token) => {
   const res = await fetch('https://api.vercel.com/v2/user', {
     headers: { authorization: `Bearer ${token}` },
   });
+  const body = typeof res.json === 'function' ? await res.json().catch(() => null) : null;
   if (res.ok) {
-    const json = await res.json();
-    if (json?.user?.defaultTeamId) return json.user.defaultTeamId;
+    if (body?.user?.defaultTeamId) return body.user.defaultTeamId;
+  } else if (isInvalidToken(body)) {
+    throw new InvalidTokenError();
   }
   // A token with no default team can still list its memberships; when the
   // account belongs to exactly one team that is unambiguous, and it lets the
@@ -161,11 +196,15 @@ const resolveTeam = async (token) => {
     const teamsRes = await fetch('https://api.vercel.com/v2/teams', {
       headers: { authorization: `Bearer ${token}` },
     });
+    const teamsBody = typeof teamsRes.json === 'function' ? await teamsRes.json().catch(() => null) : null;
     if (teamsRes.ok) {
-      const teams = (await teamsRes.json())?.teams ?? [];
+      const teams = teamsBody?.teams ?? [];
       if (teams.length === 1) return teams[0].id;
+    } else if (isInvalidToken(teamsBody)) {
+      throw new InvalidTokenError();
     }
-  } catch {
+  } catch (err) {
+    if (err instanceof InvalidTokenError) throw err;
     // ignore — the bare fallback in resolveByHost still covers the --url path
   }
   return null;
@@ -189,8 +228,18 @@ async function main() {
 
   // A team id is a hint for the v13 lookups (which fall back to an unscoped
   // lookup when the team scope is missing or wrong) but a hard requirement for
-  // the v6 project-scoped list below.
-  const teamId = await resolveTeam(token);
+  // the v6 project-scoped list below. A dead token surfaces as
+  // invalidToken:true from v2/user — fail fast with the targeted guidance.
+  let teamId = null;
+  try {
+    teamId = await resolveTeam(token);
+  } catch (err) {
+    if (err instanceof InvalidTokenError) {
+      console.error(`✗ FAIL: ${err.message}`);
+      process.exit(2);
+    }
+    throw err;
+  }
 
   // ── Resolve the target deployment ─────────────────────────────────────────
   // With --url: the deployment serving that exact URL. Without it: the latest
@@ -208,6 +257,10 @@ async function main() {
       deployedUrl = dep.url;
       created = dep.created;
     } catch (err) {
+      if (err instanceof InvalidTokenError) {
+        console.error(`✗ FAIL: ${err.message}`);
+        process.exit(2);
+      }
       console.error(`✗ FAIL: ${err.message}`);
       process.exit(1);
     }
@@ -221,12 +274,16 @@ async function main() {
       `https://api.vercel.com/v6/deployments?project=${PROJECT}&teamId=${teamId}&target=production&state=READY&limit=1`,
       { headers: { authorization: `Bearer ${token}` } },
     );
+    const body = typeof res.json === 'function' ? await res.json().catch(() => null) : null;
     if (!res.ok) {
+      if (isInvalidToken(body)) {
+        console.error(`✗ FAIL: ${INVALID_TOKEN_MESSAGE}`);
+        process.exit(2);
+      }
       console.error(`✗ FAIL: Vercel API returned HTTP ${res.status}.`);
       process.exit(1);
     }
-    const json = await res.json();
-    const dep = json?.deployments?.[0];
+    const dep = body?.deployments?.[0];
     if (!dep) {
       console.error(`✗ FAIL: no READY production deployment found for ${PROJECT}.`);
       process.exit(1);
@@ -257,6 +314,10 @@ async function main() {
     try {
       other = await resolveByHost(host, 'compare URL', token, teamId);
     } catch (err) {
+      if (err instanceof InvalidTokenError) {
+        console.error(`✗ FAIL: ${err.message}`);
+        process.exit(2);
+      }
       console.error(`✗ FAIL: ${err.message}`);
       process.exit(1);
     }

@@ -2,6 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   compareDrift,
   extractSha,
+  INVALID_TOKEN_MESSAGE,
+  InvalidTokenError,
+  isInvalidToken,
   parseArgs,
   resolveByHost,
 } from './verify-deployed-hash.mjs';
@@ -40,6 +43,31 @@ describe('compareDrift', () => {
     expect(compareDrift('', 'abc123')).toBe('unverifiable');
     expect(compareDrift('abc123', '')).toBe('unverifiable');
     expect(compareDrift('', '')).toBe('unverifiable');
+  });
+});
+
+// ── isInvalidToken (the dead-token detector) ──────────────────────────────────
+describe('isInvalidToken', () => {
+  it('detects a top-level invalidToken:true flag', () => {
+    expect(isInvalidToken({ invalidToken: true })).toBe(true);
+  });
+
+  it('detects the Vercel error-shape body (error.invalidToken)', () => {
+    expect(
+      isInvalidToken({ error: { code: 'forbidden', message: 'Not authorized.', invalidToken: true } }),
+    ).toBe(true);
+    expect(
+      isInvalidToken({ error: { code: 'unauthorized', message: 'Not authenticated.', invalidToken: true } }),
+    ).toBe(true);
+  });
+
+  it('returns false for missing, empty, or non-token error bodies', () => {
+    expect(isInvalidToken(null)).toBe(false);
+    expect(isInvalidToken(undefined)).toBe(false);
+    expect(isInvalidToken({})).toBe(false);
+    expect(isInvalidToken({ error: { code: 'forbidden' } })).toBe(false);
+    expect(isInvalidToken({ error: { code: 'unauthorized' } })).toBe(false);
+    expect(isInvalidToken({ invalidToken: false })).toBe(false);
   });
 });
 
@@ -172,5 +200,55 @@ describe('resolveByHost', () => {
   it('throws when BOTH the team-scoped and bare lookups are rejected', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 403 }));
     await expect(resolveByHost('denied.vercel.app', 'deployment URL', TOKEN, TEAM)).rejects.toThrow(/HTTP 403/);
+  });
+
+  it('throws InvalidTokenError when the 403 body carries invalidToken:true', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: { code: 'forbidden', message: 'Not authorized.', invalidToken: true } }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(resolveByHost('dead.vercel.app', 'deployment URL', TOKEN, TEAM)).rejects.toThrow(InvalidTokenError);
+    await expect(resolveByHost('dead.vercel.app', 'deployment URL', TOKEN, TEAM)).rejects.toThrow(
+      INVALID_TOKEN_MESSAGE,
+    );
+    await expect(resolveByHost('dead.vercel.app', 'deployment URL', TOKEN, TEAM)).rejects.toThrow(/paste a fresh token/);
+  });
+
+  it('throws InvalidTokenError for the 401 error shape even with no team scope', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: { code: 'unauthorized', message: 'Not authenticated.', invalidToken: true } }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(resolveByHost('dead.vercel.app', 'deployment URL', TOKEN, undefined)).rejects.toThrow(
+      INVALID_TOKEN_MESSAGE,
+    );
+    // The bare (single-attempt) path must not call fetch twice for a 401.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to the bare lookup when the team-scoped 403 carries no invalidToken', async () => {
+    // First call (teamId hint) → 403 without invalidToken; second (bare) → OK.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 403, json: async () => ({ error: { code: 'forbidden' } }) })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          meta: { githubCommitSha: 'ea3e4b11f2d49c17' },
+          url: 'portfolio-app-freebuff-ok.vercel.app',
+          createdAt: '2026-08-06T01:46:00.000Z',
+        }),
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const dep = await resolveByHost('portfolio-app-freebuff-ok.vercel.app', 'deployment URL', TOKEN, TEAM);
+    expect(dep.sha).toBe('ea3e4b11f2d49c17');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

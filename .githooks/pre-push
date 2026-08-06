@@ -151,6 +151,19 @@ if [ -f scripts/verify-deployed-hash.mjs ]; then
       echo "pre-push: production deployed-hash matches origin/main ✓"
     else
       first_rc=$?
+      if [ "$first_rc" -eq 142 ]; then
+        echo "pre-push: deployed-hash check exceeded 90s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+        exit 1
+      fi
+      # Exit code 2 = VERCEL_TOKEN invalid/revoked (Vercel flagged
+      # invalidToken:true — the script already printed the targeted guidance).
+      # Waiting cannot revive a revoked token, so skip the 30s retry and abort
+      # with the paste-a-fresh-token message instead of the generic
+      # deploy-failed error.
+      if [ "$first_rc" -eq 2 ]; then
+        echo "pre-push: VERCEL_TOKEN is invalid or revoked — paste a fresh token from https://vercel.com/account/tokens into .env.local, then re-push (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+        exit 1
+      fi
       echo "pre-push: deployed-hash gate failed (rc=$first_rc) — waiting 30s and retrying once (transient alias propagation?)…" >&2
       sleep 30
       if run_hash_gate; then
@@ -159,6 +172,8 @@ if [ -f scripts/verify-deployed-hash.mjs ]; then
         local_rc=$?
         if [ "$local_rc" -eq 142 ]; then
           echo "pre-push: deployed-hash check exceeded 90s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+        elif [ "$local_rc" -eq 2 ]; then
+          echo "pre-push: VERCEL_TOKEN is invalid or revoked — paste a fresh token from https://vercel.com/account/tokens into .env.local, then re-push (SKIP_VERIFY_SIGNIN=1 to override)" >&2
         else
           echo "pre-push: production is NOT serving the last pushed commit — the deploy may have failed, is still in progress, or the canonical alias routes elsewhere. Fix or wait, then re-push (SKIP_VERIFY_SIGNIN=1 to override)" >&2
         fi
