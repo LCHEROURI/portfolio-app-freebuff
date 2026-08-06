@@ -44,12 +44,14 @@ jobs:
       github.event.deployment_status.target_url != '' &&
       github.event.deployment.sha != ''
 
-    # VERCEL_TEAM_ID must be the CI token's OWN team scope, and that scope
-    # lives in the VERCEL_ORG_ID secret (gallery.yml already uses it to scope
-    # vercel deploy). The CI token has no defaultTeamId, so the script's
-    # /v2/user fallback can't resolve it — and hardcoding the team id from
-    # .env.local 403s because the token isn't scoped to that team. Reading the
-    # secret keeps the gate scoped exactly like every other workflow.
+    # VERCEL_TEAM_ID is a HINT, not a requirement: the script first tries the
+    # team-scoped v13 lookup, then falls back to a bare (unscoped) lookup,
+    # because the deployment subdomain is globally unique in Vercel. That
+    # fallback is what keeps the gate green even when VERCEL_ORG_ID holds the
+    # personal account id instead of the owning team id (the exact 403 the gate
+    # hit: forbidden / Not authorized). When the org id IS the correct team,
+    # the scoped attempt wins directly; the bare fallback only fires on a
+    # rejected scoped lookup.
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_TEAM_ID: ${{ secrets.VERCEL_ORG_ID }}

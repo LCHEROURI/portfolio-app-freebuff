@@ -89,4 +89,52 @@ describe('resolveByHost', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404 }));
     await expect(resolveByHost('missing.vercel.app', 'compare URL', TOKEN, TEAM)).rejects.toThrow(/HTTP 404/);
   });
+
+  it('falls back to a bare (unscoped) lookup when the team-scoped lookup 403s', async () => {
+    // First call (teamId hint) → 403 forbidden; second call (bare) → deployment.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 403 })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          meta: { githubCommitSha: 'ea3e4b11f2d49c17' },
+          url: 'portfolio-app-freebuff-6koxcb97q-laredj-chehrouris-projects.vercel.app',
+          createdAt: '2026-08-06T01:46:00.000Z',
+        }),
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const dep = await resolveByHost('portfolio-app-freebuff-6koxcb97q-laredj-chehrouris-projects.vercel.app', 'deployment URL', TOKEN, TEAM);
+
+    expect(dep.sha).toBe('ea3e4b11f2d49c17');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // The fallback URL carries no teamId — the bare lookup wins.
+    const [fallbackUrl] = fetchMock.mock.calls[1];
+    expect(String(fallbackUrl)).not.toContain('teamId');
+  });
+
+  it('still resolves via the bare lookup when no team id is known', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        meta: { githubCommitSha: 'b8d78ce1b0a1af9' },
+        url: 'portfolio-app-freebuff.vercel.app',
+        createdAt: '2026-08-06T01:01:16.996Z',
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const dep = await resolveByHost('portfolio-app-freebuff.vercel.app', 'deployment URL', TOKEN, undefined);
+
+    expect(dep.sha).toBe('b8d78ce1b0a1af9');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url] = fetchMock.mock.calls[0];
+    expect(String(url)).not.toContain('teamId');
+  });
+
+  it('throws when BOTH the team-scoped and bare lookups are rejected', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 403 }));
+    await expect(resolveByHost('denied.vercel.app', 'deployment URL', TOKEN, TEAM)).rejects.toThrow(/HTTP 403/);
+  });
 });

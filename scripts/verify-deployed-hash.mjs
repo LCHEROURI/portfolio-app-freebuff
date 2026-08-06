@@ -87,23 +87,38 @@ const readToken = () => {
  * failed lookup so the CLI can exit nonzero with one message shape.
  */
 export async function resolveByHost(host, what, token, teamId) {
-  const res = await fetch(
-    `https://api.vercel.com/v13/deployments/${encodeURIComponent(host)}?teamId=${teamId}`,
-    { headers: { authorization: `Bearer ${token}` } },
-  );
-  if (!res.ok) {
-    throw new Error(
-      `Vercel API returned HTTP ${res.status} for ${what} "${host}". (the deployment record may be purged, or the URL may be malformed)`,
+  // The v13 lookup accepts the canonical alias OR the deployment-specific
+  // subdomain, which is globally unique across Vercel — so a deployment can be
+  // resolved WITHOUT a team scope. Try the team-scoped lookup first as a precise
+  // hint, then fall back to a bare (unscoped) lookup. This keeps the gate robust
+  // to a wrong or missing team id (e.g. VERCEL_ORG_ID holding the personal
+  // account id instead of the owning team id): the bare fallback still resolves
+  // the deployment whenever the token itself can read it.
+  const attempts = [
+    ...(teamId
+      ? [`https://api.vercel.com/v13/deployments/${encodeURIComponent(host)}?teamId=${teamId}`]
+      : []),
+    `https://api.vercel.com/v13/deployments/${encodeURIComponent(host)}`,
+  ];
+
+  let lastErr = null;
+  for (const url of attempts) {
+    const res = await fetch(url, { headers: { authorization: `Bearer ${token}` } });
+    if (res.ok) {
+      const dep = await res.json();
+      // v13 uses createdAt; v6 uses created. Resolve either.
+      const ts = dep?.createdAt ?? dep?.created;
+      return {
+        sha: extractSha(dep),
+        url: dep?.url ?? '',
+        created: ts ? new Date(ts).toISOString() : '',
+      };
+    }
+    lastErr = new Error(
+      `Vercel API returned HTTP ${res.status} for ${what} "${host}". (the deployment record may be purged, the URL may be malformed, or the token lacks access to it)`,
     );
   }
-  const dep = await res.json();
-  // v13 uses createdAt; v6 uses created. Resolve either.
-  const ts = dep?.createdAt ?? dep?.created;
-  return {
-    sha: extractSha(dep),
-    url: dep?.url ?? '',
-    created: ts ? new Date(ts).toISOString() : '',
-  };
+  throw lastErr ?? new Error(`Unable to resolve ${what} "${host}".`);
 }
 
 // ── Resolve the team id (the project lives in a team, not personal scope) ───
@@ -112,9 +127,25 @@ const resolveTeam = async (token) => {
   const res = await fetch('https://api.vercel.com/v2/user', {
     headers: { authorization: `Bearer ${token}` },
   });
-  if (!res.ok) return null;
-  const json = await res.json();
-  return json?.user?.defaultTeamId ?? null;
+  if (res.ok) {
+    const json = await res.json();
+    if (json?.user?.defaultTeamId) return json.user.defaultTeamId;
+  }
+  // A token with no default team can still list its memberships; when the
+  // account belongs to exactly one team that is unambiguous, and it lets the
+  // v6 list path work without VERCEL_TEAM_ID.
+  try {
+    const teamsRes = await fetch('https://api.vercel.com/v2/teams', {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    if (teamsRes.ok) {
+      const teams = (await teamsRes.json())?.teams ?? [];
+      if (teams.length === 1) return teams[0].id;
+    }
+  } catch {
+    // ignore — the bare fallback in resolveByHost still covers the --url path
+  }
+  return null;
 };
 
 async function main() {
@@ -142,11 +173,10 @@ async function main() {
     process.exit(1);
   }
 
+  // A team id is a hint for the v13 lookups (which fall back to an unscoped
+  // lookup when the team scope is missing or wrong) but a hard requirement for
+  // the v6 project-scoped list below.
   const teamId = await resolveTeam(token);
-  if (!teamId) {
-    console.error('✗ FAIL: could not resolve the Vercel team id from the token.');
-    process.exit(1);
-  }
 
   // ── Resolve the target deployment ─────────────────────────────────────────
   // With --url: the deployment serving that exact URL. Without it: the latest
@@ -169,6 +199,10 @@ async function main() {
     }
     label = `Deployed URL: ${URL_TARGET}`;
   } else {
+    if (!teamId) {
+      console.error('✗ FAIL: could not resolve the Vercel team id from the token (needed to list production deployments).');
+      process.exit(1);
+    }
     const res = await fetch(
       `https://api.vercel.com/v6/deployments?project=${PROJECT}&teamId=${teamId}&target=production&state=READY&limit=1`,
       { headers: { authorization: `Bearer ${token}` } },
@@ -193,7 +227,7 @@ async function main() {
   console.log(`  commit  ${deployedSha || '(unknown)'}`);
   console.log(`  url     ${deployedUrl}`);
   console.log(`  created ${created}`);
-  console.log(`  project ${PROJECT} (team ${teamId})`);
+  console.log(`  project ${PROJECT} (team ${teamId ?? 'unscoped'})`);
 
   let anyFailed = false;
 
