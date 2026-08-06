@@ -7,6 +7,8 @@ import {
   classifyReportFrom,
   probeDomainDns,
   classifySenderDomain,
+  validateDomainInput,
+  classifyPreflightDomain,
 } from './verify-resend.mjs';
 
 const KEY = 're_test-key-1234567890';
@@ -222,6 +224,54 @@ describe('probeDomainDns', () => {
     const probe = await probeDomainDns('yourname.com', resolver);
     expect(probe.dmarc).toBe(false);
     expect(probe.error).toBe('');
+  });
+});
+
+// ── validateDomainInput (--domain pre-flight input guard) ───────────────────
+describe('validateDomainInput', () => {
+  it('accepts a bare plausible domain', () => {
+    expect(validateDomainInput('yourname.com')).toBeNull();
+    expect(validateDomainInput('reports.yourname.com')).toBeNull();
+  });
+
+  it('rejects an email or Name <email> form with guidance', () => {
+    expect(validateDomainInput('reports@yourname.com')).toContain('BARE domain');
+    expect(validateDomainInput('Command Center <reports@yourname.com>')).toContain('BARE domain');
+  });
+
+  it('rejects the sandbox domain', () => {
+    expect(validateDomainInput('resend.dev')).toContain('sandbox');
+    expect(validateDomainInput('x.resend.dev')).toContain('sandbox');
+  });
+
+  it('rejects empty and implausible values', () => {
+    expect(validateDomainInput('')).toBe('empty domain');
+    // Whitespace is caught by the email-form guard before the plausibility regex.
+    expect(validateDomainInput('not a domain')).toContain('BARE domain');
+    // No dot at all → fails the label/dot plausibility regex.
+    expect(validateDomainInput('localhost')).toContain('not a plausible domain');
+    // A dot but junk labels → also implausible.
+    expect(validateDomainInput('a..b')).toContain('not a plausible domain');
+  });
+});
+
+// ── classifyPreflightDomain (--domain pre-flight verdict) ───────────────────
+describe('classifyPreflightDomain', () => {
+  it('returns verified when SPF + DKIM are present', () => {
+    expect(classifyPreflightDomain({ spf: true, dkim: true, dmarc: true, error: '' })).toEqual({
+      kind: 'verified',
+      dmarc: true,
+    });
+  });
+
+  it('returns unverified when a required record is missing', () => {
+    expect(classifyPreflightDomain({ spf: true, dkim: false, dmarc: false, error: '' }).kind).toBe('unverified');
+  });
+
+  it('returns cannot-verify when the DNS probe errored', () => {
+    const verdict = classifyPreflightDomain({ spf: false, dkim: false, dmarc: false, error: 'ETIMEOUT' });
+    expect(verdict.kind).toBe('cannot-verify');
+    expect(verdict.error).toBe('ETIMEOUT');
   });
 });
 

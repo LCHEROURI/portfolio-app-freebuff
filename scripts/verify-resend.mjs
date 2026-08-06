@@ -35,12 +35,18 @@
 //                                     network failure → exit 1 (cannot verify)
 //
 // Usage:
-//   npm run verify:resend          # against the stored RESEND_API_KEY
+//   npm run verify:resend              # against the stored RESEND_API_KEY
 //   node scripts/verify-resend.mjs
+//   node scripts/verify-resend.mjs --domain yourname.com   # DNS pre-flight only:
+//                                    # probes a candidate sender domain's TXT
+//                                    # records WITHOUT touching REPORT_FROM —
+//                                    # check the domain is Resend-ready before
+//                                    # wiring it anywhere. Exit 0 = verified,
+//                                    # 2 = missing/invalid, 1 = cannot verify.
 //
 // Exports (for the unit test): readResendKey, readReportFrom,
 // fetchResendKeyStatus, classifyResendKey, classifyReportFrom, probeDomainDns,
-// classifySenderDomain.
+// classifySenderDomain, validateDomainInput, classifyPreflightDomain.
 // ============================================================================
 
 import { readFileSync } from 'node:fs';
@@ -48,6 +54,13 @@ import { fileURLToPath } from 'node:url';
 import { resolveTxt } from 'node:dns/promises';
 
 const RESEND_BASE = 'https://api.resend.com';
+
+const args = process.argv.slice(2);
+const flagValue = (name) => {
+  const i = args.indexOf(name);
+  return i >= 0 && args[i + 1] ? args[i + 1] : '';
+};
+const PREFLIGHT_DOMAIN = flagValue('--domain');
 
 /**
  * Read a stored value from the env var, then .env.local (never printed).
@@ -203,7 +216,78 @@ export function classifySenderDomain(reportFrom, probe) {
   return { ...parsed, kind: 'unverified', spf: probe.spf, dkim: probe.dkim };
 }
 
+/**
+ * Validate a bare candidate domain for the --domain pre-flight. Returns an
+ * error message, or null when the input looks like a domain (labels of
+ * alphanumerics/hyphens separated by dots). Rejects emails, sandbox domains,
+ * and junk — so a mistyped `--domain reports@yourname.com` is caught with
+ * guidance instead of a confusing DNS NXDOMAIN.
+ */
+export function validateDomainInput(value = '') {
+  const v = (value || '').trim().toLowerCase();
+  if (!v) return 'empty domain';
+  if (v.includes('@') || v.includes('<') || v.includes('>') || /\s/.test(v)) {
+    return 'looks like an email or "Name <email>" — pass the BARE domain, e.g. --domain yourname.com';
+  }
+  if (v === 'resend.dev' || v.endsWith('.resend.dev')) {
+    return 'resend.dev is the sandbox — pre-flight a real domain you own';
+  }
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(v)) {
+    return `'${value}' is not a plausible domain (expected labels separated by dots, e.g. yourname.com)`;
+  }
+  return null;
+}
+
+/**
+ * Verdict for the --domain pre-flight, derived from a probeDomainDns result:
+ *   { kind: 'verified', dmarc }       — SPF + DKIM present (Resend-ready)
+ *   { kind: 'unverified', spf, dkim } — a required record is missing
+ *   { kind: 'cannot-verify', error }  — DNS probe network failure
+ */
+export function classifyPreflightDomain(probe) {
+  if (probe.error) return { kind: 'cannot-verify', error: probe.error };
+  if (probe.spf && probe.dkim) return { kind: 'verified', dmarc: probe.dmarc };
+  return { kind: 'unverified', spf: probe.spf, dkim: probe.dkim };
+}
+
 async function main() {
+  // ── 0. DNS pre-flight (--domain) — no key, no REPORT_FROM ─────────────────
+  // Probes a candidate sender domain's TXT records standalone, so the domain
+  // can be checked for Resend readiness BEFORE it is wired into REPORT_FROM
+  // anywhere. Same exit-code contract as the sender check: 0 = verified,
+  // 2 = missing/invalid domain, 1 = DNS probe could not verify.
+  if (PREFLIGHT_DOMAIN) {
+    const invalid = validateDomainInput(PREFLIGHT_DOMAIN);
+    if (invalid) {
+      console.error(`✗ FAIL: ${invalid}`);
+      console.error('\nRESULT: FAIL — nothing was probed (bad --domain value).');
+      process.exit(2);
+    }
+    console.log('\nSender domain DNS pre-flight (--domain)');
+    console.log(`  domain    ${PREFLIGHT_DOMAIN.toLowerCase()}`);
+    const probe = await probeDomainDns(PREFLIGHT_DOMAIN.toLowerCase());
+    const verdict = classifyPreflightDomain(probe);
+    if (verdict.kind === 'cannot-verify') {
+      console.error(`  verdict   could not probe DNS (${verdict.error}) — the domain may not`);
+      console.error('            exist or the resolver is unreachable.');
+      console.error('\nRESULT: FAIL — cannot verify the domain.');
+      process.exit(1);
+    }
+    if (verdict.kind === 'unverified') {
+      console.error(`  verdict   NOT ready for Resend sending`);
+      console.error(`            SPF  ${probe.spf ? '✓ found' : '✗ missing — TXT @ v=spf1 include:amazonses.com ~all'}`);
+      console.error(`            DKIM ${probe.dkim ? '✓ found' : '✗ missing — TXT resend._domainkey v=DKIM1; k=rsa; p=…'}`);
+      console.error('  fix       add the missing TXT records at your DNS provider, click Verify');
+      console.error('            in the Resend dashboard, then re-run this pre-flight.');
+      console.error('\nRESULT: FAIL — the domain is not verified for Resend sending.');
+      process.exit(2);
+    }
+    console.log(`  verdict   ✓ ready for Resend sending`);
+    console.log(`            SPF ✓ · DKIM ✓ · DMARC ${probe.dmarc ? '✓' : 'optional (missing)'}`);
+    console.log('\nRESULT: PASS — safe to wire into REPORT_FROM (npm run wire:report-from).');
+    process.exit(0);
+  }
+
   // ── 1. Resend API key health ───────────────────────────────────────────────
   const key = readResendKey();
   if (!key) {
