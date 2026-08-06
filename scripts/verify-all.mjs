@@ -29,6 +29,8 @@
 // ============================================================================
 
 import { spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 const args = process.argv.slice(2);
 const flag = (name, fallback) => {
@@ -63,19 +65,42 @@ if (unknownOnly.length > 0 || unknownSkip.length > 0) {
 // URL override (each gate names its own flag: --base for cron-email, --app
 // for the others). `duplicateOf` marks a row that resolves to the same file
 // as an earlier gate — it is reported but not re-run.
+// Whether a secret is available where the verify scripts read it: the env
+// var itself, else .env.local (the same precedence each gate uses internally).
+// Mirrors the skip-not-fail convention: a gate whose required secret is absent
+// prints the ✗ marker in the summary so the skip is explainable at a glance.
+const readSecret = (name) => {
+  if (process.env[name]) return true;
+  try {
+    const env = readFileSync(resolve(process.cwd(), '.env.local'), 'utf8');
+    // The m flag anchors ^ per LINE (secrets are not necessarily on line 1).
+    return new RegExp(`^${name}=`, 'm').test(env);
+  } catch {
+    return false;
+  }
+};
+
+// The REQUIRES cell for a gate: each required secret with a present (✓) or
+// absent (✗) marker, plus any non-secret runtime dependency (e.g. Chrome).
+const requiresOf = (gate) => {
+  const parts = (gate.secrets ?? []).map((s) => `${s} ${readSecret(s) ? '✓' : '✗'}`);
+  if (gate.note) parts.push(gate.note);
+  return parts.join(', ') || '—';
+};
+
 const GATES = [
   // The token-health gate runs FIRST: it proves the VERCEL_TOKEN is alive
   // before any gate that depends on a deployment or CI credential runs — a
   // revoked token is caught in ~1s instead of surfacing as a confusing 403
   // inside a later gate. Same rc=2 contract as the deployed-hash gate.
-  { name: 'token-health', label: 'Vercel token health', script: 'verify:token-health' },
-  { name: 'cron-email', label: 'Cron email bodies', script: 'verify:cron-email', baseFlag: '--base' },
-  { name: 'firestore-rules', label: 'Firestore rules isolation', script: 'verify:firestore-rules' },
-  { name: 'auth-domains', label: 'Authorized domains', script: 'verify:auth-domains', appFlag: '--app' },
-  { name: 'prod-signin', label: 'Production sign-in + Firestore sync', script: 'verify:prod-signin', appFlag: '--app' },
-  { name: 'google-idp', label: 'Google IdP record', script: 'verify:google-idp' },
-  { name: 'auth-domains-direct', label: 'Authorized domains (direct script)', file: 'scripts/verify-auth-domains.mjs', appFlag: '--app', duplicateOf: 'auth-domains' },
-  { name: 'deployed-hash', label: 'Deployed commit matches expected', script: 'verify:deployed-hash', expectFlag: '--expect', url: PRODUCTION_URL },
+  { name: 'token-health', label: 'Vercel token health', script: 'verify:token-health', secrets: ['VERCEL_TOKEN'] },
+  { name: 'cron-email', label: 'Cron email bodies', script: 'verify:cron-email', baseFlag: '--base', secrets: ['CRON_SECRET'] },
+  { name: 'firestore-rules', label: 'Firestore rules isolation', script: 'verify:firestore-rules', secrets: ['NEXT_PUBLIC_FIREBASE_PROJECT_ID', 'FIREBASE_WEB_API_KEY'] },
+  { name: 'auth-domains', label: 'Authorized domains', script: 'verify:auth-domains', appFlag: '--app', secrets: ['FIREBASE_WEB_API_KEY'] },
+  { name: 'prod-signin', label: 'Production sign-in + Firestore sync', script: 'verify:prod-signin', appFlag: '--app', secrets: ['FIREBASE_WEB_API_KEY', 'NEXT_PUBLIC_FIREBASE_PROJECT_ID'], note: 'Chrome' },
+  { name: 'google-idp', label: 'Google IdP record', script: 'verify:google-idp', secrets: ['FIREBASE_WEB_API_KEY', 'NEXT_PUBLIC_FIREBASE_PROJECT_ID'] },
+  { name: 'auth-domains-direct', label: 'Authorized domains (direct script)', file: 'scripts/verify-auth-domains.mjs', appFlag: '--app', duplicateOf: 'auth-domains', secrets: ['FIREBASE_WEB_API_KEY'] },
+  { name: 'deployed-hash', label: 'Deployed commit matches expected', script: 'verify:deployed-hash', expectFlag: '--expect', url: PRODUCTION_URL, secrets: ['VERCEL_TOKEN'] },
 ];
 
 const failures = [];
@@ -215,13 +240,16 @@ const statusOf = (r) =>
   : r.timedOut ? `TIMEOUT (${TIMEOUT_SEC}s)`
   : 'FAIL';
 const w = Math.max(...results.map((r) => r.gate.label.length), 'GATE'.length);
-console.log(`  ${pad('GATE', w)}  STATUS   TIME`);
-console.log(`  ${'-'.repeat(w)}  -------  -----`);
+const rw = Math.max(...results.map((r) => requiresOf(r.gate).length), 'REQUIRES'.length);
+console.log(`  ${pad('GATE', w)}  ${pad('STATUS', 7)}  ${pad('REQUIRES', rw)}  TIME`);
+console.log(`  ${'-'.repeat(w)}  -------  ${'-'.repeat(rw)}  -----`);
 for (const r of results) {
   const time = r.pass === null || r.pass === 'covered' ? '—' : `${(r.ms / 1000).toFixed(1)}s`;
-  console.log(`  ${pad(r.gate.label, w)}  ${pad(statusOf(r), 7)}  ${time}`);
+  console.log(`  ${pad(r.gate.label, w)}  ${pad(statusOf(r), 7)}  ${pad(requiresOf(r.gate), rw)}  ${time}`);
 }
 console.log('══════════════════════════════════════════════════════════');
+console.log('  ✓ = secret present (env or .env.local) · ✗ = missing — a gate with a ✗');
+console.log('  will skip-not-fail internally, so check the REQUIRES column first.');
 
 const ranCount = results.filter((r) => r.pass !== null && r.pass !== 'covered').length;
 if (ranCount === 0) {
