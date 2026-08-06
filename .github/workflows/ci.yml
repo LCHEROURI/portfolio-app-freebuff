@@ -5,10 +5,23 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Manual re-verify of a past commit: run the full gate suite against an
+  # explicit commit sha without pushing a new commit. Blank = the ref head
+  # (the commit the workflow was dispatched on).
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: Commit sha to re-verify (blank = ref head)
+        required: false
+        default: ''
 
+# Push/PR runs share one per-ref group so only the newest lands (a newer push
+# cancels the older run — the 8af5278-vs-62b94f8 case). Manual re-verify runs
+# get their own group keyed by the requested sha, so a fresh push can never
+# cancel a re-verify that is explicitly checking a past commit.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.event_name == 'workflow_dispatch' && format('reverify-{0}', github.event.inputs.commit_sha) || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
   validate:
@@ -19,6 +32,10 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          # Manual re-verify: check out the requested commit sha. On push/PR
+          # this falls back to the ref head, identical to the old behavior.
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha || github.ref }}
 
       # Guard: the Firebase project id is portfolio-app-freebuff2 (with the
       # trailing 2). A bare portfolio-app-freebuff in a FIREBASE CONTEXT
@@ -74,7 +91,8 @@ jobs:
   # have a canonical alias). A gate added to the doc without a matching script
   # — or a script renamed without updating the doc — fails the run, so the
   # checklist can never promise a command the repo can't run. Static and
-  # secret-free: runs on every push and PR, no Node install needed.
+  # secret-free: runs on every push, PR, and manual re-verify, no Node
+  # install needed.
   verify-launch-checklist:
     name: Verify launch checklist matches scripts
     runs-on: ubuntu-latest
@@ -83,21 +101,29 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          # Manual re-verify: check out the requested commit sha. On push/PR
+          # this falls back to the ref head, identical to the old behavior.
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha || github.ref }}
 
       - name: Verify launch-checklist gates are runnable
         run: node scripts/verify-launch-checklist.mjs
 
-  # Post-deploy smoke tests against the LIVE app. Every push proves the
-  # deployed cron-email bodies (gated on CRON_SECRET) and the deployed
-  # Firestore rules (gated on FIREBASE_WEB_API_KEY) behave end to end, in one
-  # job. Each step is gated on its secret so forks / unconfigured repos stay
-  # green and only run where a real deploy exists.
+  # Post-deploy smoke tests against the LIVE app. Every push (or manual
+  # re-verify via workflow_dispatch) proves the deployed cron-email bodies
+  # (gated on CRON_SECRET) and the deployed Firestore rules (gated on
+  # FIREBASE_WEB_API_KEY) behave end to end, in one job. Each step is gated
+  # on its secret so forks / unconfigured repos stay green and only run where
+  # a real deploy exists. NOTE: on a manual re-verify of a non-head SHA, the
+  # checked-out (past) verify scripts run against today's live deployment —
+  # for adjacent commits that is identical; re-verifying an old commit after
+  # script drift tests the live app with that commit's assertions.
   verify-deployed:
     name: Verify deployed email + rules
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: validate
-    if: ${{ github.event_name == 'push' }}
+    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
 
     # Job-level env is the only place secrets can be read for step gating
     # (`secrets` is not a valid context in `if:`). An unset secret becomes an
@@ -110,6 +136,10 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          # Manual re-verify: check out the requested commit sha. On push/PR
+          # this falls back to the ref head, identical to the old behavior.
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha || github.ref }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -171,7 +201,7 @@ jobs:
     timeout-minutes: 10
     needs: validate
     # Same secrets-in-if restriction as above: gate the step on job env.
-    if: ${{ github.event_name == 'push' }}
+    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
 
     env:
       FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
@@ -180,6 +210,10 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          # Manual re-verify: check out the requested commit sha. On push/PR
+          # this falls back to the ref head, identical to the old behavior.
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha || github.ref }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -220,7 +254,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     needs: validate
-    if: ${{ github.event_name == 'push' }}
+    if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
 
     env:
       FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
@@ -229,6 +263,10 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+        with:
+          # Manual re-verify: check out the requested commit sha. On push/PR
+          # this falls back to the ref head, identical to the old behavior.
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha || github.ref }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
