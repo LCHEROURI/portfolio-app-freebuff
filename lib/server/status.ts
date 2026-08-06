@@ -266,15 +266,14 @@ const checkFirebase = async (origin?: string, projectOrigin?: string): Promise<I
 // them once to PATCH the IdP record; the deployed app never reads them at
 // runtime (it reads the IdP record the SDK queries at sign-in time).
 const checkGoogleIdp = async (): Promise<IntegrationStatus> => {
-  const clientConfigured = varSet('GOOGLE_CLIENT_ID') && varSet('GOOGLE_CLIENT_SECRET');
-  const env = [
-    envVar('GOOGLE_CLIENT_ID', true),
-    envVar('GOOGLE_CLIENT_SECRET', true),
-  ];
+  const wiringVars = varSet('GOOGLE_CLIENT_ID') && varSet('GOOGLE_CLIENT_SECRET');
 
   // The definitive live check: read the actual google.com IdP record the SDK
   // consults. Needs a service account + project id (same credential the
   // Firestore cron uses); without them we can only report env presence.
+  // probeOk is undefined when the probe couldn't run, true when the record is
+  // enabled AND carries a classic web client, false otherwise.
+  let probeOk: boolean | undefined;
   let ep = unsetEndpoint();
   if (isFirestoreAdminConfigured() && getFirestoreProjectId()) {
     try {
@@ -288,6 +287,7 @@ const checkGoogleIdp = async (): Promise<IntegrationStatus> => {
       const json = r.json as { enabled?: boolean; clientId?: string } | null;
       const registered = r.status === 200 && json?.enabled === true;
       const classicClient = registered && (json?.clientId ?? '').includes('apps.googleusercontent.com');
+      probeOk = registered && classicClient;
       const detail =
         r.status === 200 && registered
           ? classicClient
@@ -297,18 +297,35 @@ const checkGoogleIdp = async (): Promise<IntegrationStatus> => {
           : r.status === 401 || r.status === 403 ? 'Service account lacks Identity Platform access'
           : r.status === null ? 'Unreachable'
           : `HTTP ${r.status}`;
-      ep = endpoint(r, detail, registered && classicClient);
+      ep = endpoint(r, detail, probeOk);
     } catch {
+      probeOk = false;
       ep = { ok: false, status: null, ms: null, detail: 'Token mint failed' };
     }
   }
 
+  // The wiring vars are consumed ONCE by scripts/wire-google-client.mjs and
+  // never exist in Vercel runtime — so `configured` keys off the IdP-record
+  // probe (the real signal the SDK reads at popup time), falling back to env
+  // presence only when the probe couldn't run (no service account). The vars'
+  // `set` flag means "the wiring requirement is satisfied", which the probe
+  // proves even when the vars themselves are absent from the runtime env.
+  const wiringComplete = probeOk ?? wiringVars;
+  const env = [
+    { name: 'GOOGLE_CLIENT_ID', set: wiringComplete, required: true },
+    { name: 'GOOGLE_CLIENT_SECRET', set: wiringComplete, required: true },
+  ];
+
   return {
-    id: 'google-idp', name: 'Google sign-in', enabled: clientConfigured,
-    configured: clientConfigured, env, endpoint: ep,
-    note: clientConfigured
-      ? 'Wiring vars set — the one-shot wire script can patch the IdP record.'
-      : 'Google sign-in needs a classic web OAuth client (GCP console → Auth → Clients) wired into the google.com IdP record via scripts/wire-google-client.mjs.',
+    id: 'google-idp', name: 'Google sign-in', enabled: wiringComplete,
+    configured: wiringComplete, env, endpoint: ep,
+    note: probeOk === true
+      ? 'google.com IdP record verified live via the admin API — the Google popup opens the account chooser.'
+      : probeOk === false
+        ? 'Google sign-in needs a classic web OAuth client (GCP console → Auth → Clients) wired into the google.com IdP record via scripts/wire-google-client.mjs.'
+        : wiringVars
+          ? 'Wiring vars set — the one-shot wire script can patch the IdP record.'
+          : 'Google sign-in needs a classic web OAuth client (GCP console → Auth → Clients) wired into the google.com IdP record via scripts/wire-google-client.mjs.',
   };
 };
 

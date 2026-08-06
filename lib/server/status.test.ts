@@ -101,6 +101,31 @@ describe('checkIntegrations — Google IdP record probe', () => {
     });
   });
 
+  it('keys configured off the probe, not the wiring vars: healthy record + vars absent from env is still configured', async () => {
+    // The wiring vars are consumed once by wire-google-client.mjs and never
+    // exist in Vercel runtime — production has a healthy record but no
+    // GOOGLE_CLIENT_* env vars. The probe is the real signal.
+    vi.stubEnv('FIREBASE_SERVICE_ACCOUNT', JSON.stringify({
+      type: 'service_account',
+      project_id: 'portfolio-app-freebuff2',
+      client_email: 'cron@portfolio-app-freebuff2.iam.gserviceaccount.com',
+      private_key: '-----BEGIN PRIVATE KEY-----\nMIIE\n-----END PRIVATE KEY-----\n',
+    }));
+    vi.stubEnv('NEXT_PUBLIC_FIREBASE_PROJECT_ID', 'portfolio-app-freebuff2');
+    vi.stubGlobal('fetch', fetchMock);
+
+    const g = await googleIdpStatus();
+    expect(g.configured).toBe(true);
+    expect(g.env.every((v) => v.set)).toBe(true);
+    expect(g.endpoint).toEqual({
+      ok: true,
+      status: 200,
+      ms: expect.any(Number),
+      detail: 'google.com IdP enabled with a classic web client',
+    });
+    expect(g.note).toContain('verified live');
+  });
+
   it('flags a missing IdP record as a failed endpoint (the Google popup will fail)', async () => {
     stubAdminEnv();
     const missing = vi.fn(async (input: RequestInfo | URL) => {
@@ -119,6 +144,9 @@ describe('checkIntegrations — Google IdP record probe', () => {
       ms: expect.any(Number),
       detail: 'google.com IdP record missing — Google popup will fail',
     });
+    // Even with the wiring vars stubbed in env, a missing record means NOT
+    // configured — the probe is the source of truth.
+    expect(g.configured).toBe(false);
   });
 
   it('skips the probe when the service account is not configured', async () => {
