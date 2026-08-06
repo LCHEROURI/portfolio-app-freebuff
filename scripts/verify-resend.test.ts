@@ -3,6 +3,10 @@ import {
   classifyResendKey,
   fetchResendKeyStatus,
   readResendKey,
+  readReportFrom,
+  classifyReportFrom,
+  probeDomainDns,
+  classifySenderDomain,
 } from './verify-resend.mjs';
 
 const KEY = 're_test-key-1234567890';
@@ -30,6 +34,27 @@ describe('readResendKey', () => {
     // string is the documented absent-credential signal — never a throw).
     const key = readResendKey();
     expect(typeof key).toBe('string');
+  });
+});
+
+// ── readReportFrom (sender resolution) ──────────────────────────────────────
+describe('readReportFrom', () => {
+  beforeEach(() => {
+    delete process.env.REPORT_FROM;
+  });
+
+  it('prefers the REPORT_FROM env var', () => {
+    process.env.REPORT_FROM = 'Command Center <reports@example.com>';
+    expect(readReportFrom()).toBe('Command Center <reports@example.com>');
+  });
+
+  it('returns a string (possibly empty) when the env var is absent', () => {
+    expect(typeof readReportFrom()).toBe('string');
+  });
+
+  it('returns empty for an empty env var', () => {
+    process.env.REPORT_FROM = '';
+    expect(readReportFrom()).toBe('');
   });
 });
 
@@ -93,5 +118,142 @@ describe('classifyResendKey', () => {
   it('returns unknown (not invalid) for 5xx / network-style statuses', () => {
     expect(classifyResendKey(500, { message: 'boom' })).toEqual({ kind: 'unknown', status: 500, detail: 'boom' });
     expect(classifyResendKey(503, null).kind).toBe('unknown');
+  });
+});
+
+// ── classifyReportFrom (the sender-value verdict) ──────────────────────────
+describe('classifyReportFrom', () => {
+  it('classifies an empty value as unset', () => {
+    expect(classifyReportFrom('')).toEqual({ kind: 'unset' });
+    expect(classifyReportFrom(undefined)).toEqual({ kind: 'unset' });
+    expect(classifyReportFrom('   ')).toEqual({ kind: 'unset' });
+  });
+
+  it('classifies the sandbox sender as sandbox', () => {
+    expect(classifyReportFrom('Command Center <onboarding@resend.dev>')).toEqual({
+      kind: 'sandbox',
+      email: 'onboarding@resend.dev',
+      domain: 'resend.dev',
+    });
+  });
+
+  it('classifies any @resend.dev address as sandbox', () => {
+    expect(classifyReportFrom('no-reply@sub.resend.dev').kind).toBe('sandbox');
+  });
+
+  it('classifies a custom domain address as custom', () => {
+    expect(classifyReportFrom('Command Center <reports@yourname.com>')).toEqual({
+      kind: 'custom',
+      email: 'reports@yourname.com',
+      domain: 'yourname.com',
+    });
+    expect(classifyReportFrom('reports@yourname.com').domain).toBe('yourname.com');
+  });
+
+  it('prefers the angle-bracketed address when the display name itself contains an @', () => {
+    expect(classifyReportFrom('bob@home <reports@yourname.com>')).toEqual({
+      kind: 'custom',
+      email: 'reports@yourname.com',
+      domain: 'yourname.com',
+    });
+  });
+
+  it('classifies an unparseable value as malformed', () => {
+    expect(classifyReportFrom('not-an-email')).toEqual({ kind: 'malformed', raw: 'not-an-email' });
+  });
+});
+
+// ── probeDomainDns (injected resolver) ─────────────────────────────────────
+describe('probeDomainDns', () => {
+  // Fake resolver returning TXT records per name; unlisted names throw
+  // ENODATA like node:dns does for a missing record type.
+  const makeResolver = (map) => async (name) => {
+    if (map[name]) return map[name];
+    const err = new Error('queryTxt ENODATA');
+    err.code = 'ENODATA';
+    throw err;
+  };
+
+  it('reports spf+dkim+dmarc found when all three records exist', async () => {
+    const resolver = makeResolver({
+      'yourname.com': [['v=spf1 include:amazonses.com ~all']],
+      'resend._domainkey.yourname.com': [['v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0B']],
+      '_dmarc.yourname.com': [['v=DMARC1; p=none;']],
+    });
+    const probe = await probeDomainDns('yourname.com', resolver);
+    expect(probe).toEqual({ spf: true, dkim: true, dmarc: true, error: '' });
+  });
+
+  it('flags missing DKIM as false without an error', async () => {
+    const resolver = makeResolver({
+      'yourname.com': [['v=spf1 include:amazonses.com ~all']],
+    });
+    const probe = await probeDomainDns('yourname.com', resolver);
+    expect(probe.spf).toBe(true);
+    expect(probe.dkim).toBe(false);
+    expect(probe.error).toBe('');
+  });
+
+  it('treats a root lookup network failure as an error (cannot verify)', async () => {
+    const failing = async () => {
+      const err = new Error('queryTxt ETIMEOUT');
+      err.code = 'ETIMEOUT';
+      throw err;
+    };
+    const probe = await probeDomainDns('yourname.com', failing);
+    expect(probe.error).toBe('ETIMEOUT');
+  });
+
+  it('treats root ENODATA as a missing SPF (unverified), not an error', async () => {
+    // A domain that resolves but has no TXT records at all is a genuine
+    // missing-SPF state, not a probe failure — the caller should classify it
+    // as unverified (exit 2), not cannot-verify (exit 1).
+    const resolver = makeResolver({});
+    const probe = await probeDomainDns('yourname.com', resolver);
+    expect(probe.spf).toBe(false);
+    expect(probe.error).toBe('');
+  });
+
+  it('ignores missing DMARC (optional) as a non-error', async () => {
+    const resolver = makeResolver({
+      'yourname.com': [['v=spf1 include:amazonses.com ~all']],
+      'resend._domainkey.yourname.com': [['v=DKIM1; k=rsa; p=abc']],
+    });
+    const probe = await probeDomainDns('yourname.com', resolver);
+    expect(probe.dmarc).toBe(false);
+    expect(probe.error).toBe('');
+  });
+});
+
+// ── classifySenderDomain (combines value + DNS probe) ──────────────────────
+describe('classifySenderDomain', () => {
+  it('passes unset through', () => {
+    expect(classifySenderDomain('', {})).toEqual({ kind: 'unset' });
+  });
+
+  it('passes sandbox through without a DNS probe', () => {
+    expect(classifySenderDomain('Command Center <onboarding@resend.dev>', {}).kind).toBe('sandbox');
+  });
+
+  it('returns verified when SPF + DKIM are present', () => {
+    const probe = { spf: true, dkim: true, dmarc: true, error: '' };
+    expect(classifySenderDomain('Command Center <reports@yourname.com>', probe)).toEqual({
+      kind: 'verified',
+      email: 'reports@yourname.com',
+      domain: 'yourname.com',
+      dmarc: true,
+    });
+  });
+
+  it('returns unverified when a required record is missing', () => {
+    const probe = { spf: true, dkim: false, dmarc: false, error: '' };
+    expect(classifySenderDomain('reports@yourname.com', probe).kind).toBe('unverified');
+  });
+
+  it('returns cannot-verify when the DNS probe errored', () => {
+    const probe = { spf: false, dkim: false, dmarc: false, error: 'ETIMEOUT' };
+    const verdict = classifySenderDomain('reports@yourname.com', probe);
+    expect(verdict.kind).toBe('cannot-verify');
+    expect(verdict.error).toBe('ETIMEOUT');
   });
 });

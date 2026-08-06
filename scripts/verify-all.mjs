@@ -105,9 +105,13 @@ const GATES = [
   // with the key as a Bearer token — a read-only probe, no email sent). A
   // send-only key (Resend's restricted_api_key 401) is valid for the app and
   // passes with a note; a bad/revoked key exits 2 with paste-a-fresh-key
-  // guidance, mirroring the Vercel token gates' rc=2 contract. Runs early
-  // because the Automation Engine's emails depend on it.
-  { name: 'resend', label: 'Resend API key health', script: 'verify:resend', secrets: ['RESEND_API_KEY'] },
+  // guidance, mirroring the Vercel token gates' rc=2 contract. It also
+  // asserts the report sender (REPORT_FROM) points at a verified custom
+  // domain via a DNS TXT probe (SPF include:amazonses.com + resend._domainkey
+  // DKIM) — NOT the onboarding@resend.dev sandbox the app defaults to — so a
+  // sandbox-bound sender is flagged before the Automation Engine emails
+  // silently. Runs early because the Automation Engine's emails depend on it.
+  { name: 'resend', label: 'Resend API key + sender domain', script: 'verify:resend', secrets: ['RESEND_API_KEY', 'REPORT_FROM'] },
   { name: 'cron-email', label: 'Cron email bodies', script: 'verify:cron-email', baseFlag: '--base', secrets: ['CRON_SECRET'] },
   { name: 'firestore-rules', label: 'Firestore rules isolation', script: 'verify:firestore-rules', secrets: ['NEXT_PUBLIC_FIREBASE_PROJECT_ID', 'FIREBASE_WEB_API_KEY'] },
   { name: 'auth-domains', label: 'Authorized domains', script: 'verify:auth-domains', appFlag: '--app', secrets: ['FIREBASE_WEB_API_KEY'] },
@@ -267,8 +271,10 @@ for (const r of results) {
   console.log(`  ${pad(r.gate.label, w)}  ${pad(statusOf(r), 7)}  ${pad(requiresOf(r.gate), rw)}  ${time}`);
 }
 console.log('══════════════════════════════════════════════════════════');
-console.log('  ✓ = secret present (env or .env.local) · ✗ = missing — a gate with a ✗');
-console.log('  will skip-not-fail internally, so check the REQUIRES column first.');
+console.log('  ✓ = secret present (env or .env.local) · ✗ = missing — most gates');
+console.log('  skip-not-fail internally, so check the REQUIRES column first. Exception:');
+console.log('  the resend gate FAILS (exit 2) when REPORT_FROM is missing — a sandbox-bound');
+console.log('  sender must be configured, not skipped.');
 
 const ranCount = results.filter((r) => r.pass !== null && r.pass !== 'covered').length;
 if (ranCount === 0) {
