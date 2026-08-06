@@ -90,13 +90,24 @@ workflow (also `deployment_status`-triggered) closes the GitHub↔Vercel drift
 gap in CI: it resolves the freshly deployed `target_url` via the Vercel API
 (`verify-deployed-hash.mjs --url <target_url> --expect <deployment.sha>`) and
 fails if the commit Vercel is serving doesn't match the pushed head — gated on
-`VERCEL_TOKEN`. The local `.githooks/pre-push` hook runs
+`VERCEL_TOKEN`. For **production** deployments it also runs the alias-routing
+drift watch (`--compare-url https://portfolio-app-freebuff.vercel.app`): the
+canonical alias must serve the same commit as the deployment-specific
+`target_url`; previews skip it because their URL legitimately differs. The local `.githooks/pre-push` hook runs
 the same verifiers (timeboxed 90s each) before any push, and now also runs the
 deployed-hash gate first: it asserts production is actually serving the last
 pushed commit (`origin/main` tip) via `verify-deployed-hash.mjs --expect`, so a
 deploy that silently failed is caught before the next push piles on top. It
+then runs the alias-routing drift watch: `verify-deployed-hash.mjs
+--compare-url <canonical-url>` asserts the canonical production URL resolves to
+the SAME deployment as the deployment-specific URL, catching routing drift
+(alias pointing at an older/newer build) before push. Because the alias can
+transiently lag the latest deploy right after a push, the drift watch **retries
+once after a 30s backoff** before deciding — a transient lag clears and the
+push proceeds, a genuine drift fails both attempts and aborts. It
 skips (with a notice) on first push to an empty main, or when `VERCEL_TOKEN`
-isn't set locally.
+isn't set locally. `npm run verify:all` runs the same `--compare-url` drift
+check on its `deployed-hash` gate, so the one-command checklist covers it too.
 
 **Known transient:** the auth-domains gate can briefly FAIL right after a
 deploy because the deployed `/api/status` serves a 2-minute cached

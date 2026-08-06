@@ -77,3 +77,19 @@ jobs:
           --expect "${{ github.event.deployment.sha }}"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+      # Alias-routing drift watch: for PRODUCTION deployments only, assert the
+      # canonical alias (portfolio-app-freebuff.vercel.app) serves the SAME
+      # commit as the deployment-specific target_url just verified above. The
+      # script's --compare-url mode compares the primary (--url) against the
+      # canonical alias; a mismatch means routing points at a different build
+      # than the one the previous step proved live. Previews are skipped: a
+      # preview URL legitimately differs from the canonical production alias,
+      # so the comparison would false-fail there.
+      - name: Alias-routing drift watch (production)
+        if: ${{ env.VERCEL_TOKEN != '' && github.event.deployment_status.environment == 'Production' }}
+        run: node scripts/verify-deployed-hash.mjs \
+          --url "${{ github.event.deployment_status.target_url }}" \
+          --compare-url "https://portfolio-app-freebuff.vercel.app"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
