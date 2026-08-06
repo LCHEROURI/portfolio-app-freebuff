@@ -44,8 +44,14 @@ jobs:
       github.event.deployment_status.target_url != '' &&
       github.event.deployment.sha != ''
 
+    # VERCEL_TEAM_ID must be explicit: the CI token has no defaultTeamId, and
+    # the script's resolveTeam() only falls back to /v2/user when this env var
+    # is absent — without it every lookup fails with "could not resolve the
+    # Vercel team id from the token". The team id is not secret (it appears in
+    # deployment URLs) and is the same one the scripts hardcode elsewhere.
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_TEAM_ID: team_OdUf22FjPmSylpmhdXPw6OEC
 
     steps:
       - name: Check out repository
