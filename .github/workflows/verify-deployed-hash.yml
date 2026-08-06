@@ -44,14 +44,15 @@ jobs:
       github.event.deployment_status.target_url != '' &&
       github.event.deployment.sha != ''
 
-    # VERCEL_TEAM_ID must be explicit: the CI token has no defaultTeamId, and
-    # the script's resolveTeam() only falls back to /v2/user when this env var
-    # is absent — without it every lookup fails with "could not resolve the
-    # Vercel team id from the token". The team id is not secret (it appears in
-    # deployment URLs) and is the same one the scripts hardcode elsewhere.
+    # VERCEL_TEAM_ID must be the CI token's OWN team scope, and that scope
+    # lives in the VERCEL_ORG_ID secret (gallery.yml already uses it to scope
+    # vercel deploy). The CI token has no defaultTeamId, so the script's
+    # /v2/user fallback can't resolve it — and hardcoding the team id from
+    # .env.local 403s because the token isn't scoped to that team. Reading the
+    # secret keeps the gate scoped exactly like every other workflow.
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_TEAM_ID: team_OdUf22FjPmSylpmhdXPw6OEC
+      VERCEL_TEAM_ID: ${{ secrets.VERCEL_ORG_ID }}
 
     steps:
       - name: Check out repository
