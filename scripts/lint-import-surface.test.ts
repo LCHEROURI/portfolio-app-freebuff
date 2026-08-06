@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
@@ -262,6 +262,49 @@ describe('scanRoots (live repo)', () => {
   it('finds no re-export or unused-import violations across scripts/, lib/, and app/', () => {
     const findings = scanRoots();
     expect(findings).toEqual([]);
+  });
+});
+
+// The live-clean-scan test above would silently PASS if app/ ever stopped
+// being scanned: an empty result is indistinguishable from "no violations" vs
+// "not scanning the tree". This planted test closes that blind spot.
+//
+// It MUST plant the violation inside the REAL app/ directory and call
+// scanRoots with the literal 'app' root: scanRoots resolves each root against
+// REPO_ROOT (process.cwd(), captured at module load), so a temp dir elsewhere
+// would never be scanned by scanRoots(['app']) — a "temp app-like tree"
+// version of this test would silently lock nothing. The file is removed in
+// finally, and an afterAll self-heals any hard-kill leftover, so the tree is
+// never left dirty.
+describe('scanRoots (planted violation locks the app root)', () => {
+  const plantedPath = join(process.cwd(), 'app', '__linttest-planted.mjs');
+
+  afterAll(() => {
+    rmSync(plantedPath, { force: true });
+  });
+
+  it('catches a planted violation under app/ via both the default roots and the explicit app root', () => {
+    writeFileSync(
+      plantedPath,
+      `import { X } from './verify-deployed-hash.mjs';\nexport { X };\n`,
+    );
+    try {
+      const plantedFinding = {
+        file: relative(process.cwd(), plantedPath),
+        kind: 're-export-of-unused-import',
+        symbol: 'X',
+        module: './verify-deployed-hash.mjs',
+      };
+      // Default roots: proves app/ is still a member of DEFAULT_ROOTS. If it
+      // were dropped, this returns [] and the test fails instead of silently
+      // passing like the live-clean-scan would.
+      expect(scanRoots()).toContainEqual(plantedFinding);
+      // Explicit third root: proves the app/ tree itself is scanned. The
+      // exact file path in the finding attributes it to the app root.
+      expect(scanRoots(['app'])).toContainEqual(plantedFinding);
+    } finally {
+      rmSync(plantedPath, { force: true });
+    }
   });
 });
 
