@@ -36,7 +36,10 @@
 // both — and the script exits nonzero if ANY requested check fails.
 //
 // Exports (for the unit test): extractSha, compareDrift, resolveByHost,
-// parseArgs, isInvalidToken, INVALID_TOKEN_MESSAGE, InvalidTokenError.
+// parseArgs, isInvalidToken, INVALID_TOKEN_MESSAGE, InvalidTokenError, and
+// readToken — the token-resolution chain shared with
+// verify-token-health.mjs so the two scripts can never drift on how the
+// credential is resolved (env → .env.local → CLI store).
 // Exits nonzero if the token is missing or the target deployment can't be
 // resolved; exit code 2 specifically means VERCEL_TOKEN is invalid or revoked
 // (Vercel flagged invalidToken:true in the error body) so the pre-push hook
@@ -91,8 +94,12 @@ export class InvalidTokenError extends Error {
   }
 }
 
-// ── Token resolution ────────────────────────────────────────────────────────
-const readToken = () => {
+// ── Token resolution (shared with verify-token-health.mjs) ──────────────────
+// The one source of truth for how the Vercel credential is resolved across the
+// verify scripts: env var → .env.local → the CLI auth store. verify-token-
+// health.mjs imports this exact function rather than copying it, so a change
+// to the resolution order or the CLI store path can never desync the two.
+export const readToken = () => {
   if (process.env.VERCEL_TOKEN) return process.env.VERCEL_TOKEN;
   try {
     const env = readFileSync(resolve(process.cwd(), '.env.local'), 'utf8');

@@ -6,7 +6,7 @@
 // against production (or an --app override), so the go-live checklist is
 // executable in a single command:
 //
-//   npm run verify:all                       # all seven gates, production URL
+//   npm run verify:all                       # all eight gates, production URL
 //   node scripts/verify-all.mjs --app http://localhost:3000
 //   node scripts/verify-all.mjs --only prod-signin,google-idp
 //   node scripts/verify-all.mjs --skip prod-signin --timeout 900
@@ -48,7 +48,7 @@ const PRODUCTION_URL = 'https://portfolio-app-freebuff.vercel.app';
 const ONLY = onlyArg ? onlyArg.split(',').map((s) => s.trim()).filter(Boolean) : [];
 const SKIP = skipArg ? skipArg.split(',').map((s) => s.trim()).filter(Boolean) : [];
 
-const GATE_NAMES = ['cron-email', 'firestore-rules', 'auth-domains', 'prod-signin', 'google-idp', 'auth-domains-direct', 'deployed-hash'];
+const GATE_NAMES = ['token-health', 'cron-email', 'firestore-rules', 'auth-domains', 'prod-signin', 'google-idp', 'auth-domains-direct', 'deployed-hash'];
 const unknownOnly = ONLY.filter((n) => !GATE_NAMES.includes(n));
 const unknownSkip = SKIP.filter((n) => !GATE_NAMES.includes(n));
 if (unknownOnly.length > 0 || unknownSkip.length > 0) {
@@ -64,6 +64,11 @@ if (unknownOnly.length > 0 || unknownSkip.length > 0) {
 // for the others). `duplicateOf` marks a row that resolves to the same file
 // as an earlier gate — it is reported but not re-run.
 const GATES = [
+  // The token-health gate runs FIRST: it proves the VERCEL_TOKEN is alive
+  // before any gate that depends on a deployment or CI credential runs — a
+  // revoked token is caught in ~1s instead of surfacing as a confusing 403
+  // inside a later gate. Same rc=2 contract as the deployed-hash gate.
+  { name: 'token-health', label: 'Vercel token health', script: 'verify:token-health' },
   { name: 'cron-email', label: 'Cron email bodies', script: 'verify:cron-email', baseFlag: '--base' },
   { name: 'firestore-rules', label: 'Firestore rules isolation', script: 'verify:firestore-rules' },
   { name: 'auth-domains', label: 'Authorized domains', script: 'verify:auth-domains', appFlag: '--app' },
@@ -160,7 +165,7 @@ const runOne = async (gate) => {
 
 // ── Preflight: the doc's gates must be runnable before we run any ───────────
 console.log(`\nLaunch checklist runner — ${APP || 'production URL (default)'}\n`);
-console.log('[0/7] Preflight: launch-checklist drift guard');
+console.log('[0/8] Preflight: launch-checklist drift guard');
 const preflight = spawn('node', ['scripts/verify-launch-checklist.mjs'], { stdio: 'inherit', env: process.env });
 const preflightCode = await new Promise((resolvePromise) => {
   preflight.on('exit', (c) => resolvePromise(c ?? 1));

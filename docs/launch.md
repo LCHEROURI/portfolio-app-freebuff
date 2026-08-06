@@ -70,6 +70,7 @@ Each exits nonzero on failure. Read secrets from env, then `.env.local`.
 
 | Gate | What it proves |
 | --- | --- |
+| `npm run verify:token-health` | Stored `VERCEL_TOKEN` is alive: reads it (env → `.env.local` → CLI store), calls `GET /v2/user/tokens`, and reports the active token's name + expiry (or "no expiration"); a revoked token exits 2 with the paste-a-fresh-token guidance. Runs **first** in `verify:all` so a dead credential is caught in ~1s before any gate that depends on it |
 | `npm run verify:cron-email` | Deployed `/api/cron/reports` 401s without auth; daily + weekly email bodies carry the friendly `(DeepSeek Chat)` heading and raw-id `Model:` footer; weekly winner-recommendation section present |
 | `npm run verify:firestore-rules` | Rules on `portfolio-app-freebuff2`: portfolio write/read under the user's uid, cross-user denied |
 | `npm run verify:auth-domains` | `/api/status?project=<domain>` reports `authDomains.ok` for the shipping domain |
@@ -78,7 +79,7 @@ Each exits nonzero on failure. Read secrets from env, then `.env.local`.
 | `node scripts/verify-auth-domains.mjs` | same as `verify:auth-domains` with throwaway-user token |
 | `npm run verify:deployed-hash -- --expect <sha>` | Production is actually serving the expected commit — the exact gate the `deployed-hash` CI workflow and pre-push hook run. Pass the commit you expect to be live (`git rev-parse origin/main` for the last pushed commit; `--check-local` compares against local HEAD instead) |
 
-Run **all seven in one command** with `npm run verify:all` — it preflights the
+Run **all eight in one command** with `npm run verify:all` — it preflights the
 drift guard above, runs every gate sequentially against the production URL
 (or `--app <url>` to target a preview/local server), dedupes the two
 auth-domains rows (they share one script), and prints a summary table,
@@ -127,7 +128,7 @@ deploy because the deployed `/api/status` serves a 2-minute cached
 2. **Vercel** — all env vars from §2 set on **Production** (and the GitHub secrets from §3).
 3. **Rules** — `npx firebase deploy --only firestore:rules --project portfolio-app-freebuff2`.
 4. **Push to `main`** — Vercel auto-deploys; the pre-push hook runs the local gates; CI runs the post-deploy gates.
-5. **Run the full verify suite** against the production URL (§4). All six gates must pass.
+5. **Run the full verify suite** against the production URL (§4). All eight gates must pass.
 6. **Manual smoke** — sign in on the production URL with email/password, then Google; open Command Center; click AI Explain and confirm the briefing card renders with the `DeepSeek Chat` badge.
 
 ## 6. What was verified at go-live (2026-08-06)

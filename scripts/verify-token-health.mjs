@@ -11,6 +11,11 @@
 //      com.vercel.cli/auth.json) — the fallback that keeps local runs working
 //      before a durable token is pasted into .env.local
 //
+// The credential resolution, dead-token detection, and their exit-code
+// contract are SHARED with verify-deployed-hash.mjs (readToken /
+// isInvalidToken / INVALID_TOKEN_MESSAGE / InvalidTokenError are imported,
+// not copied) so the two scripts can never drift.
+//
 // Checks the token against GET /v2/user/tokens (the same endpoint the account
 // tokens page reads): a dead/revoked token is flagged invalidToken:true and the
 // script exits 2 with the paste-a-fresh-token guidance — the same exit-code
@@ -24,56 +29,24 @@
 //   npm run verify:token-health          # against the stored VERCEL_TOKEN
 //   node scripts/verify-token-health.mjs
 //
-// Exports (for the unit test): isInvalidToken, INVALID_TOKEN_MESSAGE,
-// InvalidTokenError, fetchTokenList, pickActiveToken.
+// Exports (for the unit test): fetchTokenList, pickActiveToken, formatExpiry,
+// plus re-exports of the shared isInvalidToken / INVALID_TOKEN_MESSAGE /
+// InvalidTokenError.
 // Read-only against the Vercel API.
 // ============================================================================
 
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import {
+  INVALID_TOKEN_MESSAGE,
+  InvalidTokenError,
+  isInvalidToken,
+  readToken,
+} from './verify-deployed-hash.mjs';
 
-/** The targeted failure message for a dead VERCEL_TOKEN (no "✗ FAIL: " prefix). */
-export const INVALID_TOKEN_MESSAGE =
-  'VERCEL_TOKEN is invalid or revoked — paste a fresh token from https://vercel.com/account/tokens into .env.local';
-
-/**
- * Vercel marks a dead/revoked credential by returning invalidToken: true in
- * the error body (typically a 401 or 403). Detect it so callers can show the
- * targeted 'paste a fresh token' guidance instead of a generic HTTP status
- * message — and so the pre-push hook can skip its pointless retry.
- */
-export function isInvalidToken(body) {
-  return Boolean(body && (body.invalidToken === true || body?.error?.invalidToken === true));
-}
-
-/** Error used to signal a dead token distinctly from a generic API failure. */
-export class InvalidTokenError extends Error {
-  constructor() {
-    super(INVALID_TOKEN_MESSAGE);
-    this.name = 'InvalidTokenError';
-  }
-}
-
-// ── Token resolution (same precedence as verify-deployed-hash.mjs) ──────────
-const readToken = () => {
-  if (process.env.VERCEL_TOKEN) return process.env.VERCEL_TOKEN;
-  try {
-    const env = readFileSync(resolve(process.cwd(), '.env.local'), 'utf8');
-    const m = env.match(/^VERCEL_TOKEN=(.*)$/m);
-    if (m) return m[1].trim().replace(/^"|"$/g, '');
-  } catch { /* no .env.local */ }
-  try {
-    const auth = readFileSync(
-      resolve(homedir(), 'Library/Application Support/com.vercel.cli/auth.json'),
-      'utf8',
-    );
-    const parsed = JSON.parse(auth);
-    if (parsed.token) return parsed.token;
-  } catch { /* no CLI store */ }
-  return null;
-};
+// Re-exported so the unit test imports everything from this module (matching
+// the test's existing import surface) while the implementation lives in one
+// place.
+export { INVALID_TOKEN_MESSAGE, InvalidTokenError, isInvalidToken };
 
 /**
  * Fetch the account's token list. Returns the Response so callers can inspect
@@ -92,6 +65,11 @@ export async function fetchTokenList(token, base = 'https://api.vercel.com') {
  * Pick the token to report on: the most recently created token with
  * origin "manual" (an API access token like the one in .env.local), not the
  * website-login session tokens (origin email/google/github).
+ *
+ * Heuristic: the held credential can't be matched to a list row by value (the
+ * API never echoes the secret), so we report the newest manual token — exact
+ * when the account keeps a single API token (the norm after pruning), and a
+ * documented assumption if a second manual token ever exists.
  */
 export function pickActiveToken(tokens = []) {
   const manual = tokens.filter((t) => t.origin === 'manual');
@@ -147,8 +125,13 @@ async function main() {
   // rotation steps in the README are run before the credential dies.
   if (active.expiresAt) {
     const daysLeft = Math.floor((active.expiresAt - Date.now()) / 86_400_000);
+    if (daysLeft < 0) {
+      console.log(`\n  ✗ EXPIRED ${Math.abs(daysLeft)} day${Math.abs(daysLeft) === 1 ? '' : 's'} ago — rotate now (see README → Rotating VERCEL_TOKEN)`);
+      console.error('RESULT: FAIL — the active VERCEL_TOKEN is past its expiry date.');
+      process.exit(1);
+    }
     if (daysLeft <= 90) {
-      console.log(`\n  ⏰ expires in ~${Math.max(daysLeft, 0)} day${daysLeft === 1 ? '' : 's'} — rotate soon (see README → Rotating VERCEL_TOKEN)`);
+      console.log(`\n  ⏰ expires in ~${daysLeft} day${daysLeft === 1 ? '' : 's'} — rotate soon (see README → Rotating VERCEL_TOKEN)`);
     } else {
       console.log(`\n  ✓ expires in ~${daysLeft} days`);
     }

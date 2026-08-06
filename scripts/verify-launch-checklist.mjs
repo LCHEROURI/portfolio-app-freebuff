@@ -11,7 +11,7 @@
 //                           package.json script (so it is runnable the same
 //                           canonical way every other gate is).
 //
-// Also enforces the doc's "seven gates" claim: if §4 stops listing one of
+// Also enforces the doc's "eight gates" claim: if §4 stops listing one of
 // the gates, or a new gate is added to the doc without a matching script,
 // this check fails — so the checklist can never drift from the runnable
 // commands.
@@ -29,10 +29,10 @@ const read = (path) => readFileSync(resolve(ROOT, path), 'utf8');
 
 const DOC = 'docs/launch.md';
 const GATE_SECTION_HEADING = /^## \d+\. The verification gates/;
-const EXPECTED_GATE_COUNT = 7;
+const EXPECTED_GATE_COUNT = 8;
 // The exact canonical commands §4 must document. Hardcoding the set (not just
 // the count) closes the silent-drift hole: deleting a real gate while adding
-// a different row would keep the count at 7 but fail here. The deployed-hash
+// a different row would keep the count at 8 but fail here. The deployed-hash
 // row is documented WITH its --expect argument (that is the gate form the
 // pre-push hook and CI use); the parser tolerates trailing args on npm gates.
 const EXPECTED_GATES = [
@@ -41,6 +41,7 @@ const EXPECTED_GATES = [
   'npm run verify:auth-domains',
   'node scripts/verify-prod-signin.mjs',
   'node scripts/verify-google-idp.mjs',
+  'npm run verify:token-health',
   'node scripts/verify-auth-domains.mjs',
   'npm run verify:deployed-hash -- --expect <sha>',
   // NOTE: the deployed-hash row above keeps the literal "<sha>" placeholder
