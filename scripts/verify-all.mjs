@@ -6,7 +6,7 @@
 // against production (or an --app override), so the go-live checklist is
 // executable in a single command:
 //
-//   npm run verify:all                       # all nine gates, production URL
+//   npm run verify:all                       # all ten gates, production URL
 //   node scripts/verify-all.mjs --app http://localhost:3000
 //   node scripts/verify-all.mjs --only prod-signin,google-idp
 //   node scripts/verify-all.mjs --skip prod-signin --timeout 900
@@ -50,7 +50,7 @@ const PRODUCTION_URL = 'https://portfolio-app-freebuff.vercel.app';
 const ONLY = onlyArg ? onlyArg.split(',').map((s) => s.trim()).filter(Boolean) : [];
 const SKIP = skipArg ? skipArg.split(',').map((s) => s.trim()).filter(Boolean) : [];
 
-const GATE_NAMES = ['token-health', 'cron-email', 'firestore-rules', 'auth-domains', 'prod-signin', 'google-idp', 'auth-domains-direct', 'deployed-hash', 'import-surface'];
+const GATE_NAMES = ['token-health', 'vercel-env', 'cron-email', 'firestore-rules', 'auth-domains', 'prod-signin', 'google-idp', 'auth-domains-direct', 'deployed-hash', 'import-surface'];
 const unknownOnly = ONLY.filter((n) => !GATE_NAMES.includes(n));
 const unknownSkip = SKIP.filter((n) => !GATE_NAMES.includes(n));
 if (unknownOnly.length > 0 || unknownSkip.length > 0) {
@@ -94,6 +94,13 @@ const GATES = [
   // revoked token is caught in ~1s instead of surfacing as a confusing 403
   // inside a later gate. Same rc=2 contract as the deployed-hash gate.
   { name: 'token-health', label: 'Vercel token health', script: 'verify:token-health', secrets: ['VERCEL_TOKEN'] },
+  // The vercel-env gate proves Vercel production env MATCHES .env.local
+  // (names + values, lengths only in the report) and classifies GitHub
+  // CI-only secrets as expected rather than drift. Runs right after token-
+  // health: both depend on VERCEL_TOKEN, and a dead credential is caught
+  // first. Requires the Vercel CLI (falls back to npx) + gh for the GitHub
+  // classification (which degrades to skip-not-fail when gh is absent).
+  { name: 'vercel-env', label: 'Vercel prod env matches .env.local', script: 'verify:vercel-env', secrets: ['VERCEL_TOKEN'], note: 'vercel CLI' },
   { name: 'cron-email', label: 'Cron email bodies', script: 'verify:cron-email', baseFlag: '--base', secrets: ['CRON_SECRET'] },
   { name: 'firestore-rules', label: 'Firestore rules isolation', script: 'verify:firestore-rules', secrets: ['NEXT_PUBLIC_FIREBASE_PROJECT_ID', 'FIREBASE_WEB_API_KEY'] },
   { name: 'auth-domains', label: 'Authorized domains', script: 'verify:auth-domains', appFlag: '--app', secrets: ['FIREBASE_WEB_API_KEY'] },
@@ -195,7 +202,7 @@ const runOne = async (gate) => {
 
 // ── Preflight: the doc's gates must be runnable before we run any ───────────
 console.log(`\nLaunch checklist runner — ${APP || 'production URL (default)'}\n`);
-console.log('[0/9] Preflight: launch-checklist drift guard');
+console.log('[0/10] Preflight: launch-checklist drift guard');
 const preflight = spawn('node', ['scripts/verify-launch-checklist.mjs'], { stdio: 'inherit', env: process.env });
 const preflightCode = await new Promise((resolvePromise) => {
   preflight.on('exit', (c) => resolvePromise(c ?? 1));

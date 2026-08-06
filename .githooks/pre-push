@@ -14,6 +14,8 @@
 #      serves the last PUSHED commit; a bare fallback needs no team scope)
 #   0.5 scripts/verify-token-health.mjs  (needs VERCEL_TOKEN — cheap, no Chrome)
 #   0.6 scripts/lint-import-surface.mjs  (no secrets, pure static, near-instant)
+#   0.7 scripts/verify-vercel-env.mjs    (needs VERCEL_TOKEN + vercel CLI — pulls prod
+#                                          env and asserts it matches .env.local)
 #   1. scripts/verify-auth-domains.mjs   (needs FIREBASE_WEB_API_KEY)
 #   2. scripts/verify-cron-email.mjs     (needs CRON_SECRET)
 #   3. scripts/verify-prod-signin.mjs    (needs FIREBASE_WEB_API_KEY + Chrome)
@@ -209,6 +211,25 @@ if [ -f scripts/lint-import-surface.mjs ]; then
   run_verify "import-surface lint" scripts/lint-import-surface.mjs
 else
   echo "pre-push: lint-import-surface.mjs not present — skipping import-surface lint"
+fi
+
+# ── 0.7 Vercel-env drift gate (needs VERCEL_TOKEN + vercel CLI) ───────────
+# Pulls Vercel's production env and asserts every .env.local key exists there
+# with an identical value (report shows names + value lengths only — never the
+# secrets), so the .env.local ↔ Vercel secret stores can never silently drift
+# again (they did: REPORT_OWNER_ID held 'demo-user' in prod while .env.local
+# carried the real uid). Also classifies GitHub CI-only secrets as expected,
+# not drift. Same rc=2 contract as the other Vercel gates: an invalid token
+# aborts the push with the paste-a-fresh-token guidance.
+if [ -n "$VERCEL" ] && [ -f scripts/verify-vercel-env.mjs ]; then
+  if command -v vercel >/dev/null 2>&1 || command -v npx >/dev/null 2>&1; then
+    run_verify "Vercel prod env vs .env.local" scripts/verify-vercel-env.mjs
+  else
+    echo "pre-push: vercel CLI not found — skipping vercel-env proof"
+  fi
+else
+  [ -f scripts/verify-vercel-env.mjs ] || echo "pre-push: verify suite not present — skipping vercel-env proof"
+  [ -n "$VERCEL" ] || echo "pre-push: VERCEL_TOKEN not set — skipping vercel-env proof"
 fi
 
 # ── 1. Authorized-domains gate (fast, no Chrome) ───────────────────────────
