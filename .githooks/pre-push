@@ -185,6 +185,18 @@ else
   echo "pre-push: verify suite not present — skipping deployed-hash proof"
 fi
 
+# ── 0.5 Token-health gate (needs VERCEL_TOKEN; cheap, no Chrome) ───────────
+# Proves the stored VERCEL_TOKEN is still alive and reports its name + expiry,
+# so a revoked or expiring credential is caught before the deployed-hash gate
+# (or a deploy) fails on it. Same rc=2 contract as the hash gate: an invalid
+# token aborts the push with the paste-a-fresh-token guidance.
+if [ -n "$VERCEL" ] && [ -f scripts/verify-token-health.mjs ]; then
+  run_verify "Vercel token health" scripts/verify-token-health.mjs
+else
+  [ -f scripts/verify-token-health.mjs ] || echo "pre-push: verify suite not present — skipping token-health proof"
+  [ -n "$VERCEL" ] || echo "pre-push: VERCEL_TOKEN not set — skipping token-health proof"
+fi
+
 # ── 1. Authorized-domains gate (fast, no Chrome) ───────────────────────────
 if [ -n "$KEY" ] && [ -f scripts/verify-auth-domains.mjs ]; then
   run_verify "production authorized domains" scripts/verify-auth-domains.mjs

@@ -22,6 +22,7 @@
     "verify:auth-domains": "node scripts/verify-auth-domains.mjs",
     "verify:prod-signin": "node scripts/verify-prod-signin.mjs",
     "verify:google-idp": "node scripts/verify-google-idp.mjs",
+    "verify:token-health": "node scripts/verify-token-health.mjs",
     "verify:all": "node scripts/verify-all.mjs",
     "verify:deployed-hash": "node scripts/verify-deployed-hash.mjs",
     "verify:launch-checklist": "node scripts/verify-launch-checklist.mjs",

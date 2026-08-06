@@ -451,6 +451,21 @@ gate fails (or vice versa) with the `invalid or revoked` message. Rotate both
 together and verify with `node scripts/verify-deployed-hash.mjs --url
 https://portfolio-app-freebuff.vercel.app`.
 
+**Even a no-expiration token can die.** Vercel revokes tokens when you create a
+new one with the "invalidate existing" option, or when account security
+settings change — so treat every token as rotatable, and set a **~90-day
+calendar reminder** to re-run `npm run verify:token-health` (see below). That
+packaged check reads the stored `VERCEL_TOKEN`, calls `GET /v2/user/tokens`,
+and reports the active token's **name + expiry** (or "no expiration") — and
+when Vercel flags the credential as revoked (`invalidToken: true`) it exits 2
+with the same paste-a-fresh-token message as the deployed-hash gate. It's wired
+into the pre-push hook as its own gate, so a revoked or expiring token is
+caught before it silently breaks a deploy or CI run:
+
+```bash
+npm run verify:token-health          # reports the active token's name + expiry
+```
+
 ### Local Repository Scanner companion
 
 ```bash
