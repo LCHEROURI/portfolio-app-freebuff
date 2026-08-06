@@ -2,14 +2,12 @@
 // ============================================================================
 // scripts/verify-google-idp.mjs — production Google sign-in IdP smoke check.
 //
-// Asserts that the PUBLIC Identity Toolkit getProjectConfig endpoint (the same
-// one the Firebase SDK reads at runtime) lists `google.com` in `idpConfig` for
-// the configured project. When the provider is missing there, the Google
-// button on the deployed app fails at click time no matter what the console
-// UI shows — so this gate fails the deploy the moment the provider drops.
-//
-// Also cross-checks the admin API (via the shared SA mint) so the config store
-// and the SDK surface agree.
+// Asserts the SDK surface the Google popup actually reads: accounts:createAuthUri
+// with providerId google.com must resolve and embed a classic web client id.
+// (The older v3 getProjectConfig idpConfig array is empty on this project even
+// when the provider is enabled, so it cannot gate sign-in.) Also cross-checks
+// the admin API (via the shared SA mint) so the config store and the SDK
+// surface agree.
 //
 // Usage:
 //   node scripts/verify-google-idp.mjs
@@ -53,23 +51,46 @@ if (!API_KEY || !PROJECT_ID) {
   process.exit(1);
 }
 
-// ── 1. Public endpoint — the surface the SDK reads ─────────────────────────
-console.log(`\n[1/2] Public getProjectConfig (${PROJECT_ID})`);
-const pub = await fetch(
-  `https://www.googleapis.com/identitytoolkit/v3/relyingparty/getProjectConfig?key=${encodeURIComponent(API_KEY)}`,
-  { cache: 'no-store' },
+// ── 1. SDK surface — the exact call the Google popup makes ─────────────────
+// The v3 getProjectConfig idpConfig array is empty on this project even when
+// the provider is enabled (only projectId + authorizedDomains come back), so
+// it cannot gate Google sign-in. The call that actually decides the popup is
+// accounts:createAuthUri with providerId google.com — assert THAT surface.
+console.log(`\n[1/2] SDK createAuthUri (${PROJECT_ID})`);
+const authUriRes = await fetch(
+  `https://identitytoolkit.googleapis.com/v1/accounts:createAuthUri?key=${encodeURIComponent(API_KEY)}`,
+  {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      identifier: 'probe@example.com',
+      providerId: 'google.com',
+      continueUri: `https://${PROJECT_ID}.firebaseapp.com`,
+    }),
+    cache: 'no-store',
+  },
 ).then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) }));
 
-if (pub.status !== 200) {
-  fail(`getProjectConfig → HTTP ${pub.status}`);
+if (authUriRes.status !== 200) {
+  fail(`createAuthUri → HTTP ${authUriRes.status}`);
 } else {
-  ok(`getProjectConfig → HTTP 200 (projectId ${pub.body.projectId})`);
-  const idps = pub.body.idpConfig ?? [];
-  const google = idps.find((c) => c.providerId === 'google.com');
-  if (google) {
-    ok(`google.com present in idpConfig (clientId ${google.clientId?.slice(0, 34)}…)`);
+  const uri = authUriRes.body;
+  if (uri.providerId === 'google.com') {
+    ok('createAuthUri → google.com providerId (the SDK popup resolves it)');
+    if (uri.authUri) {
+      const clientId = new URL(uri.authUri).searchParams.get('client_id');
+      if (clientId && /^\d+-[\w-]+\.apps\.googleusercontent\.com$/.test(clientId)) {
+        ok(`authUri embeds a classic web client id (${clientId.slice(0, 34)}…)`);
+      } else if (clientId) {
+        fail(`authUri client id is not classic format: ${clientId.slice(0, 40)}`);
+      } else {
+        fail('authUri has no client_id');
+      }
+    } else {
+      fail('createAuthUri returned providerId but no authUri');
+    }
   } else {
-    fail(`google.com MISSING from idpConfig (have: ${idps.map((c) => c.providerId).join(', ') || 'none'}) — enable Google in the Firebase console Auth settings`);
+    fail(`createAuthUri providerId=${uri.providerId ?? 'none'} — google.com not resolvable`);
   }
 }
 

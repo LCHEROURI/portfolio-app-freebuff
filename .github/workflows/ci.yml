@@ -20,6 +20,33 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      # Guard: the Firebase project id is portfolio-app-freebuff2 (with the
+      # trailing 2). A bare portfolio-app-freebuff in a FIREBASE CONTEXT
+      # (project-id env var, auth domain, storage bucket, service-account
+      # email, or Identity Platform admin path) would silently revert the
+      # freebuff2 migration. Legitimate references are never flagged: the
+      # GitHub repo name (LCHEROURI/portfolio-app-freebuff), the Vercel app URL
+      # (.vercel.app), Vercel preview domains (-xxx.vercel.app), and Vercel
+      # settings URLs (vercel.com). ci.yml is excluded because the guard text
+      # itself mentions the old id; its verify jobs pin freebuff2 and fail the
+      # run if that ever changes.
+      - name: Guard Firebase project id (must stay freebuff2)
+        run: |
+          BAD=$(grep -RInE \
+            'NEXT_PUBLIC_FIREBASE_PROJECT_ID=portfolio-app-freebuff([^2]|$)|portfolio-app-freebuff\.(firebaseapp|web|firebasestorage)\.|@portfolio-app-freebuff\.iam\.gserviceaccount|projects/portfolio-app-freebuff/' \
+            --include='*.ts' --include='*.tsx' --include='*.mjs' --include='*.py' \
+            --include='*.yml' --include='*.yaml' --include='*.md' --include='*.sh' \
+            --include='*.rules' --include='*.env.example' --include='*.json' \
+            --exclude='ci.yml' . 2>/dev/null \
+            | grep -v 'portfolio-app-freebuff2' \
+            | grep -v 'vercel\.com' || true)
+          if [ -n "$BAD" ]; then
+            echo "✗ bare 'portfolio-app-freebuff' used as a Firebase project id (must be portfolio-app-freebuff2):"
+            echo "$BAD"
+            exit 1
+          fi
+          echo "✓ no bare 'portfolio-app-freebuff' Firebase project id references"
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -82,10 +109,13 @@ jobs:
           FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
           NEXT_PUBLIC_FIREBASE_PROJECT_ID: portfolio-app-freebuff2
 
-      # Google sign-in IdP smoke check: asserts the PUBLIC getProjectConfig
-      # endpoint (the same one the SDK reads) lists google.com in idpConfig,
-      # so a provider missing from the config store fails the deploy the
-      # moment it drops, before any user clicks the Google button.
+      # Google sign-in IdP smoke check: asserts the SDK surface the Google
+      # popup actually reads — accounts:createAuthUri with providerId
+      # google.com must resolve and embed a classic web client id. (The older
+      # v3 getProjectConfig idpConfig array is empty on this project even when
+      # the provider is enabled, so it cannot gate sign-in.) A provider
+      # missing from the config store fails the deploy before any user clicks
+      # the Google button.
       - name: Verify Google sign-in IdP config
         if: ${{ env.FIREBASE_WEB_API_KEY != '' }}
         run: node scripts/verify-google-idp.mjs
