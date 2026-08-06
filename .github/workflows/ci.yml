@@ -105,6 +105,7 @@ jobs:
     env:
       CRON_SECRET: ${{ secrets.CRON_SECRET }}
       FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
     steps:
       - name: Check out repository
@@ -114,6 +115,20 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      # Vercel token health: proves the CI VERCEL_TOKEN (the same secret the
+      # deployed-hash + gallery workflows consume) is still alive, reporting
+      # its name and expiry. This runs on the push, BEFORE Vercel finishes
+      # building and the deployment_status job starts — so a revoked or
+      # expiring token fails the run here with the targeted
+      # paste-a-fresh-token guidance instead of surfacing as a confusing 403
+      # inside the deployed-hash gate minutes later. Gated on the secret so
+      # forks / unconfigured repos stay green.
+      - name: Verify Vercel token health
+        if: ${{ env.VERCEL_TOKEN != '' }}
+        run: node scripts/verify-token-health.mjs
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
       - name: Verify deployed cron email bodies
         if: ${{ env.CRON_SECRET != '' }}
