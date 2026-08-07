@@ -80,7 +80,7 @@ Each exits nonzero on failure. Read secrets from env, then `.env.local`.
 | `npm run verify:auth-domains` | `FIREBASE_WEB_API_KEY` | `/api/status?project=<domain>` reports `authDomains.ok` for the shipping domain |
 | `node scripts/verify-prod-signin.mjs` | `FIREBASE_WEB_API_KEY`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` (+ Chrome) | AuthGate renders, email/password + Google buttons present, both IdPs enabled (admin API), sign-in releases into the Command Center, Firestore write/read sync proven; `[3b]` asserts the classic OAuth client |
 | `node scripts/verify-google-idp.mjs` | `FIREBASE_WEB_API_KEY`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | `createAuthUri` resolves `google.com` with a classic web client id; admin API confirms the IdP record is enabled |
-| `npm run verify:review-sheet` | `FIREBASE_WEB_API_KEY`, `FIREBASE_SERVICE_ACCOUNT`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` (+ Chrome) | Drives the deployed Model Comparison page end to end: seeds a live fixture under a throwaway user, generates two AI winner recommendations, opens the Print-all review sheet in the preview window, and asserts BOTH numbered entries render with the friendly model label (DeepSeek Chat). Same credential family as prod-signin plus the service account for seeding. Emits sub-rows in `verify:all`'s summary (preview / entries / model label) |
+| `npm run verify:review-sheet` | `FIREBASE_WEB_API_KEY`, `FIREBASE_SERVICE_ACCOUNT`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` (+ Chrome) | Drives the deployed Model Comparison page end to end: seeds a live fixture under a throwaway user, generates two AI winner recommendations, opens the Print-all review sheet in the preview window, and asserts BOTH numbered entries render with the friendly model label (DeepSeek Chat). Same credential family as prod-signin plus the service account for seeding. Emits sub-rows in `verify:all`'s summary (preview / entries / model label); run-to-run AI note drift is accepted (structure-only assertions) — the committed PNG pair is byte-stable via deterministic capture (gate 0.6d, see the sub-rows note below) |
 | `node scripts/verify-auth-domains.mjs` | `FIREBASE_WEB_API_KEY` | same as `verify:auth-domains` with throwaway-user token |
 | `npm run verify:deployed-hash -- --expect <sha>` | `VERCEL_TOKEN` | Production is actually serving the expected commit — the exact gate the `deployed-hash` CI workflow and pre-push hook run. Pass the commit you expect to be live (`git rev-parse origin/main` for the last pushed commit; `--check-local` compares against local HEAD instead) |
 | `npm run verify:import-surface` | — | Static import-surface lint over `scripts/` + `lib/` + `app/` (TS-compiler-AST scan): no re-exported imports and no unused imports. No secrets, no network — also wired into `npm run lint`, the pre-push hook (gate 0.6), and CI's lint step |
@@ -181,6 +181,19 @@ are:
   rows follow the same contract — each appears only when its flag
   (`--compare-url`, `--expect`, `--check-local`) actually ran and compared two
   shas.
+- The `verify:review-sheet` sub-rows (`review-sheet-preview`,
+  `review-sheet-entries`, `review-sheet-model-label`) are the OPPOSITE — always
+  emitted, because the gate asserts structure only (title, both numbered
+  entries, friendly model label) and never pixel bytes. The accepted run-to-run
+  text drift lives here: the structural gate (and any capture without the
+  deterministic flag) renders the LIVE AI winner note, which legitimately
+  differs on every run — that drift is by design and never gated. The
+  committed `screenshots/review-sheet-*.png` pair is the exception: it must be
+  byte-stable, so the pre-push hook's gate 0.6d re-captures it in
+  deterministic mode (`REVIEW_SHEET_DETERMINISTIC` pins the note to a fixture
+  string and the winner to the top-`overallScore` candidate) and fails the push
+  until the committed pair matches the deterministic render. Commit the pair
+  whenever the Model Comparison page or the print-all builder changes.
 
 So when reading the `verify:all` table, a missing conditional row is expected
 on a machine without the service account (or without `--expect`): it means the
