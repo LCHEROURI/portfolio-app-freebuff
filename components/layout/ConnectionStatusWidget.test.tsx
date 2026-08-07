@@ -48,7 +48,7 @@ const baseline = (): IntegrationStatus[] => [
   healthy('github', 'GitHub', ['GITHUB_TOKEN', 'NEXT_PUBLIC_LIVE_REPOS']),
   healthy('vercel', 'Vercel', ['VERCEL_TOKEN', 'NEXT_PUBLIC_LIVE_DEPLOYMENTS']),
   healthy('firebase', 'Firebase', ['NEXT_PUBLIC_FIREBASE_API_KEY', 'NEXT_PUBLIC_FIREBASE_PROJECT_ID']),
-  healthy('automation', 'Automation Engine', ['CRON_SECRET', 'RESEND_API_KEY', 'REPORT_EMAIL']),
+  healthy('automation', 'Automation Engine', ['CRON_SECRET']),
 ];
 
 // GitHub loses its token AND its endpoint check fails — the realistic state of

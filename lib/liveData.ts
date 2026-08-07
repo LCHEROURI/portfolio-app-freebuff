@@ -83,37 +83,6 @@ export const fetchLiveRepos = (userId: string) =>
 export const fetchLiveDeployments = (userId: string) =>
   call<{ deployments: Deployment[]; configured: boolean }>('/api/deployments', userId);
 
-// ─── Manual report delivery (POST /api/reports/send) ────────────────────────
-export interface SendReportNowInput {
-  kind: 'daily' | 'weekly';
-  title: string;
-  body: string;
-  attentionCount: number;
-  /** AI executive summary text (optional — prepended like the cron does). */
-  aiSummary?: string | null;
-  /** Model id that wrote the summary (friendly heading + raw footer). */
-  aiModel?: string | null;
-}
-
-export interface SendReportNowResult {
-  ok: true;
-  sent: boolean;
-  emailId: string | null;
-  reason: string | null;
-}
-
-/**
- * Trigger a manual delivery of a composed report. The route reuses the same
- * Resend client as the scheduled cron but verifies the acting user instead of
- * CRON_SECRET, so the Reports page's 'Save and email now' works in the browser.
- * Returns `sent: false` with a reason when email is unconfigured (graceful).
- */
-export const sendReportNow = (userId: string, input: SendReportNowInput) =>
-  call<SendReportNowResult>('/api/reports/send', userId, {
-    method: 'POST',
-    body: JSON.stringify(input),
-  });
-
 // ─── AI report summaries (OpenRouter via /api/ai/summarize) ──────────────────
 export interface AiSummaryInput {
   kind: 'daily' | 'weekly';

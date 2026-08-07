@@ -331,19 +331,16 @@ const checkGoogleIdp = async (): Promise<IntegrationStatus> => {
 
 // ─── Automation engine ──────────────────────────────────────────────────────
 const checkAutomation = (): IntegrationStatus => {
-  const configured =
-    varSet('CRON_SECRET') && varSet('RESEND_API_KEY') && varSet('REPORT_EMAIL');
+  const configured = varSet('CRON_SECRET');
   return {
     id: 'automation', name: 'Automation engine', enabled: configured, configured,
     env: [
       envVar('CRON_SECRET', true),
-      envVar('RESEND_API_KEY', true),
-      envVar('REPORT_EMAIL', true),
       envVar('REPORT_WEEKLY_DAY'),
       envVar('REPORT_STALE_DAYS'),
     ],
     endpoint: null,
-    note: 'Vercel Cron invokes /api/cron/reports daily at 07:00 UTC — no endpoint to ping.',
+    note: 'Vercel Cron invokes /api/cron/reports daily at 07:00 UTC — composed reports feed the in-app Reports page; emailed reports are disabled.',
   };
 };
 

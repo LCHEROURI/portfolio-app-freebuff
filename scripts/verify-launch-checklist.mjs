@@ -11,7 +11,7 @@
 //                           package.json script (so it is runnable the same
 //                           canonical way every other gate is).
 //
-// Also enforces the doc's "eleven gates" claim: if §4 stops listing one of the
+// Also enforces the doc's "ten gates" claim: if §4 stops listing one of the
 // gates, or a new gate is added to the doc without a matching script, this
 // check fails — so the checklist can never drift from the runnable commands.
 //
@@ -28,7 +28,7 @@ const read = (path) => readFileSync(resolve(ROOT, path), 'utf8');
 
 const DOC = 'docs/launch.md';
 const GATE_SECTION_HEADING = /^## \d+\. The verification gates/;
-const EXPECTED_GATE_COUNT = 11;
+const EXPECTED_GATE_COUNT = 10;
 // The exact canonical commands §4 must document. Hardcoding the set (not just
 // the count) closes the silent-drift hole: deleting a real gate while adding
 // a different row would keep the count at 8 but fail here. The deployed-hash
@@ -42,7 +42,6 @@ const EXPECTED_GATES = [
   'node scripts/verify-google-idp.mjs',
   'npm run verify:token-health',
   'npm run verify:vercel-env',
-  'npm run verify:resend',
   'node scripts/verify-auth-domains.mjs',
   'npm run verify:deployed-hash -- --expect <sha>',
   'npm run verify:import-surface',

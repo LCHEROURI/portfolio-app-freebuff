@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { FileText, RefreshCw, Clock4, Sparkles, CalendarClock, Send, Trash2, RotateCcw } from 'lucide-react';
+import { FileText, RefreshCw, Clock4, Sparkles, CalendarClock, Trash2 } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
@@ -11,10 +11,9 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Modal } from '@/components/ui/Modal';
 import { LastScanStrip } from '@/components/dashboard/LastScanStrip';
 import { useStore } from '@/lib/store';
-import { fetchAiSummary, sendReportNow } from '@/lib/liveData';
+import { fetchAiSummary } from '@/lib/liveData';
 import { buildDailyReportBody, buildWeeklyReportBody, timeAgo } from '@/lib/engine';
 import type { ReportPreviewPayload } from '@/lib/reportPreview';
-import type { Report } from '@/types';
 
 // A report preview is the shared payload the cron's ?previewBody=1 also emits
 // (kind/title/body/attentionCount/aiModel/narration) plus the client-only
@@ -31,9 +30,6 @@ export default function ReportsPage() {
   const [generating, setGenerating] = useState<'daily' | 'weekly' | null>(null);
   const [preview, setPreview] = useState<ReportPreview | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const [sending, setSending] = useState(false);
-  const [sendNote, setSendNote] = useState<string | null>(null);
-  const [retryingId, setRetryingId] = useState<string | null>(null);
 
   // Build the report and open a preview modal instead of saving immediately, so
   // the user sees the exact emailed body (freshness section + AI summary)
@@ -77,7 +73,6 @@ export default function ReportsPage() {
       pendingSave: true,
     });
     setConfirmDiscard(false);
-    setSendNote(null);
     setGenerating(null);
   };
 
@@ -95,115 +90,6 @@ export default function ReportsPage() {
       aiModel: preview.aiModel ?? undefined,
     });
     setPreview(null);
-  };
-
-  // Save the report AND immediately deliver it via /api/reports/send — the same
-  // Resend client the scheduled cron uses, but user-authenticated so the browser
-  // can trigger it. Emailing is graceful: an unconfigured provider still saves
-  // the report and reports why the email was skipped. The delivery outcome is
-  // persisted onto the saved report (saveReport upserts by id), so the card in
-  // the list keeps showing the Emailed/skipped/failed badge after the modal
-  // closes — the result is never lost.
-  const saveAndEmailNow = async () => {
-    if (!preview) return;
-    setSending(true);
-    setSendNote(null);
-    // Save the report FIRST (before delivery) so it is never lost even if the
-    // send fails; the delivery status then updates the same row via upsert.
-    const report: Report = {
-      id: `r-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
-      userId: store.userId,
-      kind: preview.kind,
-      title: preview.title,
-      body: preview.body,
-      attentionCount: preview.attentionCount,
-      createdAt: new Date().toISOString(),
-      aiSummary: preview.aiSummary,
-      aiModel: preview.aiModel ?? undefined,
-    };
-    await store.saveReport(report);
-    try {
-      const res = await sendReportNow(store.userId, {
-        kind: preview.kind,
-        title: preview.title,
-        body: preview.body,
-        attentionCount: preview.attentionCount,
-        aiSummary: preview.aiSummary,
-        aiModel: preview.aiModel,
-      });
-      const delivered: Report = {
-        ...report,
-        emailStatus: res.sent ? 'sent' : 'skipped',
-        emailId: res.emailId ?? undefined,
-        emailReason: res.sent ? undefined : (res.reason ?? 'not configured'),
-        emailAttemptedAt: new Date().toISOString(),
-      };
-      await store.saveReport(delivered);
-      // Log the delivery to the activity feed so the Activity page shows the
-      // full delivery history (emailId + status) for client-triggered sends.
-      await store.logActivity({
-        kind: 'report_generated',
-        message: res.sent
-          ? `${preview.kind} report "${preview.title}" emailed (${res.emailId ?? 'no id'})`
-          : `${preview.kind} report "${preview.title}" email skipped: ${res.reason ?? 'not configured'}`,
-      });
-      setSendNote(res.sent ? 'Emailed ✓' : `Saved — email skipped: ${res.reason ?? 'not configured'}.`);
-    } catch {
-      await store.saveReport({
-        ...report,
-        emailStatus: 'failed',
-        emailReason: 'Email delivery failed.',
-        emailAttemptedAt: new Date().toISOString(),
-      });
-      setSendNote('Saved — email delivery failed.');
-    } finally {
-      setSending(false);
-      // The report is saved either way, so the preview flips to view-only
-      // (Close instead of Save) — an accidental second 'Save report' click can
-      // never write a duplicate row.
-      setPreview((p) => (p ? { ...p, pendingSave: false } : p));
-    }
-  };
-
-  // Re-attempt email delivery for a saved report whose emailStatus is skipped
-  // or failed. Re-POSTs to /api/reports/send and updates the badge in place via
-  // the upsert-by-id saveReport, so the card flips to Emailed ✓ without a
-  // reload.
-  const retryEmail = async (r: Report) => {
-    setRetryingId(r.id);
-    try {
-      const res = await sendReportNow(store.userId, {
-        kind: r.kind,
-        title: r.title,
-        body: r.body,
-        attentionCount: r.attentionCount,
-        aiSummary: r.aiSummary,
-        aiModel: r.aiModel,
-      });
-      const delivered: Report = {
-        ...r,
-        emailStatus: res.sent ? 'sent' : 'skipped',
-        emailId: res.emailId ?? undefined,
-        emailReason: res.sent ? undefined : (res.reason ?? 'not configured'),
-        emailAttemptedAt: new Date().toISOString(),
-      };
-      await store.saveReport(delivered);
-      await store.logActivity({
-        kind: 'report_generated',
-        message: res.sent
-          ? `retried: ${r.kind} report "${r.title}" emailed (${res.emailId ?? 'no id'})`
-          : `retried: ${r.kind} report "${r.title}" email skipped: ${res.reason ?? 'not configured'}`,
-      });
-    } catch {
-      await store.saveReport({
-        ...r,
-        emailStatus: 'failed',
-        emailReason: 'Email delivery failed.',
-        emailAttemptedAt: new Date().toISOString(),
-      });
-    } finally {
-      setRetryingId(null);
-    }
   };
 
   // A freshly generated preview holds unsaved work, so an accidental Discard
@@ -271,33 +157,6 @@ export default function ReportsPage() {
             <details key={r.id} className="card-base group">
               <summary className="flex cursor-pointer list-none items-center gap-3">
                 <Badge tone={r.kind === 'daily' ? 'turmeric' : 'eggplant'}>{r.kind}</Badge>
-                {r.emailStatus && (
-                  <Badge
-                    tone={r.emailStatus === 'sent' ? 'basil' : r.emailStatus === 'skipped' ? 'turmeric' : 'paprika'}
-                    title={r.emailId ? `Resend email id: ${r.emailId}` : r.emailReason}
-                  >
-                    {r.emailStatus === 'sent'
-                      ? 'Emailed ✓'
-                      : `Email ${r.emailStatus}${r.emailReason ? ` — ${r.emailReason}` : ''}`}
-                  </Badge>
-                )}
-                {(r.emailStatus === 'skipped' || r.emailStatus === 'failed') && (
-                  <button
-                    type="button"
-                    aria-label={`Retry email for ${r.title}`}
-                    className="btn-ghost rounded-md px-2 py-1 text-xs"
-                    disabled={retryingId === r.id}
-                    onClick={(e) => {
-                      // Don't toggle the <details> — only retry the email.
-                      e.preventDefault();
-                      e.stopPropagation();
-                      void retryEmail(r);
-                    }}
-                  >
-                    <RotateCcw size={12} className={retryingId === r.id ? 'animate-spin' : ''} aria-hidden="true" />
-                    {retryingId === r.id ? 'Retrying…' : 'Retry email'}
-                  </button>
-                )}
                 <span className="flex-1 font-semibold">{r.title}</span>
                 <span className="text-xs text-pepper-400">{r.attentionCount} attention items · {timeAgo(r.createdAt)}</span>
                 <button
@@ -309,7 +168,6 @@ export default function ReportsPage() {
                     e.preventDefault();
                     e.stopPropagation();
                     setConfirmDiscard(false);
-                    setSendNote(null);
                     setPreview({
                       kind: r.kind,
                       title: r.title,
@@ -351,7 +209,7 @@ export default function ReportsPage() {
           open
           onClose={requestClose}
           title={`Preview ${preview.kind} report`}
-          description="This is exactly what the emailed body will contain — including the Local scan freshness section and any AI executive summary."
+          description="This is exactly what the report will contain — including the Local scan freshness section and any AI executive summary."
           wide
         >
           {preview.aiSummary && (
@@ -383,21 +241,14 @@ export default function ReportsPage() {
                 </div>
               </div>
             )}
-            {sendNote && (
-              <p className="text-sm text-pepper-600 dark:text-pepper-300" role="status">{sendNote}</p>
-            )}
             <div className="flex justify-end gap-2">
               {preview.pendingSave ? (
                 <>
                   <button type="button" className="btn-ghost" onClick={requestClose}>
                     Discard
                   </button>
-                  <button type="button" className="btn-secondary" onClick={() => void savePreview()}>
+                  <button type="button" className="btn-primary" onClick={() => void savePreview()}>
                     <FileText size={15} aria-hidden="true" /> Save report
-                  </button>
-                  <button type="button" className="btn-primary" disabled={sending} onClick={() => void saveAndEmailNow()}>
-                    <Send size={15} className={sending ? 'animate-pulse' : ''} aria-hidden="true" />
-                    {sending ? 'Saving & sending…' : 'Save and email now'}
                   </button>
                 </>
               ) : (

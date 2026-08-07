@@ -132,8 +132,6 @@ jobs:
       CRON_SECRET: ${{ secrets.CRON_SECRET }}
       FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-      REPORT_FROM: ${{ secrets.REPORT_FROM }}
 
     steps:
       - name: Check out repository
@@ -162,20 +160,8 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
-      # Resend API key health: proves the RESEND_API_KEY the Automation
-      # Engine uses to send daily/weekly reports still authenticates, and
-      # asserts REPORT_FROM points at a verified custom sender domain (DNS
-      # TXT probe for the Resend SPF/DKIM records), not the onboarding@resend.dev
-      # sandbox. A revoked key or a sandbox-bound sender fails the run here
-      # with targeted guidance instead of silently skipping every email.
-      # Read-only probes (GET /api-keys + DNS) — sends no email. Gated on the
-      # secret so forks / unconfigured repos stay green.
-      - name: Verify Resend API key health
-        if: ${{ env.RESEND_API_KEY != '' }}
-        run: node scripts/verify-resend.mjs
-        env:
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          REPORT_FROM: ${{ secrets.REPORT_FROM }}
+      # Resend/email is disabled — no resend key-health step. The cron-email
+      # gate below still proves the deployed bodies compose correctly.
 
       - name: Verify deployed cron email bodies
         if: ${{ env.CRON_SECRET != '' }}

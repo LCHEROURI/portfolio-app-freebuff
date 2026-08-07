@@ -2,7 +2,7 @@
 # ============================================================================
 # .githooks/pre-push — run the full post-deploy verification suite before
 # pushing to main, so sign-in, Firestore rules, authorized-domains, and cron
-# email regressions are all caught locally instead of waiting for CI.
+# report regressions are all caught locally instead of waiting for CI.
 # Enabled with:
 #
 #     npm run hooks:install      (git config core.hooksPath .githooks)
@@ -16,9 +16,6 @@
 #   0.6 scripts/lint-import-surface.mjs  (no secrets, pure static, near-instant)
 #   0.7 scripts/verify-vercel-env.mjs    (needs VERCEL_TOKEN + vercel CLI — pulls prod
 #                                          env and asserts it matches .env.local)
-#   0.8 scripts/verify-resend.mjs        (needs RESEND_API_KEY — read-only key probe,
-#                                          no email sent; also asserts REPORT_FROM points
-#                                          at a verified custom sender domain)
 #   1. scripts/verify-auth-domains.mjs   (needs FIREBASE_WEB_API_KEY)
 #   2. scripts/verify-cron-email.mjs     (needs CRON_SECRET)
 #   3. scripts/verify-prod-signin.mjs    (needs FIREBASE_WEB_API_KEY + Chrome)
@@ -117,7 +114,6 @@ if [ -z "$KEY" ]; then
 fi
 CRON="$(read_env CRON_SECRET)"
 VERCEL="$(read_env VERCEL_TOKEN)"
-RESEND="$(read_env RESEND_API_KEY)"
 # The canonical production URL — the alias whose routing the drift watch
 # asserts matches the deployment-specific URL verified by the hash gate.
 PRODUCTION_URL="https://portfolio-app-freebuff.vercel.app"
@@ -234,22 +230,6 @@ if [ -n "$VERCEL" ] && [ -f scripts/verify-vercel-env.mjs ]; then
 else
   [ -f scripts/verify-vercel-env.mjs ] || echo "pre-push: verify suite not present — skipping vercel-env proof"
   [ -n "$VERCEL" ] || echo "pre-push: VERCEL_TOKEN not set — skipping vercel-env proof"
-fi
-
-# ── 0.8 Resend key-health gate (needs RESEND_API_KEY; read-only, no Chrome) ─
-# Proves the stored RESEND_API_KEY is alive against GET /api-keys (a Bearer
-# probe that sends no email), so a revoked or mistyped key is caught before a
-# push ships an Automation Engine that silently skips every email. Also
-# asserts REPORT_FROM points at a verified custom sender domain via a DNS TXT
-# probe (SPF include:amazonses.com + resend._domainkey DKIM) — NOT the
-# onboarding@resend.dev sandbox the app defaults to. Same rc=2 contract as
-# the Vercel gates: an invalid key or a sandbox-bound sender aborts the push
-# with the targeted guidance.
-if [ -n "$RESEND" ] && [ -f scripts/verify-resend.mjs ]; then
-  run_verify "Resend API key health" scripts/verify-resend.mjs
-else
-  [ -f scripts/verify-resend.mjs ] || echo "pre-push: verify suite not present — skipping resend proof"
-  [ -n "$RESEND" ] || echo "pre-push: RESEND_API_KEY not set — skipping resend proof"
 fi
 
 # ── 1. Authorized-domains gate (fast, no Chrome) ───────────────────────────

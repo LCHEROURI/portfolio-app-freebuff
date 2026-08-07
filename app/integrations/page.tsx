@@ -117,13 +117,9 @@ const SETUP_GUIDES: Record<string, SetupStep[]> = {
   ],
   automation: [
     {
-      label: 'Create a Resend API key',
-      note: 'https://resend.com → API Keys. The free tier covers daily report emails.',
-    },
-    {
-      label: 'Pick a CRON_SECRET and a report inbox',
-      code: 'CRON_SECRET=<long-random-string>\nRESEND_API_KEY=<key>\nREPORT_EMAIL=you@example.com',
-      note: 'Vercel Cron sends CRON_SECRET automatically as Authorization: Bearer — the route rejects requests without it.',
+      label: 'Pick a CRON_SECRET',
+      code: 'CRON_SECRET=<long-random-string>',
+      note: 'Vercel Cron sends CRON_SECRET automatically as Authorization: Bearer — the route rejects requests without it. Reports are composed in-app (emailed reports are disabled).',
     },
   ],
   'google-idp': [
@@ -331,8 +327,8 @@ function SetupChecklist({ status }: { status: IntegrationStatus }) {
   // exact flag — Vercel's env UI has no per-row URL anchors).
   const credentialsMissing = missing.some((v) => !v.name.startsWith('NEXT_PUBLIC_LIVE_'));
   // The footer "get the token" link only earns its spot when some missing var
-  // has no per-var deep-link of its own (e.g. Automation's CRON_SECRET /
-  // REPORT_EMAIL) — otherwise the per-var links above already cover the gap.
+  // has no per-var deep-link of its own (e.g. Automation's CRON_SECRET) —
+  // otherwise the per-var links above already cover the gap.
   // The anchor is derived from the same per-var map as the deep-links
   // (firstVarSource), so the two URL sets can never drift out of sync.
   const firebaseProjectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
@@ -384,7 +380,7 @@ function SetupChecklist({ status }: { status: IntegrationStatus }) {
           {missing.map((v, i) => {
             // Per-var deep-link to where this var's value lives (GitHub token
             // page, Firebase console project, …). Vars you invent yourself
-            // (CRON_SECRET, REPORT_EMAIL) render plain.
+            // (CRON_SECRET) render plain.
             const src = varSourceUrl(v.name, firebaseProjectId);
             return (
               <Fragment key={v.name}>

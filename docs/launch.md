@@ -36,10 +36,8 @@ NEXT_PUBLIC_FIREBASE_APP_ID
 OPENROUTER_API_KEY
 OPENROUTER_MODEL            # optional; per-user Settings picker overrides
 
-# Automation cron + email
+# Automation cron (report generation)
 CRON_SECRET                 # Vercel Cron auth header; keep in sync with .env.local
-RESEND_API_KEY
-REPORT_EMAIL
 REPORT_OWNER_ID             # real Firebase uid so cron reports reach your Activity feed
 REPORT_WEEKLY_DAY           # optional (1 = Mon)
 REPORT_STALE_DAYS           # optional (7)
@@ -72,8 +70,7 @@ Each exits nonzero on failure. Read secrets from env, then `.env.local`.
 | --- | --- |
 | `npm run verify:token-health` | Stored `VERCEL_TOKEN` is alive: reads it (env → `.env.local` → CLI store), calls `GET /v2/user/tokens`, and reports the active token's name + expiry (or "no expiration"); a revoked token exits 2 with the paste-a-fresh-token guidance. Runs **first** in `verify:all` so a dead credential is caught in ~1s before any gate that depends on it |
 | `npm run verify:vercel-env` | Vercel production env **matches** `.env.local`: pulls the decrypted values via `vercel env pull`, asserts every local key exists in Vercel prod with an identical value (report shows names + value lengths only, never the secrets), reports Vercel-only vars as informational, and classifies GitHub secrets — CI-only ones (e.g. `VERCEL_ORG_ID`) are expected, not drift, while a GitHub secret that `.env.local` has but Vercel prod lacks fails the gate. Exits 1 on drift, 2 on an invalid token. Requires `VERCEL_TOKEN` + the Vercel CLI; `gh` degrades to skip-not-fail |
-| `npm run verify:resend` | Stored `RESEND_API_KEY` is **alive**: probes `GET /api-keys` with the key as a Bearer token (read-only — sends no email). HTTP 200 passes as a full-access key; the `restricted_api_key` 401 passes with a note (Resend's send-only permission is exactly what the Automation Engine needs); any other 400/401/403 exits 2 with paste-a-fresh-key guidance (same rc=2 contract as the Vercel token gates). Also asserts `REPORT_FROM` points at a **verified custom sender domain** — a DNS TXT probe checks the domain carries Resend's SPF (`v=spf1 include:amazonses.com`) and DKIM (`resend._domainkey` `v=DKIM1`) records — so the emails leave the `onboarding@resend.dev` sandbox and can reach any recipient. Unset, `@resend.dev`, or an unverified domain exits 2 with configure-a-domain guidance; a DNS probe failure exits 1. Requires `RESEND_API_KEY` + `REPORT_FROM` (env → `.env.local`) |
-| `npm run verify:cron-email` | Deployed `/api/cron/reports` 401s without auth; daily + weekly email bodies carry the friendly `(DeepSeek Chat)` heading and raw-id `Model:` footer; weekly winner-recommendation section present |
+| `npm run verify:cron-email` | Deployed `/api/cron/reports` 401s without auth; daily + weekly report bodies carry the friendly `(DeepSeek Chat)` heading and raw-id `Model:` footer; weekly winner-recommendation section present. Emailed reports are disabled — this proves the composed bodies still ship for the in-app Reports page |
 | `npm run verify:firestore-rules` | Rules on `portfolio-app-freebuff2`: portfolio write/read under the user's uid, cross-user denied |
 | `npm run verify:auth-domains` | `/api/status?project=<domain>` reports `authDomains.ok` for the shipping domain |
 | `node scripts/verify-prod-signin.mjs` | AuthGate renders, email/password + Google buttons present, both IdPs enabled (admin API), sign-in releases into the Command Center, Firestore write/read sync proven; `[3b]` asserts the classic OAuth client |
@@ -82,7 +79,7 @@ Each exits nonzero on failure. Read secrets from env, then `.env.local`.
 | `npm run verify:deployed-hash -- --expect <sha>` | Production is actually serving the expected commit — the exact gate the `deployed-hash` CI workflow and pre-push hook run. Pass the commit you expect to be live (`git rev-parse origin/main` for the last pushed commit; `--check-local` compares against local HEAD instead) |
 | `npm run verify:import-surface` | Static import-surface lint over `scripts/` + `lib/` + `app/` (TS-compiler-AST scan): no re-exported imports and no unused imports. No secrets, no network — also wired into `npm run lint`, the pre-push hook (gate 0.6), and CI's lint step |
 
-Run **all eleven in one command** with `npm run verify:all` — it preflights the
+Run **all ten in one command** with `npm run verify:all` — it preflights the
 drift guard above, runs every gate sequentially against the production URL
 (or `--app <url>` to target a preview/local server), dedupes the two
 auth-domains rows (they share one script), and prints a summary table,
@@ -138,7 +135,7 @@ unaffected.
 2. **Vercel** — all env vars from §2 set on **Production** (and the GitHub secrets from §3).
 3. **Rules** — `npx firebase deploy --only firestore:rules --project portfolio-app-freebuff2`.
 4. **Push to `main`** — Vercel auto-deploys; the pre-push hook runs the local gates; CI runs the post-deploy gates.
-5. **Run the full verify suite** against the production URL (§4). All eleven gates must pass.
+5. **Run the full verify suite** against the production URL (§4). All ten gates must pass.
 6. **Manual smoke** — sign in on the production URL with email/password, then Google; open Command Center; click AI Explain and confirm the briefing card renders with the `DeepSeek Chat` badge.
 
 ## 6. What was verified at go-live (2026-08-06)

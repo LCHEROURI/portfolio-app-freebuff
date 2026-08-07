@@ -6,7 +6,7 @@
 // against production (or an --app override), so the go-live checklist is
 // executable in a single command:
 //
-//   npm run verify:all                       # all eleven gates, production URL
+//   npm run verify:all                       # all ten gates, production URL
 //   node scripts/verify-all.mjs --app http://localhost:3000
 //   node scripts/verify-all.mjs --only prod-signin,google-idp
 //   node scripts/verify-all.mjs --skip prod-signin --timeout 900
@@ -50,7 +50,7 @@ const PRODUCTION_URL = 'https://portfolio-app-freebuff.vercel.app';
 const ONLY = onlyArg ? onlyArg.split(',').map((s) => s.trim()).filter(Boolean) : [];
 const SKIP = skipArg ? skipArg.split(',').map((s) => s.trim()).filter(Boolean) : [];
 
-const GATE_NAMES = ['token-health', 'vercel-env', 'resend', 'cron-email', 'firestore-rules', 'auth-domains', 'prod-signin', 'google-idp', 'auth-domains-direct', 'deployed-hash', 'import-surface'];
+const GATE_NAMES = ['token-health', 'vercel-env', 'cron-email', 'firestore-rules', 'auth-domains', 'prod-signin', 'google-idp', 'auth-domains-direct', 'deployed-hash', 'import-surface'];
 const unknownOnly = ONLY.filter((n) => !GATE_NAMES.includes(n));
 const unknownSkip = SKIP.filter((n) => !GATE_NAMES.includes(n));
 if (unknownOnly.length > 0 || unknownSkip.length > 0) {
@@ -101,18 +101,7 @@ const GATES = [
   // first. Requires the Vercel CLI (falls back to npx) + gh for the GitHub
   // classification (which degrades to skip-not-fail when gh is absent).
   { name: 'vercel-env', label: 'Vercel prod env matches .env.local', script: 'verify:vercel-env', secrets: ['VERCEL_TOKEN'], note: 'vercel CLI' },
-  // The resend gate proves the stored RESEND_API_KEY is alive (GET /api-keys
-  // with the key as a Bearer token — a read-only probe, no email sent). A
-  // send-only key (Resend's restricted_api_key 401) is valid for the app and
-  // passes with a note; a bad/revoked key exits 2 with paste-a-fresh-key
-  // guidance, mirroring the Vercel token gates' rc=2 contract. It also
-  // asserts the report sender (REPORT_FROM) points at a verified custom
-  // domain via a DNS TXT probe (SPF include:amazonses.com + resend._domainkey
-  // DKIM) — NOT the onboarding@resend.dev sandbox the app defaults to — so a
-  // sandbox-bound sender is flagged before the Automation Engine emails
-  // silently. Runs early because the Automation Engine's emails depend on it.
-  { name: 'resend', label: 'Resend API key + sender domain', script: 'verify:resend', secrets: ['RESEND_API_KEY', 'REPORT_FROM'] },
-  { name: 'cron-email', label: 'Cron email bodies', script: 'verify:cron-email', baseFlag: '--base', secrets: ['CRON_SECRET'] },
+  { name: 'cron-email', label: 'Cron report bodies', script: 'verify:cron-email', baseFlag: '--base', secrets: ['CRON_SECRET'] },
   { name: 'firestore-rules', label: 'Firestore rules isolation', script: 'verify:firestore-rules', secrets: ['NEXT_PUBLIC_FIREBASE_PROJECT_ID', 'FIREBASE_WEB_API_KEY'] },
   { name: 'auth-domains', label: 'Authorized domains', script: 'verify:auth-domains', appFlag: '--app', secrets: ['FIREBASE_WEB_API_KEY'] },
   { name: 'prod-signin', label: 'Production sign-in + Firestore sync', script: 'verify:prod-signin', appFlag: '--app', secrets: ['FIREBASE_WEB_API_KEY', 'NEXT_PUBLIC_FIREBASE_PROJECT_ID'], note: 'Chrome' },
@@ -213,7 +202,7 @@ const runOne = async (gate) => {
 
 // ── Preflight: the doc's gates must be runnable before we run any ───────────
 console.log(`\nLaunch checklist runner — ${APP || 'production URL (default)'}\n`);
-console.log('[0/11] Preflight: launch-checklist drift guard');
+console.log('[0/10] Preflight: launch-checklist drift guard');
 const preflight = spawn('node', ['scripts/verify-launch-checklist.mjs'], { stdio: 'inherit', env: process.env });
 const preflightCode = await new Promise((resolvePromise) => {
   preflight.on('exit', (c) => resolvePromise(c ?? 1));
@@ -270,11 +259,8 @@ for (const r of results) {
   const time = r.pass === null || r.pass === 'covered' ? '—' : `${(r.ms / 1000).toFixed(1)}s`;
   console.log(`  ${pad(r.gate.label, w)}  ${pad(statusOf(r), 7)}  ${pad(requiresOf(r.gate), rw)}  ${time}`);
 }
-console.log('══════════════════════════════════════════════════════════');
-console.log('  ✓ = secret present (env or .env.local) · ✗ = missing — most gates');
-console.log('  skip-not-fail internally, so check the REQUIRES column first. Exception:');
-console.log('  the resend gate FAILS (exit 2) when REPORT_FROM is missing — a sandbox-bound');
-console.log('  sender must be configured, not skipped.');
+console.log('══════════════════════════════════════════════════════════');  console.log('  ✓ = secret present (env or .env.local) · ✗ = missing — most gates');
+  console.log('  skip-not-fail internally, so check the REQUIRES column first.');
 
 const ranCount = results.filter((r) => r.pass !== null && r.pass !== 'covered').length;
 if (ranCount === 0) {

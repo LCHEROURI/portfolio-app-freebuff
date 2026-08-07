@@ -4,8 +4,8 @@
 // Each missing required env var deep-links to the exact page where its value
 // lives (GitHub token page, Vercel token page, Firebase console project),
 // alongside the existing Vercel env-settings link. Vars without a dedicated
-// source page (CRON_SECRET, REPORT_EMAIL, GITHUB_OWNER — values you invent
-// or copy from your own account) intentionally render as plain text.
+// source page (CRON_SECRET, GITHUB_OWNER — values you invent or copy from
+// your own account) intentionally render as plain text.
 //
 // Firebase deep-links to the exact project when NEXT_PUBLIC_FIREBASE_PROJECT_ID
 // is set (it's a NEXT_PUBLIC_ var, so it is available client-side when
@@ -34,7 +34,6 @@ export const firebaseConsoleUrl = (projectId?: string): VarSource =>
 const VAR_SOURCE_URLS: Record<string, VarSource> = {
   GITHUB_TOKEN: { label: 'GitHub token page', href: 'https://github.com/settings/personal-access-tokens/new' },
   VERCEL_TOKEN: { label: 'Vercel token page', href: 'https://vercel.com/account/tokens' },
-  RESEND_API_KEY: { label: 'Resend API keys', href: 'https://resend.com/api-keys' },
 };
 
 /**
@@ -66,7 +65,6 @@ export const firstVarSource = (names: string[], firebaseProjectId?: string): Var
 const VAR_ENV_LINES: Record<string, string> = {
   GITHUB_TOKEN: 'GITHUB_TOKEN=<github_pat_...>',
   VERCEL_TOKEN: 'VERCEL_TOKEN=<token>',
-  RESEND_API_KEY: 'RESEND_API_KEY=<key>',
   NEXT_PUBLIC_FIREBASE_API_KEY: 'NEXT_PUBLIC_FIREBASE_API_KEY=<api-key>',
   NEXT_PUBLIC_FIREBASE_PROJECT_ID: 'NEXT_PUBLIC_FIREBASE_PROJECT_ID=<project-id>',
 };

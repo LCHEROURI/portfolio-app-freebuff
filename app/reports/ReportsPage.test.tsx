@@ -15,9 +15,6 @@ import type { Report } from '@/types';
 // declaration above the mock and never import '@/lib/store' eagerly in tests.
 const savedReports: Report[] = [];
 let profileOverride: { aiModel?: string } = {};
-// Activity entries logged by save-and-email-now / retry, captured so tests can
-// assert the delivery history reaches the activity feed.
-const loggedActivity: Array<{ kind: string; message: string }> = [];
 
 vi.mock('@/lib/store', () => ({
   useStore: () => ({
@@ -31,15 +28,11 @@ vi.mock('@/lib/store', () => ({
     },
     projects: [], versions: [], repositories: [], deployments: [], tasks: [], evaluations: [], activity: [],
     reports: savedReports,
-    // Mirror the real store's upsert-by-id semantics: 'Save and email now'
-    // saves the report once, then re-saves the SAME id with its delivery
-    // status, so the mock must replace in place rather than duplicate.
     saveReport: async (r: Report) => {
       const i = savedReports.findIndex((x) => x.id === r.id);
       if (i >= 0) savedReports[i] = r;
       else savedReports.unshift(r);
     },
-    logActivity: async (e: { kind: string; message: string }) => { loggedActivity.push(e); },
   }),
 }));
 
@@ -64,24 +57,14 @@ type SummaryBody = { ok: boolean; configured: boolean; summary: string | null; m
 let queue: SummaryBody[];
 let lastRequestModel: string | undefined;
 
-// /api/reports/send (Save and email now) responses, consumed in order.
-let sendQueue: Array<{ sent: boolean; reason?: string | null }>;
-
 // The page also mounts the LastScanStrip, which fetches GET /api/scans on
-// mount; route that to an empty feed so the AI stubs below only ever see
-// /api/ai/summarize and /api/reports/send calls.
+// mount; route that to an empty feed so the AI stub below only ever sees
+// /api/ai/summarize calls.
 const stubSummarizeFetch = () => {
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.includes('/api/scans')) {
       return { ok: true, status: 200, json: async () => ({ ok: true, repos: [] }) } as Response;
-    }
-    if (url.includes('/api/reports/send')) {
-      const next = sendQueue.shift() ?? { sent: true };
-      return {
-        ok: true, status: 200,
-        json: async () => ({ ok: true, ...next, emailId: next.sent ? 'email-1' : null }),
-      } as Response;
     }
     if (!url.includes('/api/ai/summarize')) {
       throw new Error(`Unexpected fetch in reports test: ${url}`);
@@ -99,10 +82,8 @@ const stubSummarizeFetch = () => {
 
 beforeEach(() => {
   savedReports.length = 0;
-  loggedActivity.length = 0;
   queue = [];
   lastRequestModel = undefined;
-  sendQueue = [];
   profileOverride = {};
   stubSummarizeFetch();
 });
@@ -138,7 +119,7 @@ describe('ReportsPage — AI executive summary', () => {
     expect(within(screen.getByRole('dialog')).getByText('AI executive summary')).toBeInTheDocument();
     expect(within(screen.getByRole('dialog')).getByText('DeepSeek Chat')).toBeInTheDocument();
     expect(within(screen.getByRole('dialog')).getByText('Push the unpushed commits first.')).toBeInTheDocument();
-    // The exact emailed body (incl. the Local scan freshness section) is previewed.
+    // The exact report body (incl. the Local scan freshness section) is previewed.
     expect(within(screen.getByRole('dialog')).getByText(/## Local scan freshness/)).toBeInTheDocument();
 
     // Nothing is saved until the user confirms.
@@ -245,130 +226,12 @@ describe('ReportsPage — AI executive summary', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(savedReports).toHaveLength(0);
   });
-
-  it('saves and emails now, persists the delivery badge on the card, and flips the preview to view-only', async () => {
-    queue = [{ ok: true, configured: true, summary: 'Send me.', model: 'deepseek/deepseek-chat' }];
-    sendQueue = [{ sent: true }];
-    render(<ReportsPage />);
-
-    await generateDaily();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Save and email now' }));
-
-    // One report row saved and delivered; the delivery outcome is persisted.
-    const saved = await waitFor(() => {
-      // The page saves the report FIRST (before the send) and then re-saves the
-      // same id with the delivery status — wait for the status to be persisted.
-      expect(savedReports).toHaveLength(1);
-      expect(savedReports[0].emailStatus).toBeDefined();
-      return savedReports[0];
-    });
-    expect(saved.aiSummary).toBe('Send me.');
-    expect(saved.emailStatus).toBe('sent');
-    expect(saved.emailId).toBe('email-1');
-    expect(saved.emailAttemptedAt).toBeDefined();
-    // The delivery lands in the activity feed with the emailId.
-    expect(loggedActivity.some((a) => a.kind === 'report_generated' && a.message.includes('email-1'))).toBe(true);
-
-    // The preview is now view-only (Close, no Save) so a second click can't duplicate.
-    const dialog = screen.getByRole('dialog');
-    expect(within(dialog).queryByRole('button', { name: 'Save report' })).toBeNull();
-    expect(within(dialog).queryByRole('button', { name: 'Save and email now' })).toBeNull();
-
-    // Close the modal: the 'Emailed ✓' badge must SURVIVE on the saved card
-    // (it renders from the persisted emailStatus, not the transient note).
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
-    expect(screen.queryByRole('dialog')).toBeNull();
-    expect(screen.getByText('Emailed ✓')).toBeInTheDocument();
-    const badge = screen.getByText('Emailed ✓');
-    expect(badge).toHaveAttribute('title', 'Resend email id: email-1');
-    expect(savedReports).toHaveLength(1); // upsert, no duplicate
-  });
-
-  it('still saves when the send is skipped (email unconfigured) and persists the reason on the card', async () => {
-    queue = [{ ok: true, configured: true, summary: 'Save anyway.', model: 'deepseek/deepseek-chat' }];
-    sendQueue = [{ sent: false, reason: 'RESEND_API_KEY not set' }];
-    render(<ReportsPage />);
-
-    await generateDaily();
-    fireEvent.click(screen.getByRole('button', { name: 'Save and email now' }));
-
-    await waitFor(() => expect(savedReports).toHaveLength(1));
-    expect(savedReports[0].emailStatus).toBe('skipped');
-    expect(savedReports[0].emailReason).toBe('RESEND_API_KEY not set');
-    expect(await screen.findByText(/Saved — email skipped: RESEND_API_KEY not set/)).toBeInTheDocument();
-    // View-only after the attempt, so the report can't be double-saved.
-    expect(within(screen.getByRole('dialog')).queryByRole('button', { name: 'Save report' })).toBeNull();
-
-    // Close the modal: the skip reason badge survives on the card.
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }));
-    expect(screen.getByText('Email skipped — RESEND_API_KEY not set')).toBeInTheDocument();
-  });
-});
-
-// ─── Retry email on a saved card ─────────────────────────────────────────────
-
-describe('ReportsPage — Retry email', () => {
-  it('re-POSTs to /api/reports/send and flips a skipped card to Emailed ✓ in place', async () => {
-    // A previously saved report that was skipped (email unconfigured at the time).
-    savedReports.push({
-      id: 'r-skipped',
-      userId: 'e2e-user',
-      kind: 'daily',
-      title: 'Daily Report 8/4/2026',
-      body: '# Daily Command Center Report',
-      attentionCount: 3,
-      createdAt: new Date().toISOString(),
-      emailStatus: 'skipped',
-      emailReason: 'RESEND_API_KEY not set',
-    });
-    // The retry send succeeds this time.
-    sendQueue = [{ sent: true }];
-    render(<ReportsPage />);
-
-    const retryButton = screen.getByRole('button', { name: 'Retry email for Daily Report 8/4/2026' });
-    fireEvent.click(retryButton);
-
-    // The badge flips in place to Emailed ✓ with the emailId in the tooltip.
-    const emailed = await screen.findByText('Emailed ✓');
-    expect(emailed).toHaveAttribute('title', 'Resend email id: email-1');
-    expect(savedReports[0].emailStatus).toBe('sent');
-    expect(savedReports[0].emailId).toBe('email-1');
-    // Still exactly one report (upsert, no duplicate) and a retry activity entry.
-    expect(savedReports).toHaveLength(1);
-    expect(loggedActivity.some((a) => a.kind === 'report_generated' && a.message.includes('retried') && a.message.includes('email-1'))).toBe(true);
-  });
-
-  it('keeps a failed card flagged when the retry also fails', async () => {
-    savedReports.push({
-      id: 'r-failed',
-      userId: 'e2e-user',
-      kind: 'weekly',
-      title: 'Weekly Report',
-      body: '# Weekly Command Center Report',
-      attentionCount: 0,
-      createdAt: new Date().toISOString(),
-      emailStatus: 'failed',
-      emailReason: 'Email delivery failed.',
-    });
-    vi.stubGlobal('fetch', vi.fn(async () => {
-      throw new Error('network down');
-    }));
-    render(<ReportsPage />);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Retry email for Weekly Report' }));
-
-    // The card stays flagged failed with the retry timestamp refreshed.
-    await waitFor(() => expect(savedReports[0].emailStatus).toBe('failed'));
-    expect(savedReports[0].emailReason).toBe('Email delivery failed.');
-    expect(savedReports[0].emailAttemptedAt).toBeDefined();
-  });
 });
 
 // ─── Preview body toggle per saved report ───────────────────────────────────
 
 describe('ReportsPage — Preview body toggle', () => {
-  it('re-opens the exact emailed body of a saved report via its Preview body button', async () => {
+  it('re-opens the exact report body of a saved report via its Preview body button', async () => {
     savedReports.push({
       id: 'r-saved',
       userId: 'e2e-user',

@@ -12,7 +12,6 @@ import {
 } from '@/lib/openrouter';
 import type { ReportPreviewPayload } from '@/lib/reportPreview';
 import { loadLiveSnapshot, serverProfile } from '@/lib/server/reporting/data';
-import { sendReportEmail } from '@/lib/server/reporting/email';
 import {
   FIRESTORE_COLLECTIONS, firestoreUpsert, isFirestoreAdminConfigured,
 } from '@/lib/server/firestoreAdmin';
@@ -28,32 +27,28 @@ import {
 //   ?kind=auto   (default) → daily report every run; weekly report when the
 //                            UTC weekday matches REPORT_WEEKLY_DAY (default 1=Mon)
 //   ?kind=daily / ?kind=weekly → force just that report (for manual testing)
-//   ?previewBody=1 → dev-only: include each report's composed email body in the
+//   ?previewBody=1 → dev-only: include each report's composed body in the
 //                    JSON response (still requires the CRON_SECRET bearer), so
-//                    the exact emailed text can be verified without opening an
+//                    the exact report text can be verified without opening an
 //                    inbox. Omitted by default to keep the response lean.
-//   ?previewBody=1&format=text → dev-only plain-text email preview: returns the
-//                    composed body as text/plain and does NOT send the email,
-//                    so the exact text can be piped into a mail client or file
-//                    without touching the real inbox or waiting for the
-//                    scheduled cron. (A manual trigger WITHOUT format=text
-//                    still delivers to REPORT_EMAIL immediately — that is the
-//                    "check it in a real inbox" path.)
-//   ?sendTest=1 → send via Resend test/sandbox mode: uses RESEND_TEST_API_KEY
-//                    (falling back to RESEND_API_KEY) and the sandbox recipient
-//                    instead of REPORT_EMAIL, so a generated report lands in the
-//                    Resend test inbox without configuring a real inbox. The
-//                    per-report email object in the response carries the test
-//                    emailId.
+//   ?previewBody=1&format=text → dev-only plain-text preview: returns the
+//                    composed body as text/plain, so the exact text can be
+//                    piped into a mail client or file without waiting for the
+//                    scheduled cron.
 //
-// Every send (real or test) also logs a `report_generated` activity doc to the
-// Firestore activity collection when the service account is configured, so the
-// Activity page shows the full delivery history — cron sends, test sends, and
-// the client's 'Save and email now' / retry all land in the same feed.
+// Emailed reports are DISABLED: the route composes the report bodies (exposed
+// via ?previewBody=1 / format=text for the in-app Reports page and the
+// verification suite) but never sends email — the per-report email object
+// always reports { sent: false, reason: 'emailed reports disabled' }.
+//
+// Each run still logs a `report_generated` activity doc to the Firestore
+// activity collection when the service account is configured, so the Activity
+// page shows when the automation engine generated reports.
 //
 // The 14 automation rules run against a live snapshot (Firestore tasks/projects/
 // versions/evaluations + live GitHub repos + Vercel/Firebase deployments) using
-// the exact same engine as the UI, then the report is emailed via Resend.
+// the exact same engine as the UI, then the composed report is saved for the
+// in-app Reports page and the verification suite.
 // ============================================================================
 
 export const maxDuration = 60;
@@ -88,12 +83,8 @@ export async function GET(req: NextRequest) {
   // Dev-only verification aid: include the composed email body in the response.
   const previewBody = req.nextUrl.searchParams.get('previewBody') === '1';
   // Dev-only plain-text preview: when set, the composed body is returned as
-  // text/plain and the email is NOT sent.
+  // text/plain.
   const textPreview = previewBody && req.nextUrl.searchParams.get('format') === 'text';
-  // Dev-only test-mode send: deliver to the Resend sandbox instead of the real
-  // inbox so a generated report can be checked in the Resend test inbox without
-  // configuring REPORT_EMAIL.
-  const sendTest = req.nextUrl.searchParams.get('sendTest') === '1';
   const weeklyDay = Number(process.env.REPORT_WEEKLY_DAY ?? 1);
   const todayUtc = new Date().getUTCDay();
 
@@ -110,11 +101,11 @@ export async function GET(req: NextRequest) {
     snapshot.collections.tasks.length + snapshot.collections.projects.length +
     snapshot.collections.repositories.length + snapshot.collections.deployments.length;
 
-  // 4. Skip email noise before any live source is wired up.
+  // 4. Skip report noise before any live source is wired up.
   if (totalData === 0) {
     return NextResponse.json({
       ok: true,
-      note: 'No live data configured — skipping email. Wire Firestore/GitHub/Vercel env vars first.',
+      note: 'No live data configured — nothing to report yet. Wire Firestore/GitHub/Vercel env vars first.',
       ownerId,
       configured: snapshot.configured,
     });
@@ -216,19 +207,9 @@ export async function GET(req: NextRequest) {
   }));
 
   for (const s of summarized) {
-    // Plain-text preview skips delivery entirely (no inbox write, no wait); the
-    // default path always sends like the scheduled cron does; sendTest delivers
-    // to the Resend sandbox.
-    const email = textPreview
-      ? { sent: false, reason: 'text preview — email not sent' }
-      : await sendReportEmail(
-          {
-            kind: s.kind, title: s.title,
-            body: s.body,
-            attentionCount: s.attentionCount, alerts,
-          },
-          { test: sendTest },
-        );
+    // Emailed reports are disabled: every report reports not-sent with a clear
+    // reason (the body rides in the response only when ?previewBody=1 asks).
+    const email = { sent: false, reason: 'emailed reports disabled' };
     reports.push({
       kind: s.kind, title: s.title, attentionCount: s.attentionCount, email,
       aiModel: s.model, narrationModel: s.narration?.model ?? null,
@@ -249,9 +230,7 @@ export async function GET(req: NextRequest) {
           id: `a-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
           userId: ownerId,
           kind: 'report_generated',
-          message: email.sent
-            ? `${s.kind} report "${s.title}" emailed (${email.emailId ?? 'no id'})${sendTest ? ' [test]' : ''}`
-            : `${s.kind} report "${s.title}" email ${email.reason ?? 'not sent'}`,
+          message: `${s.kind} report "${s.title}" generated (emailing disabled)`,
           createdAt: new Date().toISOString(),
         });
       } catch (e) {

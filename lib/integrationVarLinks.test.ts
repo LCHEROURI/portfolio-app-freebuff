@@ -12,24 +12,20 @@ describe('varSourceUrl', () => {
     });
   });
 
-  it('maps SUPABASE-style vars (removed) to null and Firebase client vars to the console', () => {
-    // SUPABASE vars were removed with the Supabase migration — they must not
+  it('maps removed vars (Supabase + Resend email) to null and Firebase client vars to the console', () => {
+    // SUPABASE vars were removed with the Supabase migration, and Resend vars
+    // were removed when emailed reports were disabled — none of them may
     // resolve to a source page anymore.
     expect(varSourceUrl('SUPABASE_URL')).toBeNull();
     expect(varSourceUrl('SUPABASE_SERVICE_ROLE_KEY')).toBeNull();
+    expect(varSourceUrl('RESEND_API_KEY')).toBeNull();
+    expect(varSourceUrl('REPORT_FROM')).toBeNull();
   });
 
   it('maps VERCEL_TOKEN to the account tokens page', () => {
     expect(varSourceUrl('VERCEL_TOKEN')).toEqual({
       label: 'Vercel token page',
       href: 'https://vercel.com/account/tokens',
-    });
-  });
-
-  it('maps RESEND_API_KEY to the API keys page', () => {
-    expect(varSourceUrl('RESEND_API_KEY')).toEqual({
-      label: 'Resend API keys',
-      href: 'https://resend.com/api-keys',
     });
   });
 
@@ -74,12 +70,12 @@ describe('varEnvLine', () => {
   it('returns the .env.example template line for vars with a source page', () => {
     expect(varEnvLine('GITHUB_TOKEN')).toBe('GITHUB_TOKEN=<github_pat_...>');
     expect(varEnvLine('VERCEL_TOKEN')).toBe('VERCEL_TOKEN=<token>');
-    expect(varEnvLine('RESEND_API_KEY')).toBe('RESEND_API_KEY=<key>');
     expect(varEnvLine('NEXT_PUBLIC_FIREBASE_API_KEY')).toBe('NEXT_PUBLIC_FIREBASE_API_KEY=<api-key>');
     expect(varEnvLine('NEXT_PUBLIC_FIREBASE_PROJECT_ID')).toBe('NEXT_PUBLIC_FIREBASE_PROJECT_ID=<project-id>');
   });
 
-  it('returns null for values you invent yourself (no template line)', () => {
+  it('returns null for removed vars and values you invent yourself (no template line)', () => {
+    expect(varEnvLine('RESEND_API_KEY')).toBeNull();
     expect(varEnvLine('CRON_SECRET')).toBeNull();
     expect(varEnvLine('REPORT_EMAIL')).toBeNull();
     expect(varEnvLine('GITHUB_OWNER')).toBeNull();
@@ -100,14 +96,15 @@ describe('firstVarSource', () => {
   });
 
   it('skips vars without a source page and falls through to the next', () => {
-    expect(firstVarSource(['CRON_SECRET', 'REPORT_EMAIL', 'RESEND_API_KEY'])).toEqual({
-      label: 'Resend API keys',
-      href: 'https://resend.com/api-keys',
+    // Resend vars are removed; only GITHUB_TOKEN resolves here.
+    expect(firstVarSource(['CRON_SECRET', 'REPORT_EMAIL', 'GITHUB_TOKEN'])).toEqual({
+      label: 'GitHub token page',
+      href: 'https://github.com/settings/personal-access-tokens/new',
     });
   });
 
   it('returns null when no var has a source page', () => {
-    expect(firstVarSource(['CRON_SECRET', 'REPORT_EMAIL'])).toBeNull();
+    expect(firstVarSource(['CRON_SECRET', 'REPORT_EMAIL', 'RESEND_API_KEY'])).toBeNull();
   });
 
   it('returns null for an empty list', () => {
@@ -118,13 +115,6 @@ describe('firstVarSource', () => {
     expect(firstVarSource(['NEXT_PUBLIC_FIREBASE_API_KEY', 'VERCEL_TOKEN'], 'apcc-prod')).toEqual({
       label: 'Firebase console',
       href: 'https://console.firebase.google.com/project/apcc-prod/settings/general',
-    });
-  });
-
-  it('derives the automation footer anchor from RESEND_API_KEY', () => {
-    expect(firstVarSource(['CRON_SECRET', 'RESEND_API_KEY', 'REPORT_EMAIL'])).toEqual({
-      label: 'Resend API keys',
-      href: 'https://resend.com/api-keys',
     });
   });
 });

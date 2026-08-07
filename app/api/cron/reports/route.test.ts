@@ -23,13 +23,6 @@ vi.mock('@/lib/server/reporting/data', () => ({
   })),
 }));
 
-vi.mock('@/lib/server/reporting/email', () => ({
-  sendReportEmail: vi.fn(async () => ({ sent: true, emailId: 'email-1' })),
-}));
-
-// The Firestore admin module is mocked so tests can assert the activity log
-// write without a real service account; default unconfigured so existing tests
-// never touch it.
 // The Firestore admin module is mocked so tests can assert the activity log
 // write without a real service account; default unconfigured so existing tests
 // never touch it. Real exports (FIRESTORE_COLLECTIONS) are spread through so
@@ -58,7 +51,6 @@ vi.mock('@/lib/openrouter', async (importOriginal) => {
 
 import { GET } from './route';
 import { loadLiveSnapshot } from '@/lib/server/reporting/data';
-import { sendReportEmail } from '@/lib/server/reporting/email';
 import { narrateTopThree, recommendWinner } from '@/lib/openrouter';
 import { firestoreUpsert, isFirestoreAdminConfigured } from '@/lib/server/firestoreAdmin';
 
@@ -133,7 +125,7 @@ const makePreviewReq = (kind: string) =>
     headers: { authorization: 'Bearer test-secret' },
   });
 
-/** ?previewBody=1&format=text — dev-only plain-text email preview (no send). */
+/** ?previewBody=1&format=text — dev-only plain-text preview (never sends). */
 const makeTextPreviewReq = (kind: string) =>
   new NextRequest(`http://localhost/api/cron/reports?kind=${kind}&previewBody=1&format=text`, {
     headers: { authorization: 'Bearer test-secret' },
@@ -147,7 +139,6 @@ beforeEach(() => {
     model: 'deepseek/deepseek-chat',
     projectIds: ['p-1'],
   });
-  vi.mocked(sendReportEmail).mockClear();
   vi.mocked(isFirestoreAdminConfigured).mockReturnValue(false);
   vi.mocked(firestoreUpsert).mockClear();
 });
@@ -156,12 +147,6 @@ afterEach(() => {
   delete process.env.CRON_SECRET;
   vi.clearAllMocks();
 });
-
-// ?sendTest=1 — Resend test-mode delivery
-const makeSendTestReq = (kind: string) =>
-  new NextRequest(`http://localhost/api/cron/reports?kind=${kind}&sendTest=1`, {
-    headers: { authorization: 'Bearer test-secret' },
-  });
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
@@ -186,7 +171,7 @@ describe('GET /api/cron/reports — daily top-three narration', () => {
     expect(actions[2].title).toContain('Ship onboarding');
   });
 
-  it('carries project identity into the narration so the email can cite projects', async () => {
+  it('carries project identity into the narration so the report can cite projects', async () => {
     await GET(makeReq('daily'));
     const actions = vi.mocked(narrateTopThree).mock.calls[0][0].actions;
     // The deployment, repo, and task all trace to p-1 (Takeout Voice 2) through
@@ -195,12 +180,18 @@ describe('GET /api/cron/reports — daily top-three narration', () => {
     expect(actions.every((a) => a.projectName === 'Takeout Voice 2')).toBe(true);
   });
 
-  it('prepends the narration section to the emailed daily body', async () => {
-    const res = await GET(makeReq('daily'));
+  it('prepends the narration section to the composed daily body', async () => {
+    const res = await GET(makePreviewReq('daily'));
     expect(res.status).toBe(200);
 
-    const body = vi.mocked(sendReportEmail).mock.calls[0][0].body;
-    // The email heading shows the friendly model label, matching the in-app badges.
+    const json = (await res.json()) as {
+      reports: Array<{
+        body: string; kind: string; aiModel: string | null; narrationModel: string | null;
+        email: { sent: boolean; reason?: string };
+      }>;
+    };
+    const body = json.reports[0].body;
+    // The report heading shows the friendly model label, matching the in-app badges.
     expect(body).toContain('## 🎯 Why these three matter today (DeepSeek Chat)');
     expect(body).toContain('Fix the failing deploy first, then push your work and close the overdue task.');
     // Narration precedes both the executive summary and the deterministic report.
@@ -212,18 +203,18 @@ describe('GET /api/cron/reports — daily top-three narration', () => {
     expect(reportIdx).toBeGreaterThan(summaryIdx);
 
     // The observability fields ride on the JSON response too.
-    const json = (await res.json()) as {
-      reports: Array<{ kind: string; aiModel: string | null; narrationModel: string | null }>;
-    };
     expect(json.reports[0].kind).toBe('daily');
     expect(json.reports[0].aiModel).toBe('deepseek/deepseek-chat');
     expect(json.reports[0].narrationModel).toBe('deepseek/deepseek-chat');
+    // Emailed reports are disabled — the email object always reports not-sent.
+    expect(json.reports[0].email).toEqual({ sent: false, reason: 'emailed reports disabled' });
   });
 
-  it('skips the narration (keeps the email unchanged) when narrateTopThree returns null', async () => {
+  it('skips the narration (keeps the report unchanged) when narrateTopThree returns null', async () => {
     vi.mocked(narrateTopThree).mockResolvedValue(null);
-    await GET(makeReq('daily'));
-    const body = vi.mocked(sendReportEmail).mock.calls[0][0].body;
+    const res = await GET(makePreviewReq('daily'));
+    const json = (await res.json()) as { reports: Array<{ body: string }> };
+    const body = json.reports[0].body;
     expect(body).not.toContain('Why these three matter today');
     // Executive summary + deterministic body still ship.
     expect(body).toContain('AI executive summary');
@@ -234,10 +225,12 @@ describe('GET /api/cron/reports — daily top-three narration', () => {
 // ─── Weekly exclusion ────────────────────────────────────────────────────────
 
 describe('GET /api/cron/reports — weekly report', () => {
-  it('does not call narrateTopThree or add the narration section to weekly emails', async () => {
+  it('does not call narrateTopThree or add the narration section to weekly reports', async () => {
     await GET(makeReq('weekly'));
     expect(narrateTopThree).not.toHaveBeenCalled();
-    const body = vi.mocked(sendReportEmail).mock.calls[0][0].body;
+    const res = await GET(makePreviewReq('weekly'));
+    const json = (await res.json()) as { reports: Array<{ body: string }> };
+    const body = json.reports[0].body;
     expect(body).not.toContain('Why these three matter today');
     expect(body).toContain('AI executive summary');
     expect(body).toContain('# Weekly Command Center Report');
@@ -317,8 +310,9 @@ describe('GET /api/cron/reports — weekly AI winner recommendation', () => {
 
   it('prepends the winner-recommendation section with the friendly model label', async () => {
     vi.mocked(loadLiveSnapshot).mockResolvedValue(snapshotWithWinnerCandidates);
-    await GET(makeReq('weekly'));
-    const body = vi.mocked(sendReportEmail).mock.calls[0][0].body;
+    const res = await GET(makePreviewReq('weekly'));
+    const json = (await res.json()) as { reports: Array<{ body: string }> };
+    const body = json.reports[0].body;
     // Friendly label in the heading, raw id only in the footer line.
     expect(body).toContain('## 🏆 AI winner recommendations (DeepSeek Chat)');
     expect(body).toContain('**Takeout Voice 2** → Gemini Build: Gemini wins on features and overall score.');
@@ -332,8 +326,9 @@ describe('GET /api/cron/reports — weekly AI winner recommendation', () => {
   it('omits the winner section (keeps the deterministic body) when recommendWinner returns null', async () => {
     vi.mocked(loadLiveSnapshot).mockResolvedValue(snapshotWithWinnerCandidates);
     vi.mocked(recommendWinner).mockResolvedValue(null);
-    await GET(makeReq('weekly'));
-    const body = vi.mocked(sendReportEmail).mock.calls[0][0].body;
+    const res = await GET(makePreviewReq('weekly'));
+    const json = (await res.json()) as { reports: Array<{ body: string }> };
+    const body = json.reports[0].body;
     expect(body).not.toContain('AI winner recommendations');
     expect(body).toContain('# Weekly Command Center Report');
   });
@@ -359,19 +354,20 @@ describe('GET /api/cron/reports — weekly AI winner recommendation', () => {
 // ─── Preview body (?previewBody=1, dev-only) ────────────────────────────────
 
 describe('GET /api/cron/reports — previewBody=1', () => {
-  it('returns the composed weekly email body with the friendly heading and raw footer', async () => {
+  it('returns the composed weekly report body with the friendly heading and raw footer', async () => {
     const res = await GET(makePreviewReq('weekly'));
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { reports: Array<{ body?: string }> };
+    const json = (await res.json()) as { reports: Array<{ body?: string; email: { sent: boolean } }> };
     const body = json.reports[0].body ?? '';
     // Friendly label in the heading (matches the in-app badges)…
     expect(body).toContain('## ✨ AI executive summary (DeepSeek Chat)');
     // …and the exact raw id in the footer line.
     expect(body).toContain('Model: `deepseek/deepseek-chat`');
     expect(body).toContain('# Weekly Command Center Report');
+    expect(json.reports[0].email.sent).toBe(false);
   });
 
-  it('returns the composed daily email body including the narration heading and footer', async () => {
+  it('returns the composed daily report body including the narration heading and footer', async () => {
     const res = await GET(makePreviewReq('daily'));
     expect(res.status).toBe(200);
     const json = (await res.json()) as {
@@ -406,31 +402,36 @@ describe('GET /api/cron/reports — previewBody=1', () => {
   });
 });
 
-// ─── Test-mode send (?sendTest=1) ───────────────────────────────────────────
+// ─── Emailed reports disabled ───────────────────────────────────────────────
 
-describe('GET /api/cron/reports — sendTest=1', () => {
-  it('delivers via the Resend test/sandbox path and returns the test emailId', async () => {
-    const res = await GET(makeSendTestReq('daily'));
+describe('GET /api/cron/reports — emailed reports disabled', () => {
+  it('reports every email object as not-sent with the disabled reason', async () => {
+    const res = await GET(makeReq('daily'));
     expect(res.status).toBe(200);
-    // sendReportEmail was called with the test option so it uses the sandbox
-    // recipient instead of REPORT_EMAIL.
-    expect(sendReportEmail).toHaveBeenCalledTimes(1);
-    expect(sendReportEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'daily', title: expect.any(String) }),
-      { test: true },
-    );
     const json = (await res.json()) as {
-      reports: Array<{ email: { sent: boolean; emailId?: string; reason?: string } }>;
+      reports: Array<{ email: { sent: boolean; reason?: string } }>;
     };
-    expect(json.reports[0].email.sent).toBe(true);
-    expect(json.reports[0].email.emailId).toBe('email-1');
+    expect(json.reports[0].email).toEqual({ sent: false, reason: 'emailed reports disabled' });
+  });
+
+  it('ignores the legacy ?sendTest=1 param (never sends)', async () => {
+    const res = await GET(
+      new NextRequest('http://localhost/api/cron/reports?kind=daily&sendTest=1', {
+        headers: { authorization: 'Bearer test-secret' },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      reports: Array<{ email: { sent: boolean; reason?: string } }>;
+    };
+    expect(json.reports[0].email).toEqual({ sent: false, reason: 'emailed reports disabled' });
   });
 });
 
 // ─── Activity logging (Firestore) ───────────────────────────────────────────
 
 describe('GET /api/cron/reports — activity logging', () => {
-  it('writes a report_generated activity doc with the emailId when Firestore admin is configured', async () => {
+  it('writes a report_generated activity doc when Firestore admin is configured', async () => {
     vi.mocked(isFirestoreAdminConfigured).mockReturnValue(true);
     await GET(makeReq('daily'));
 
@@ -439,8 +440,10 @@ describe('GET /api/cron/reports — activity logging', () => {
     expect(collection).toBe('activity');
     expect(row.kind).toBe('report_generated');
     expect(row.userId).toBe('demo-user');
+    // The disabled-email message carries no emailId and names the disabled state.
     expect(String(row.message)).toContain('daily report');
-    expect(String(row.message)).toContain('email-1');
+    expect(String(row.message)).toContain('generated (emailing disabled)');
+    expect(String(row.message)).not.toContain('email-1');
   });
 
   it('does not touch Firestore when the service account is unconfigured', async () => {
@@ -449,10 +452,10 @@ describe('GET /api/cron/reports — activity logging', () => {
   });
 });
 
-// ─── Plain-text email preview (?previewBody=1&format=text) ───────────────────
+// ─── Plain-text preview (?previewBody=1&format=text) ────────────────────────
 
-describe('GET /api/cron/reports — plain-text email preview (format=text)', () => {
-  it('returns the composed daily body as text/plain without sending email', async () => {
+describe('GET /api/cron/reports — plain-text preview (format=text)', () => {
+  it('returns the composed daily body as text/plain', async () => {
     const res = await GET(makeTextPreviewReq('daily'));
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Type')).toContain('text/plain');
@@ -460,8 +463,6 @@ describe('GET /api/cron/reports — plain-text email preview (format=text)', () 
     expect(text).toContain('# Daily Command Center Report');
     expect(text).toContain('## ✨ AI executive summary (DeepSeek Chat)');
     expect(text).toContain('## 🎯 Why these three matter today (DeepSeek Chat)');
-    // The dev-only preview must NOT touch the real inbox.
-    expect(sendReportEmail).not.toHaveBeenCalled();
   });
 
   it('returns the composed weekly body as text/plain', async () => {
@@ -470,7 +471,6 @@ describe('GET /api/cron/reports — plain-text email preview (format=text)', () 
     expect(text).toContain('# Weekly Command Center Report');
     expect(text).toContain('## ✨ AI executive summary (DeepSeek Chat)');
     expect(text).not.toContain('Why these three matter today');
-    expect(sendReportEmail).not.toHaveBeenCalled();
   });
 
   it('still requires the CRON_SECRET bearer (401 without auth)', async () => {

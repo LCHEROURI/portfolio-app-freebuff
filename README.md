@@ -248,7 +248,7 @@ only need an env change + redeploy to take effect.
 | **GitHub** | `Repositories` — branches, latest commit, PRs, issues, workflow status | flag `NEXT_PUBLIC_LIVE_REPOS=1` · `GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPOS` |
 | **Vercel** | `Deployments` — latest deploy per project + live health checks (HTTP status + response time) | flag `NEXT_PUBLIC_LIVE_DEPLOYMENTS=1` · `VERCEL_TOKEN`, `VERCEL_TEAM_ID` |
 | **OpenRouter (AI)** | Executive summaries, "Today's Top Three" narration, winner recommendations (AI Explain) | flag `NEXT_PUBLIC_ENABLE_AI_BRIEFINGS=1` (auto-fires the briefing on load) · `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` |
-| **Automation Engine** | Scheduled daily/weekly report emails + manual "Save and email now" | (no build-time flag) · `CRON_SECRET`, `RESEND_API_KEY`, `REPORT_EMAIL`, `REPORT_OWNER_ID` (+ optional `REPORT_WEEKLY_DAY`, `REPORT_STALE_DAYS`, `REPORT_FROM`) |
+| **Automation Engine** | Scheduled daily/weekly report generation (in-app Reports page) | (no build-time flag) · `CRON_SECRET`, `REPORT_OWNER_ID` (+ optional `REPORT_WEEKLY_DAY`, `REPORT_STALE_DAYS`) |
 
 **Setup (full detail in `.env.example`):**
 
@@ -316,60 +316,17 @@ deployment health, model performance breakdown, and winner recommendations.
 ```bash
 # 1. Add to Vercel → Project → Settings → Environment Variables:
 CRON_SECRET=<long-random-string>   # Vercel Cron sends this as the auth header
-RESEND_API_KEY=<resend-key>        # https://resend.com
-REPORT_EMAIL=you@example.com       # inbox that receives the reports
 
 # 2. Optional: REPORT_OWNER_ID (default demo-user), REPORT_WEEKLY_DAY (1=Mon),
-#    REPORT_STALE_DAYS (7), REPORT_FROM
+#    REPORT_STALE_DAYS (7)
 
 # 3. Redeploy — Vercel registers the cron from vercel.json automatically.
 ```
 
-**Sending from your own domain (REPORT_FROM) — the gate that forces it:** the
-resend gate (`npm run verify:resend`) now asserts `REPORT_FROM` points at a
-**verified custom sender domain**, not the `onboarding@resend.dev` sandbox the
-app defaults to (the sandbox can only reach your own verified address). Until
-a real domain is wired, the gate exits 2 and blocks pushes + CI — by design.
-
-```bash
-# 1. Resend dashboard (resend.com → Domains → Add Domain) — enter your domain,
-#    then add the 3 DNS records it generates at your DNS provider. The example
-#    names below are for an apex-domain sender (reports@yourdomain.com); for a
-#    subdomain sender (reports@yourdomain.com where the domain is a subdomain)
-#    the records live at that subdomain instead — the probe keys off whatever
-#    domain is in the email, so either works:
-#      SPF  TXT @                    v=spf1 include:amazonses.com ~all
-#      DKIM TXT resend._domainkey    v=DKIM1; k=rsa; p=…  (long key from Resend)
-#      DMARC TXT _dmarc              v=DMARC1; p=none;    (optional but recommended)
-#    Click Verify in Resend and wait for the domain to show Verified
-#    (minutes to a few hours, DNS-propagation dependent).
-
-# 2. Wire the sender into all THREE stores in one command — it preflights the
-#    domain's DNS with the same probe verify:resend uses, rejects sandbox/
-#    unverified senders, then writes .env.local + Vercel production + the
-#    GitHub Actions secret:
-npm run wire:report-from -- --from "Command Center <reports@yourdomain.com>"
-#    Preview without writing anything:
-npm run wire:report-from -- --from "Command Center <reports@yourdomain.com>" --dry-run
-
-# 3. Redeploy so the running cron reads the new sender, then confirm the gate
-#    flips green:
-vercel --prod
-npm run verify:resend
-
-# 4. Prove the from-header end to end: once the domain is wired, this fires a
-#    REAL daily (or weekly) report to REPORT_EMAIL and asserts Resend accepted
-#    the send with the verified domain as the from-header — a returned emailId
-#    is the live proof (Resend only accepts a custom from-domain after its DNS
-#    verification):
-npm run verify:sender-domain              # real daily send
-npm run verify:sender-domain -- --kind weekly   # real weekly send
-```
-
-Keep the three stores in sync: the pre-push hook reads `REPORT_FROM` from
-`.env.local`, the deployed cron from Vercel production, and the CI
-verify-deployed job from the GitHub secret — wiring one without the others
-keeps the gate red with a clear per-store ✗ in the `verify:all` summary.
+> **Emailed reports are disabled.** The cron evaluates the 14 automation rules
+> and composes the report bodies for the in-app Reports page and the
+> verification suite (`?previewBody=1`, `format=text`), but never sends email —
+> no `RESEND_API_KEY`, `REPORT_EMAIL`, or `REPORT_FROM` is needed.
 
 The route returns `401` without the `Authorization: Bearer <CRON_SECRET>`
 header, so it can't be triggered by the public. Test a run manually:
@@ -395,18 +352,6 @@ curl -H "Authorization: Bearer $CRON_SECRET" \
   "https://portfolio-app-freebuff.vercel.app/api/cron/reports?kind=daily&previewBody=1&format=text"
 ```
 
-**Checking a generated report in a real inbox without configuring
-`REPORT_EMAIL`:** the route also accepts `&sendTest=1` (same CRON_SECRET auth),
-which delivers the composed body via Resend's **test/sandbox mode** — the send
-succeeds without a verified sender and returns the test `emailId` in the JSON
-response. The sandbox email can be opened from the Resend dashboard's
-Test Inbox; nothing is sent to a real recipient:
-
-```bash
-curl -H "Authorization: Bearer $CRON_SECRET" \
-  "https://portfolio-app-freebuff.vercel.app/api/cron/reports?kind=daily&sendTest=1"
-```
-
 The packaged smoke test asserts the auth gate, the friendly model heading, and
 the raw-id footer for both daily and weekly bodies:
 
@@ -419,22 +364,6 @@ node scripts/verify-cron-email.mjs \
 
 It reads `CRON_SECRET` from `--secret`, then the `CRON_SECRET` env var, then
 `.env.local`, and exits nonzero on any failed assertion.
-
-**Verifying Firebase ID-token auth on the send route:** the packaged
-`verify:send-auth` smoke test proves the deployed `/api/reports/send` (the
-Reports page's "Save and email now") runs in Firebase mode, not the demo
-`x-app-user` fallback. It mints a throwaway Firebase Auth user via the Identity
-Toolkit REST API, POSTs with the real ID token, asserts the response echoes the
-token's uid (not `demo-user`), asserts an `x-app-user`-only spoof gets 401, then
-deletes the test user:
-
-```bash
-npm run verify:send-auth                  # against the production URL
-node scripts/verify-send-auth.mjs --base http://localhost:3000   # local dev
-```
-
-It reads `NEXT_PUBLIC_FIREBASE_API_KEY` / `NEXT_PUBLIC_FIREBASE_PROJECT_ID`
-from env, then `.env.local`, and exits nonzero on any failed assertion.
 
 **Post-deploy verification suite — every push proves the live app.** Three
 packaged smoke tests run against the deployed URL after each push to `main`
@@ -466,10 +395,9 @@ node scripts/verify-firestore-rules.mjs
 node scripts/verify-auth-domains.mjs --app http://localhost:3000 --domain localhost
 ```
 
-**Delivery history on the Activity page:** every "Save and email now", retry,
-and cron send writes a `report_generated` activity entry (kind, emailId, and
-delivery status) into the Firestore `activity` collection, so the `/activity`
-feed shows the full delivery trail next to the in-app delivery badges.
+The cron writes a `report_generated` activity entry (kind + message) into the
+Firestore `activity` collection when the service account is configured, so the
+`/activity` feed shows when the automation engine generated reports.
 
 **Rotating `CRON_SECRET`** (do this whenever it may have leaked, or to keep the
 local `.env.local` and the Vercel/GitHub values in lockstep):
@@ -632,7 +560,7 @@ Scheduled functions: `runAutomation` (every 6h), `generateDailyReports` (daily
 | `/deployments` | Health + status of every environment |
 | `/repositories` | Repo cards + scanner instructions |
 | `/model-comparison` | Weighted score matrix + winner selection |
-| `/reports` | Generate/save daily & weekly reports (preview-before-save, "Save and email now", delivery badge + Retry email on skipped/failed cards) |
+| `/reports` | Generate/save daily & weekly reports (preview-before-save + in-app save) |
 | `/activity` | Event feed with kind filters |
 | `/integrations` | GitHub / Vercel / Calendar / Gemini connection UI |
 | `/gallery` | Every module's screenshot pair (light/dark) on the live site |
