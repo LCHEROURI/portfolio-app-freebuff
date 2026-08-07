@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { downloadPrintHtml, openPrintPreview, usePrint } from './usePrint';
@@ -100,6 +100,23 @@ describe('usePrint', () => {
     vi.restoreAllMocks();
   });
 
+  // Shared setup for the fallback-path tests: block the popup so the hook
+  // takes the in-page recipe, and capture the rAF callback so tests drive the
+  // frame deterministically instead of waiting on real frames.
+  const stubFallbackRaf = () => {
+    vi.spyOn(window, 'open').mockReturnValue(null);
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {});
+    let rafCallback: FrameRequestCallback | null = null;
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => {
+      rafCallback = cb;
+      return 1;
+    });
+    return {
+      printSpy,
+      fireFrame: () => act(() => rafCallback?.(0)),
+    };
+  };
+
   it('prefers the styled preview window and never opens the in-page recipe', () => {
     const { win, write } = fakeWindow();
     vi.spyOn(window, 'open').mockReturnValue(win);
@@ -116,18 +133,46 @@ describe('usePrint', () => {
     expect(result.current.printTarget).toBeNull();
   });
 
-  it('falls back to the in-page recipe + window.print when the popup is blocked', async () => {
-    vi.spyOn(window, 'open').mockReturnValue(null);
-    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {});
+  it('locks the fallback lifecycle: payload set, rAF fires window.print, payload released', () => {
+    const { printSpy, fireFrame } = stubFallbackRaf();
 
     const { result } = renderHook(() => usePrint<PrintDoc>((p) => p));
 
     act(() => result.current.printReport(doc));
 
-    // The payload is rendered into the in-page area for one frame...
+    // 1) Payload is rendered into the in-page area...
     expect(result.current.printTarget).toEqual(doc);
-    // ...then the dialog opens and the area is released.
-    await waitFor(() => expect(printSpy).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(result.current.printTarget).toBeNull());
+    // ...but the dialog is deferred to the next frame — not opened synchronously.
+    expect(printSpy).not.toHaveBeenCalled();
+
+    // 2) The frame fires: the dialog opens...
+    fireFrame();
+    expect(printSpy).toHaveBeenCalledTimes(1);
+    // 3) ...and the payload is released.
+    expect(result.current.printTarget).toBeNull();
+  });
+
+  it('drops the stale state update when the fallback rAF callback fires after unmount', () => {
+    const { printSpy, fireFrame } = stubFallbackRaf();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const { result, unmount } = renderHook(() => usePrint<PrintDoc>((p) => p));
+
+    act(() => result.current.printReport(doc));
+    expect(result.current.printTarget).toEqual(doc);
+
+    // Unmount before the frame fires — the scheduled callback is now stale.
+    unmount();
+
+    // React 18+ silently drops state updates on unmounted components, so firing
+    // the stale callback must not throw. Only the React "state update on
+    // unmounted component" warning would be a regression; other console noise
+    // is none of this test's business, so assert on that specific message.
+    expect(() => fireFrame()).not.toThrow();
+    const errors = errorSpy.mock.calls.flat().join(' ');
+    expect(errors).not.toMatch(/unmounted component/i);
+    // The print itself still fires (the user asked to print); only the state
+    // bookkeeping is discarded.
+    expect(printSpy).toHaveBeenCalledTimes(1);
   });
 });
