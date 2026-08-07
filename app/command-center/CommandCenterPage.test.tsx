@@ -611,21 +611,10 @@ describe('CommandCenterPage — print top three briefing', () => {
 // /api/print/pdf route, then saves the returned blob. jsdom lacks
 // URL.createObjectURL and blob: navigation, so a URL subclass stubs the two
 // statics and the anchor click is spied.
-describe('CommandCenterPage — download top three PDF', () => {
-  const stubPdfWindow = () => {
-    const createObjectURL = vi.fn(() => 'blob:fake');
-    const revokeObjectURL = vi.fn();
-    class FakeURL extends URL {
-      static createObjectURL = createObjectURL;
-      static revokeObjectURL = revokeObjectURL;
-    }
-    vi.stubGlobal('URL', FakeURL as unknown as typeof URL);
-    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-    return { createObjectURL, clickSpy };
-  };
 
+describe('CommandCenterPage — download top three PDF', () => {
   it('downloads the briefing as a PDF, including the AI narration when present', async () => {
-    const { createObjectURL, clickSpy } = stubPdfWindow();
+    const { createObjectURL, clickSpy } = stubDownloadWindow();
     let pdfBody: unknown;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -672,7 +661,7 @@ describe('CommandCenterPage — download top three PDF', () => {
   });
 
   it('shows a targeted error when the PDF route is unavailable', async () => {
-    stubPdfWindow();
+    stubDownloadWindow();
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes('/api/scans')) {
@@ -693,6 +682,79 @@ describe('CommandCenterPage — download top three PDF', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Headless Chrome not available here.');
   });
 });
+
+// ─── Save as HTML ───────────────────────────────────────────────────────────
+
+// 'Save as HTML' is a PURE client-side download: the SAME standalone document
+// the preview window writes (buildPreviewHtml) becomes a blob saved via an
+// <a download> — no route, no auth, no printer. The page's shared fetch stub
+// throws on any unexpected URL, so these tests prove the button never touches
+// the server (no /api/print/pdf round-trip).
+
+describe('CommandCenterPage — save top three as HTML', () => {
+  it('saves the ranked action list as a standalone HTML file', async () => {
+    const { createObjectURL, clickSpy } = stubDownloadWindow();
+    render(<CommandCenterPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: "Save today's top three as HTML" }));
+
+    await waitFor(() => expect(clickSpy).toHaveBeenCalledTimes(1));
+    const blob = createObjectURL.mock.calls[0][0] as Blob;
+    const html = await blob.text();
+    // The exact standalone document: toolbar, title, meta, ranked list. The
+    // apostrophe in the title is HTML-escaped (&#39;s) — proof the document is
+    // built through the shared escape path, never interpolated raw.
+    expect(blob.type).toBe('text/html;charset=utf-8');
+    expect(html).toContain('class="btn-print"');
+    expect(html).toContain('Today&#39;s Top Three');
+    expect(html).toContain('Ship onboarding');
+    const anchor = clickSpy.mock.instances[0] as HTMLAnchorElement;
+    expect(anchor.getAttribute('download')).toBe('today-s-top-three.html');
+  });
+
+  it('includes the AI narration callout when a briefing has been generated', async () => {
+    const { createObjectURL, clickSpy } = stubDownloadWindow();
+    queue = [{
+      ok: true, configured: true,
+      narration: {
+        paragraph: 'Fix the failing deploy first, then ship onboarding.',
+        model: 'deepseek/deepseek-chat',
+        projectIds: [],
+      },
+    }];
+    render(<CommandCenterPage />);
+
+    // Generate the briefing first so the saved document carries the narration.
+    fireEvent.click(screen.getByRole('button', { name: "Explain today's top three with AI" }));
+    expect(await screen.findByText('Why these three matter today')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: "Save today's top three as HTML" }));
+
+    await waitFor(() => expect(clickSpy).toHaveBeenCalledTimes(1));
+    const blob = createObjectURL.mock.calls[0][0] as Blob;
+    const html = await blob.text();
+    expect(html).toContain('Why these three matter today');
+    expect(html).toContain('Fix the failing deploy first, then ship onboarding.');
+    // Friendly model label, not the raw id.
+    expect(html).toContain('DeepSeek Chat');
+  });
+});
+
+// Shared download stub for BOTH client-side export paths ('Save as HTML' and
+// 'Download PDF'): jsdom lacks URL.createObjectURL and blob: navigation, so a
+// URL subclass stubs the two statics and the anchor click is spied. One
+// helper for both surfaces so the two download test setups can never drift.
+const stubDownloadWindow = () => {
+  const createObjectURL = vi.fn((_blob: Blob) => 'blob:fake');
+  const revokeObjectURL = vi.fn();
+  class FakeURL extends URL {
+    static createObjectURL = createObjectURL;
+    static revokeObjectURL = revokeObjectURL;
+  }
+  vi.stubGlobal('URL', FakeURL as unknown as typeof URL);
+  const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  return { createObjectURL, revokeObjectURL, clickSpy };
+};
 
 // ─── Stale-scan badge tooltip on the priority queue ─────────────────────────
 

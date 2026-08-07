@@ -5,7 +5,7 @@ import Link from 'next/link';
 import {
   FolderKanban, AlertTriangle, CalendarClock, GitBranch, ArrowUpFromLine, Rocket,
   HeartPulse, Clock4, ShieldAlert, ArrowRight, ListChecks, TrendingUp, Plug, Sparkles,
-  RefreshCw, Printer, FileDown,
+  RefreshCw, Printer, FileDown, FileCode,
 } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -18,7 +18,7 @@ import { VercelEnvSettingsLink } from '@/components/integrations/VercelEnvSettin
 import { isFirebaseConfigured } from '@/lib/firebase';
 import { downloadPrintPdf, fetchTopThreeNarration, isAiBriefingsEnabled, readLiveFlags } from '@/lib/liveData';
 import { briefingPrintMeta, type PrintDoc } from '@/lib/printDoc';
-import { usePrint } from '@/lib/usePrint';
+import { downloadPrintHtml, usePrint } from '@/lib/usePrint';
 import { useStore } from '@/lib/store';
 import {
   computeMetrics, buildPriorityQueue, buildTopThree, runAutomationRules, timeAgo,
@@ -443,6 +443,17 @@ export default function CommandCenterPage() {
                         onClick={() => printReport(buildPrintBriefing())}
                       >
                         <Printer size={14} aria-hidden="true" /> Print
+                      </button>
+                    )}
+                    {topThree.length > 0 && (
+                      <button
+                        type="button"
+                        className="btn-ghost text-xs"
+                        aria-label="Save today's top three as HTML"
+                        title="Save the standalone preview document as a shareable HTML file"
+                        onClick={() => downloadPrintHtml(buildPrintDoc(buildPrintBriefing()))}
+                      >
+                        <FileCode size={14} aria-hidden="true" /> Save as HTML
                       </button>
                     )}
                     {topThree.length > 0 && (

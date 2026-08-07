@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from 'react';
 
-import { buildPreviewHtml, type PrintDoc } from './printDoc';
+import { buildPreviewHtml, printHtmlFileName, type PrintDoc } from './printDoc';
 
 // ============================================================================
 // Shared client print flow for the app's printable surfaces (Reports page,
@@ -34,6 +34,23 @@ export const openPrintPreview = (doc: PrintDoc): Window | null => {
   win.document.close();
   win.focus();
   return win;
+};
+
+/** Save the SAME standalone preview document as a downloadable .html file.
+ *  Pure client-side — no route, no auth, no printer: buildPreviewHtml output
+ *  becomes a blob, and an <a download> saves it under the shared HTML filename.
+ *  Because it renders the identical document the preview window writes, the
+ *  saved file can never drift from what the user reviewed on screen. */
+export const downloadPrintHtml = (doc: PrintDoc): void => {
+  const blob = new Blob([buildPreviewHtml(doc)], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = printHtmlFileName(doc);
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 };
 
 /**

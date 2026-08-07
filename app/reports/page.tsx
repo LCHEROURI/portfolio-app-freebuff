@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { FileDown, FileText, RefreshCw, Clock4, Sparkles, CalendarClock, Trash2, Printer } from 'lucide-react';
+import { FileCode, FileDown, FileText, RefreshCw, Clock4, Sparkles, CalendarClock, Trash2, Printer } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
@@ -15,7 +15,7 @@ import { downloadPrintPdf, fetchAiSummary } from '@/lib/liveData';
 import { buildDailyReportBody, buildWeeklyReportBody, timeAgo } from '@/lib/engine';
 import { modelLabel } from '@/lib/labels';
 import { reportPrintMeta, type PrintDoc } from '@/lib/printDoc';
-import { usePrint } from '@/lib/usePrint';
+import { downloadPrintHtml, usePrint } from '@/lib/usePrint';
 import type { ReportPreviewPayload } from '@/lib/reportPreview';
 import type { Report } from '@/types';
 
@@ -284,6 +284,20 @@ export default function ReportsPage() {
                 >
                   <FileDown size={12} aria-hidden="true" /> Download PDF
                 </button>
+                <button
+                  type="button"
+                  aria-label={`Save ${r.title} as HTML`}
+                  className="btn-ghost rounded-md px-2 py-1 text-xs"
+                  title="Save the standalone preview document as a shareable HTML file"
+                  onClick={(e) => {
+                    // Don't toggle the <details> — just save the file.
+                    e.preventDefault();
+                    e.stopPropagation();
+                    downloadPrintHtml(buildPrintDoc(rowPrint(r)));
+                  }}
+                >
+                  <FileCode size={12} aria-hidden="true" /> Save as HTML
+                </button>
               </summary>
               {r.aiSummary && (
                 <div className="mt-4 rounded-xl2 border border-eggplant-200 bg-eggplant-50 p-4 dark:border-eggplant-800 dark:bg-eggplant-950/60">
@@ -358,6 +372,14 @@ export default function ReportsPage() {
                 onClick={() => printReport(modalPrint(preview))}
               >
                 <Printer size={15} aria-hidden="true" /> Print report
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                title="Save the standalone preview document as a shareable HTML file"
+                onClick={() => downloadPrintHtml(buildPrintDoc(modalPrint(preview)))}
+              >
+                <FileCode size={15} aria-hidden="true" /> Save as HTML
               </button>
               {preview.pendingSave ? (
                 <>

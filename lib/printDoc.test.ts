@@ -4,7 +4,9 @@ import {
   briefingPrintMeta,
   buildPreviewHtml,
   escapeHtml,
+  printHtmlFileName,
   printPdfFileName,
+  printTitleSlug,
   PrintDocSchema,
   reportPrintMeta,
   type PrintDoc,
@@ -67,14 +69,39 @@ describe('shared meta builders', () => {
   });
 });
 
+describe('printTitleSlug', () => {
+  it('slugifies the title into a safe filename stem', () => {
+    expect(printTitleSlug({ title: 'Daily Command Center Report — 8/4/2026' })).toBe('daily-command-center-report-8-4-2026');
+    expect(printTitleSlug({ title: "Today's Top Three" })).toBe('today-s-top-three');
+  });
+
+  it('returns an empty stem when the title has no safe characters', () => {
+    expect(printTitleSlug({ title: '!!! ***' })).toBe('');
+  });
+});
+
 describe('printPdfFileName', () => {
-  it('slugifies the title into a safe filename', () => {
+  it('slugifies the title into a safe .pdf filename', () => {
     expect(printPdfFileName({ title: 'Daily Command Center Report — 8/4/2026' })).toBe('daily-command-center-report-8-4-2026.pdf');
     expect(printPdfFileName({ title: "Today's Top Three" })).toBe('today-s-top-three.pdf');
   });
 
   it('falls back to print.pdf when the title has no safe characters', () => {
     expect(printPdfFileName({ title: '!!! ***' })).toBe('print.pdf');
+  });
+});
+
+describe('printHtmlFileName', () => {
+  it('shares the SAME slug stem as the PDF name with a .html extension', () => {
+    const title = { title: 'Daily Command Center Report — 8/4/2026' };
+    expect(printHtmlFileName(title)).toBe('daily-command-center-report-8-4-2026.html');
+    // The stem is identical to the PDF filename's stem — the two export
+    // formats can never drift apart for the same document.
+    expect(printHtmlFileName(title).replace(/\.html$/, '')).toBe(printPdfFileName(title).replace(/\.pdf$/, ''));
+  });
+
+  it('falls back to print.html when the title has no safe characters', () => {
+    expect(printHtmlFileName({ title: '!!! ***' })).toBe('print.html');
   });
 });
 

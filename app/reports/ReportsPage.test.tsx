@@ -107,6 +107,23 @@ const fakePreviewWindow = () => {
   return { win, write };
 };
 
+// Shared download stub for BOTH client-side export paths ('Save as HTML' and
+// 'Download PDF'): jsdom lacks URL.createObjectURL and blob: navigation, so a
+// URL subclass stubs the two statics (inheriting the real URL for any
+// `new URL(...)` call) and the anchor click is spied. One helper for both
+// surfaces so the two download test setups can never drift.
+const stubDownloadWindow = () => {
+  const createObjectURL = vi.fn((_blob: Blob) => 'blob:fake');
+  const revokeObjectURL = vi.fn();
+  class FakeURL extends URL {
+    static createObjectURL = createObjectURL;
+    static revokeObjectURL = revokeObjectURL;
+  }
+  vi.stubGlobal('URL', FakeURL as unknown as typeof URL);
+  const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  return { createObjectURL, revokeObjectURL, clickSpy };
+};
+
 // Generating now opens a preview modal instead of saving immediately, so tests
 // confirm the preview first, then click Save to persist.
 const generateDaily = async () => {
@@ -355,6 +372,64 @@ describe('ReportsPage — print report', () => {
   });
 });
 
+// ─── Save as HTML ────────────────────────────────────────────────────────────
+
+// 'Save as HTML' is a PURE client-side download: the SAME standalone document
+// the preview window writes (buildPreviewHtml) becomes a blob saved via an
+// <a download> — no route, no auth, no printer. These tests assert the blob
+// holds the exact preview HTML (not a PDF round-trip) and that the shared
+// fetch stub would throw on any unexpected /api/print/pdf call, proving the
+// button never touches the server.
+
+describe('ReportsPage — save as HTML', () => {
+  it('saves the previewed report as a standalone HTML file from the modal', async () => {
+    const { createObjectURL, clickSpy } = stubDownloadWindow();
+    queue = [{ ok: true, configured: false, summary: null, model: null }];
+    render(<ReportsPage />);
+
+    await generateDaily();
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Save as HTML' }));
+
+    await waitFor(() => expect(clickSpy).toHaveBeenCalledTimes(1));
+    const blob = createObjectURL.mock.calls[0][0] as Blob;
+    const html = await blob.text();
+    // The exact standalone document: title, meta, body — all escaped/pre-wrapped.
+    expect(blob.type).toBe('text/html;charset=utf-8');
+    expect(html).toContain('class="btn-print"');
+    expect(html).toContain('Daily Command Center Report');
+    expect(html).toContain('## Local scan freshness');
+    const anchor = clickSpy.mock.instances[0] as HTMLAnchorElement;
+    expect(anchor.getAttribute('download')).toMatch(/\.html$/);
+  });
+
+  it('saves a saved report from its row', async () => {
+    const { createObjectURL, clickSpy } = stubDownloadWindow();
+    savedReports.push({
+      id: 'r-html',
+      userId: 'e2e-user',
+      kind: 'weekly',
+      title: 'Weekly Report 8/7/2026',
+      body: '# Weekly Command Center Report\n\n## Model performance\n- DeepSeek Chat 9.2\n',
+      attentionCount: 4,
+      createdAt: new Date().toISOString(),
+      aiSummary: 'Deploy the winner.',
+      aiModel: 'deepseek/deepseek-chat',
+    });
+    render(<ReportsPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save Weekly Report 8/7/2026 as HTML' }));
+
+    await waitFor(() => expect(clickSpy).toHaveBeenCalledTimes(1));
+    const blob = createObjectURL.mock.calls[0][0] as Blob;
+    const html = await blob.text();
+    // Includes the AI summary callout with the friendly model label.
+    expect(html).toContain('AI executive summary');
+    expect(html).toContain('Deploy the winner.');
+    expect(html).toContain('DeepSeek Chat');
+    expect(html).toContain('Weekly Command Center Report');
+  });
+});
+
 // ─── Download PDF ────────────────────────────────────────────────────────────
 
 // Downloading renders the SAME PrintDoc the preview shows through the shared
@@ -362,21 +437,10 @@ describe('ReportsPage — print report', () => {
 // URL.createObjectURL and blob: navigation, so a URL subclass stubs the two
 // statics (inheriting the real URL for any `new URL(...)` call) and the anchor
 // click is spied.
-describe('ReportsPage — download PDF', () => {
-  const stubPdfWindow = () => {
-    const createObjectURL = vi.fn(() => 'blob:fake');
-    const revokeObjectURL = vi.fn();
-    class FakeURL extends URL {
-      static createObjectURL = createObjectURL;
-      static revokeObjectURL = revokeObjectURL;
-    }
-    vi.stubGlobal('URL', FakeURL as unknown as typeof URL);
-    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-    return { createObjectURL, revokeObjectURL, clickSpy };
-  };
 
+describe('ReportsPage — download PDF', () => {
   it('downloads the previewed report as a PDF via the shared route', async () => {
-    const { createObjectURL, clickSpy } = stubPdfWindow();
+    const { createObjectURL, clickSpy } = stubDownloadWindow();
     let pdfBody: unknown;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -408,7 +472,7 @@ describe('ReportsPage — download PDF', () => {
   });
 
   it('shows a targeted error when the PDF route is unavailable', async () => {
-    stubPdfWindow();
+    stubDownloadWindow();
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes('/api/scans')) {
@@ -432,7 +496,7 @@ describe('ReportsPage — download PDF', () => {
   });
 
   it('downloads a saved report from its row', async () => {
-    const { createObjectURL, clickSpy } = stubPdfWindow();
+    const { createObjectURL, clickSpy } = stubDownloadWindow();
     let pdfBody: unknown;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);

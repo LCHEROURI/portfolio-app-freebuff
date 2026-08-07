@@ -156,14 +156,24 @@ export const buildPreviewHtml = (doc: PrintDoc): string => {
 </html>`;
 };
 
-/** A safe, human-readable PDF filename derived from the document title. Used by
- *  BOTH the server route (Content-Disposition) and the client download helper
- *  (<a download>), so the saved file always has the same name. */
-export const printPdfFileName = (doc: Pick<PrintDoc, 'title'>): string => {
-  const slug = doc.title
+/** Slugify a print title into a safe filename stem (lowercase alphanumerics
+ *  joined by hyphens, capped at 60 chars). Shared by the PDF and HTML filename
+ *  builders so both download paths derive the SAME stem from the same title. */
+export const printTitleSlug = (doc: Pick<PrintDoc, 'title'>): string =>
+  doc.title
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 60);
-  return `${slug || 'print'}.pdf`;
-};
+
+/** A safe, human-readable PDF filename derived from the document title. Used by
+ *  BOTH the server route (Content-Disposition) and the client download helper
+ *  (<a download>), so the saved file always has the same name. */
+export const printPdfFileName = (doc: Pick<PrintDoc, 'title'>): string =>
+  `${printTitleSlug(doc) || 'print'}.pdf`;
+
+/** A safe, human-readable standalone-HTML filename derived from the document
+ *  title — the 'Save as HTML' counterpart to printPdfFileName, sharing the
+ *  same slug stem so the two export formats always carry matching names. */
+export const printHtmlFileName = (doc: Pick<PrintDoc, 'title'>): string =>
+  `${printTitleSlug(doc) || 'print'}.html`;
