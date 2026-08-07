@@ -14,8 +14,11 @@ import { describe, expect, it } from 'vitest';
 // so they stay robust to surrounding prose edits while still pinning the
 // load-bearing parts: the gate's existence, its 1200s budget (vs the 90s
 // per-verifier timebox), its exit-code branches (142 timeout, 2 dirty tree,
-// generic failure), the SKIP_VERIFY_SIGNIN escape hatch, the missing-file
-// skip, and its position as the FINAL gate before the success line.
+// generic failure), the FORWARDED exit code (exit $ship_rc, so the push's
+// status carries ship:ready's own 1/2/3/142 verdict instead of a bare 1),
+// the SKIP_VERIFY_SIGNIN early-exit that bypasses the capstone, the
+// missing-file skip, and its position as the FINAL gate before the success
+// line.
 // ============================================================================
 
 const HOOK_PATH = '.githooks/pre-push';
@@ -60,6 +63,41 @@ describe('.githooks/pre-push · ship:ready capstone gate (gate 4)', () => {
   it('skips with a notice when ship-ready.mjs is missing', () => {
     expect(hook).toContain('[ -f scripts/ship-ready.mjs ]');
     expect(hook).toContain('skipping ship:ready capstone');
+  });
+
+  it('FORWARDS ship:ready\'s exit code instead of collapsing it to a bare 1', () => {
+    // Line-anchored on purpose: the generic-failure ECHO also prints
+    // `(exit $ship_rc)`, so a bare toContain would pass vacuously even if the
+    // actual `exit $ship_rc` statement were deleted. Only a whole-line match
+    // proves the real forwarding line exists.
+    expect(hook).toMatch(/^\s*exit \$ship_rc\s*$/m);
+    // And the generic-failure branch must not be followed by a hardcoded
+    // exit 1 that would swallow the forwarded code.
+    const gate4Tail = hook.slice(hook.indexOf('ship:ready FAILED'));
+    expect(gate4Tail).not.toMatch(/ship:ready FAILED[\s\S]*?exit 1\s*\n/);
+  });
+
+  it('SKIP_VERIFY_SIGNIN=1 at the top bypasses the capstone entirely', () => {
+    // The early-exit guard must sit before gate 4 and exit 0 (allow the push)
+    // without ever reaching the ship-ready.mjs invocation. Scoped to the
+    // guard BLOCK itself (the `if` through its closing `fi`), not the whole
+    // span to gate 4: other gates contain their own `exit 0` (e.g. the
+    // not-pushing-to-main path), so a span-wide assertion would pass even if
+    // the guard's own `exit 0` were removed.
+    const skipGuard = hook.indexOf('if [ "${SKIP_VERIFY_SIGNIN:-0}" = "1" ]; then');
+    // The closing `fi` must be its OWN line: indexOf('fi', …) would match the
+    // 'fi' inside the echo's word 'verification' and truncate the block
+    // before `exit 0`. Search for the newline-delimited closing line instead.
+    const guardEnd = hook.indexOf('\nfi\n', skipGuard);
+    const guardBlock = hook.slice(skipGuard, guardEnd);
+    const gate4 = hook.indexOf('# ── 4. ship:ready final capstone gate');
+    expect(skipGuard).toBeGreaterThan(-1);
+    expect(guardEnd).toBeGreaterThan(skipGuard);
+    expect(guardBlock).toContain('exit 0');
+    expect(guardBlock).not.toContain('ship-ready.mjs');
+    // The guard must close BEFORE gate 4 exists, so a push under
+    // SKIP_VERIFY_SIGNIN=1 can never reach the capstone.
+    expect(gate4).toBeGreaterThan(guardEnd);
   });
 
   it('sits as the FINAL gate, after 3b and before the success line', () => {

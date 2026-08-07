@@ -323,7 +323,12 @@ if [ -f scripts/ship-ready.mjs ]; then
     else
       echo "pre-push: ship:ready FAILED (exit $ship_rc) — fix before pushing (SKIP_VERIFY_SIGNIN=1 to override)" >&2
     fi
-    exit 1
+    # Forward ship:ready's own exit code so the abort reason is visible in the
+    # push's exit status instead of collapsing every failure to a bare 1: 1 =
+    # a verify:all gate failed, 2 = working tree is dirty, 3 = git unusable,
+    # 142 = the 1200s timebox fired. The caller (git push / ship:go) sees the
+    # same code ship:ready printed in its SHIP BLOCKED verdict.
+    exit $ship_rc
   fi
 else
   echo "pre-push: verify suite not present — skipping ship:ready capstone"
