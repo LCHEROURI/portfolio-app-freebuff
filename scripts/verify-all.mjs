@@ -113,12 +113,13 @@ const GATES = [
   // runs (the REQUIRES column shows —). Also wired into the pre-push hook
   // (gate 0.6), npm run lint, and CI's lint step.
   { name: 'import-surface', label: 'Import-surface lint (scripts + lib + app)', script: 'verify:import-surface' },
-  // Static guard that the removed report-email phrasing stays gone: any
-  // source file, doc, or config comment that reintroduces the old wording
-  // fails the run (the exact banned phrases live in the linter). No secrets,
-  // no network — always runs. Wired into the pre-push hook (gate 0.6b), npm
-  // run lint, and CI's lint step.
-  { name: 'email-words', label: 'Email-word lint (no report-email phrasing)', script: 'verify:email-words' },
+  // Static guard that the removed dead-feature phrasing stays gone: any
+  // source file, doc, or config comment that reintroduces the old report-email
+  // wording or a removed integration name or env identifier fails the run (the
+  // exact banned phrases live in the linter). No secrets, no network — always
+  // runs. Wired into the pre-push hook (gate 0.6b), npm run lint, and CI's
+  // lint step.
+  { name: 'email-words', label: 'Dead-feature lint (report-email + removed integrations)', script: 'verify:email-words' },
 ];
 
 const failures = [];

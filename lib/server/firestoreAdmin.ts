@@ -1,7 +1,7 @@
 // ============================================================================
 // Server-only Firestore admin client (REST + service account).
 //
-// Supabase is gone: the app's single data store is Firestore, written by the
+// The old Postgres store is gone: the app's single data store is Firestore, written by the
 // client via lib/firestore.ts (FirestoreService) and read server-side by the
 // automation cron through this module. The service account JSON is read from
 // FIREBASE_SERVICE_ACCOUNT (a JSON string) or FIREBASE_SERVICE_ACCOUNT_PATH
@@ -104,7 +104,7 @@ const docIdFromName = (name: string): string => name.split('/').pop() ?? name;
  * List every document in `collection` whose `userId` field equals `userId`.
  * Returns typed entities (the doc id is attached as `id`), matching the shape
  * the client FirestoreService stores. Never throws: failures return [] so the
- * cron snapshot degrades gracefully (same contract the old Supabase path had).
+ * cron snapshot degrades gracefully (same contract the old store path had).
  */
 export const firestoreList = async <T extends { id: string }>(
   collection: string,

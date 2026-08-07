@@ -67,15 +67,81 @@ describe('auditSource · banned report-email phrasing', () => {
     expect(auditSource(src)).toEqual([]);
   });
 
-  it('passes auth identity email and removed-env-var lock mentions', () => {
+  it('passes auth identity email identifiers (not report phrasing)', () => {
     const src = `
       // sign in with email/password
       const email = user.email;
       await sendPasswordResetEmail(auth, email);
-      // RESEND_API_KEY and REPORT_EMAIL must resolve to null (removed vars)
-      expect(varSourceUrl('REPORT_FROM')).toBeNull();
     `;
     expect(auditSource(src)).toEqual([]);
+  });
+});
+
+// ── auditSource: banned dead-integration phrasing ───────────────────────────
+describe('auditSource · banned dead-integration phrasing', () => {
+  it('flags the removed data store name and its env identifiers', () => {
+    expect(auditSource('// the Supabase migration removed it\n')).toEqual([
+      { line: 1, phrase: 'supabase' },
+    ]);
+    // The env identifier contains the generic name, so BOTH phrases report.
+    expect(auditSource('SUPABASE_URL=postgres://…\n')).toEqual([
+      { line: 1, phrase: 'supabase' },
+      { line: 1, phrase: 'SUPABASE_URL' },
+    ]);
+    expect(auditSource('SUPABASE_SERVICE_ROLE_KEY is gone\n')).toEqual([
+      { line: 1, phrase: 'supabase' },
+      { line: 1, phrase: 'SUPABASE_SERVICE_ROLE_KEY' },
+    ]);
+  });
+
+  it('flags the removed delivery sender name and its env identifiers', () => {
+    expect(auditSource('// the Resend key was revoked\n')).toEqual([
+      { line: 1, phrase: 'resend' },
+    ]);
+    // RESEND_API_KEY contains the generic name, so BOTH phrases report.
+    expect(auditSource('RESEND_API_KEY must stay gone\n')).toEqual([
+      { line: 1, phrase: 'resend' },
+      { line: 1, phrase: 'RESEND_API_KEY' },
+    ]);
+    expect(auditSource('REPORT_EMAIL is dead\n')).toEqual([
+      { line: 1, phrase: 'REPORT_EMAIL' },
+    ]);
+    expect(auditSource('REPORT_FROM removed\n')).toEqual([
+      { line: 1, phrase: 'REPORT_FROM' },
+    ]);
+  });
+
+  it('exempts only the lock-file helper-call statements that must quote the dead names', () => {
+    const src = `
+      // SUPABASE_URL must never resolve to a source page
+      expect(varSourceUrl('SUPABASE_URL')).toBeNull();
+      expect(varEnvLine('RESEND_API_KEY')).toBeNull();
+      expect(firstVarSource(['REPORT_EMAIL'])).toBeNull();
+    `;
+    // The prose comment still flags (both the generic name and the identifier);
+    // the three helper-call statements are exempt.
+    expect(auditSource(src, 'lib/integrationVarLinks.test.ts')).toEqual([
+      { line: 2, phrase: 'supabase' },
+      { line: 2, phrase: 'SUPABASE_URL' },
+    ]);
+  });
+
+  it('still flags a prose comment that mentions a helper name on the same line', () => {
+    // The exemption is scoped to helper-call STATEMENTS (trimmed line starts
+    // with expect(/return), so a prose comment quoting a helper name next to a
+    // dead identifier must NOT sneak through on a helper token.
+    const src = `// never call varSourceUrl('SUPABASE_URL') outside the lock\n`;
+    expect(auditSource(src, 'lib/integrationVarLinks.test.ts')).toEqual([
+      { line: 1, phrase: 'supabase' },
+      { line: 1, phrase: 'SUPABASE_URL' },
+    ]);
+  });
+
+  it('flags the dead names on helper-call lines outside the lock file', () => {
+    expect(auditSource("expect(varSourceUrl('SUPABASE_URL')).toBeNull();\n")).toEqual([
+      { line: 1, phrase: 'supabase' },
+      { line: 1, phrase: 'SUPABASE_URL' },
+    ]);
   });
 });
 

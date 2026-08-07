@@ -326,7 +326,7 @@ CRON_SECRET=<long-random-string>   # Vercel Cron sends this as the auth header
 > **No email.** The cron evaluates the 14 automation rules and composes the
 > report bodies for the in-app Reports page and the verification suite
 > (`?previewBody=1`, `format=text`) — it never sends email, so no
-> `RESEND_API_KEY`, `REPORT_EMAIL`, or `REPORT_FROM` is needed.
+> sender keys, inbox, or delivery domain is needed.
 
 The route returns `401` without the `Authorization: Bearer <CRON_SECRET>`
 header, so it can't be triggered by the public. Test a run manually:

@@ -12,10 +12,9 @@ describe('varSourceUrl', () => {
     });
   });
 
-  it('maps removed vars (Supabase + Resend email) to null and Firebase client vars to the console', () => {
-    // SUPABASE vars were removed with the Supabase migration, and Resend vars
-    // were removed when report delivery was cut — none of them may
-    // resolve to a source page anymore.
+  it('maps removed data-store and delivery vars to null and Firebase client vars to the console', () => {
+    // The old data store and the delivery sender were removed with their
+    // features — none of their env vars may resolve to a source page anymore.
     expect(varSourceUrl('SUPABASE_URL')).toBeNull();
     expect(varSourceUrl('SUPABASE_SERVICE_ROLE_KEY')).toBeNull();
     expect(varSourceUrl('RESEND_API_KEY')).toBeNull();
@@ -96,7 +95,7 @@ describe('firstVarSource', () => {
   });
 
   it('skips vars without a source page and falls through to the next', () => {
-    // Resend vars are removed; only GITHUB_TOKEN resolves here.
+    // The removed delivery vars resolve to null; only GITHUB_TOKEN resolves here.
     expect(firstVarSource(['CRON_SECRET', 'REPORT_EMAIL', 'GITHUB_TOKEN'])).toEqual({
       label: 'GitHub token page',
       href: 'https://github.com/settings/personal-access-tokens/new',

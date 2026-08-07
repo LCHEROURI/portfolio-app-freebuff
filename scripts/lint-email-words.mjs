@@ -1,19 +1,28 @@
 #!/usr/bin/env node
 // ============================================================================
-// scripts/lint-email-words.mjs — static guard against report-email wording
+// scripts/lint-email-words.mjs — static guard against dead-feature wording
 // returning to the repo.
 //
-// The emailed-report feature was removed: the cron composes daily/weekly
-// report bodies that feed the in-app Reports page, and nothing is emailed.
-// This linter makes that removal permanent — any source file, doc, or config
-// comment that reintroduces the report-email phrasing fails the lint:
+// Removed features must stay removed — not just the behavior, but the words.
+// Two families of dead-feature phrasing fail the lint if they ever reappear:
 //
-//   cron-email           — the renamed gate (verify:cron-reports) / script
-//   emailed reports      — reports are composed, not emailed
-//   email body           — the composed report text is a body, not an email
-//   email preview        — the plain-text preview is a report preview
-//   emails (you|daily|weekly) — the verb form of emailing reports
-//   emailed (daily|weekly)    — the past-tense form of emailing reports
+//   1. The emailed-report feature was removed: the cron composes daily/weekly
+//      report bodies that feed the in-app Reports page, and nothing is
+//      emailed. Any source file, doc, or config comment that reintroduces the
+//      report-email phrasing fails:
+//        cron-email             — the renamed gate (verify:cron-reports)
+//        emailed reports        — reports are composed, not emailed
+//        email body             — the composed text is a report body
+//        email preview          — the preview is a report preview
+//        emails (you|daily|weekly) — the verb form of emailing reports
+//        emailed (daily|weekly)    — the past-tense form
+//
+//   2. The dead integrations were removed with their features: the old
+//      Postgres data store (Supabase) and the email sender (Resend), plus
+//      their env identifiers (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY /
+//      RESEND_API_KEY / REPORT_EMAIL / REPORT_FROM). Those names may never
+//      come back either — no card, no status check, no "no longer needed"
+//      note, no comment.
 //
 // The sweep is deliberately line-based (a regex per line), not an AST pass:
 // these are prose phrases in comments and docs, so exact substring matching
@@ -33,14 +42,19 @@
 //     below, so they are naturally clean; the exclusion is coincidental, not
 //     a carve-out. A comment that uses the verb forms about auth (e.g. "the
 //     sign-in flow emails you a link") is still flagged — reword it.
-//   - env var names      — RESEND_API_KEY / REPORT_EMAIL / REPORT_FROM appear
-//     in integrationVarLinks.test.ts as the LOCK that they resolve to null,
-//     and in docs as "no longer needed" notes. Those identifiers are not the
-//     prose phrasing this guard targets.
+//   - the removed-var LOCK — lib/integrationVarLinks.test.ts asserts that the
+//     removed env identifiers (SUPABASE_URL, RESEND_API_KEY, REPORT_EMAIL,
+//     REPORT_FROM) resolve to null. Those call lines MUST quote the dead
+//     names to prove they are gone — exactly the lines invoking the lock
+//     helpers (varSourceUrl / varEnvLine / firstVarSource) are exempt, so the
+//     lock stays meaningful while no OTHER mention of the names survives.
+//     Locked by a dedicated test.
 //
 // Scans scripts/, lib/, app/, docs/ (minus docs/reviews/), .github/, and
 // .githooks/ recursively for .mjs / .ts / .tsx / .md / .sh / .yml / .yaml /
-// .json files, plus the root README.md and .env.example. Exits 1 with the
+// .json files, plus the root README.md and .env.example. Extensionless files
+// (e.g. the .githooks/pre-push hook itself) are not swept by design — the
+// hook's own comments quote the phrases for illustration. Exits 1 with the
 // offending file:line when any banned phrase is found; prints a clean message
 // and exits 0 otherwise.
 //
@@ -74,28 +88,56 @@ const SELF_FILES = new Set([
   'scripts/lint-email-words.test.ts',
 ]);
 
-// Case-insensitive prose phrases that describe the removed report-email flow.
-// Each entry names the human wording it catches; the regex is applied per line.
+// The removed-var LOCK: integrationVarLinks.test.ts quotes the dead env
+// identifiers to assert they resolve to null. Exactly the helper-call
+// STATEMENT lines are exempt — the trimmed line must start with expect( (or
+// return) AND contain a lock-helper token. A prose comment that happens to
+// mention a helper name on the same line is still flagged. Everywhere else in
+// the file (and every other file), the names fail the lint.
+const LOCK_FILE = 'lib/integrationVarLinks.test.ts';
+const LOCK_HELPER_CALL = /varSourceUrl\(|varEnvLine\(|firstVarSource\(/;
+const LOCK_STATEMENT = /^\s*(?:expect\(|return\s)/;
+
+// Case-insensitive prose phrases that describe removed features (report email
+// + dead integrations). Each entry names the human wording it catches; the
+// regex is applied per line.
 const BANNED_PHRASES = [
+  // 1. The removed report-email flow.
   { phrase: 'cron-email', re: /cron-email/i },
   { phrase: 'emailed report(s)', re: /emailed\s+reports?/i },
   { phrase: 'email body', re: /email\s+bod(y|ies)/i },
   { phrase: 'email preview', re: /email\s+preview/i },
   { phrase: 'emails (you|daily|weekly)', re: /emails\s+(you|daily|weekly)/i },
   { phrase: 'emailed (daily|weekly)', re: /emailed\s+(daily|weekly)/i },
+  // 2. The dead integrations (Supabase data store + Resend sender) and their
+  //    env identifiers.
+  { phrase: 'supabase', re: /supabase/i },
+  { phrase: 'SUPABASE_URL', re: /SUPABASE_URL/i },
+  { phrase: 'SUPABASE_SERVICE_ROLE_KEY', re: /SUPABASE_SERVICE_ROLE_KEY/i },
+  { phrase: 'resend', re: /resend/i },
+  { phrase: 'RESEND_API_KEY', re: /RESEND_API_KEY/i },
+  { phrase: 'REPORT_EMAIL', re: /REPORT_EMAIL/i },
+  { phrase: 'REPORT_FROM', re: /REPORT_FROM/i },
 ];
 
 /**
- * Audit one file's text for banned report-email phrasing.
+ * Audit one file's text for banned dead-feature phrasing.
  * Returns an array of { line, phrase } — empty when clean.
+ * The removed-var LOCK file's helper-call lines are exempt (see header).
  */
-export function auditSource(source, _fileName = 'file') {
+export function auditSource(source, fileName = 'file') {
   const findings = [];
   const lines = source.split('\n');
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
     for (const { phrase, re } of BANNED_PHRASES) {
-      if (re.test(line)) findings.push({ line: i + 1, phrase });
+      if (!re.test(line)) continue;
+      // Lock exemption: the integrationVarLinks test must quote the dead env
+      // identifiers inside its lock helpers to prove they resolve to null.
+      // Scoped to real helper-call statements, so a prose comment that merely
+      // mentions a helper name on the same line is still flagged.
+      if (fileName === LOCK_FILE && LOCK_STATEMENT.test(line) && LOCK_HELPER_CALL.test(line)) continue;
+      findings.push({ line: i + 1, phrase });
     }
   }
   return findings;
@@ -196,14 +238,14 @@ export function main(roots = DEFAULT_ROOTS) {
     return 1;
   }
   if (findings.length === 0) {
-    console.log('lint-email-words: clean — no report-email phrasing found (see the banned list in this file).');
+    console.log('lint-email-words: clean — no dead-feature phrasing found (see the banned list in this file).');
     return 0;
   }
   console.error('lint-email-words: FAIL');
   for (const f of findings) {
     console.error(`  ${f.file}:${f.line} — banned phrase "${f.phrase}"`);
   }
-  console.error('Reports are composed in-app, never emailed — reword to describe the report body instead.');
+  console.error('Removed features stay removed — reword to drop the dead-feature language.');
   return 1;
 }
 
