@@ -95,6 +95,24 @@ verdict with a nonzero exit when blocked. It is deliberately NOT a §4 gate
 row (the drift guard requires §4 to match verify-all's gate list exactly); it
 is the wrapper that runs them all.
 
+**One-command release:** `npm run ship:go -- "<message>"` takes the whole
+release from working tree to proven live build in a single command — it
+commits the entire working tree with the given message (default
+`chore(release): ship working tree via ship:go`), pushes to `origin/main`
+(the pre-push hook runs the full local gate suite first), polls the canonical
+production URL via `verify-deployed-hash.mjs --url … --expect <sha>` until
+the deployment serving it carries the pushed commit (default 6 minutes at
+15s intervals; `--max-wait <sec>` and `--poll <sec>` tune it), then runs
+`npm run ship:ready` against the deployed build — so `SHIP READY` is proven
+against what is actually live, not just local HEAD. `--dry-run` previews the
+commit/push/wait plan without touching anything. `--branch <name>` pushes a
+non-main branch; the wait poll still targets the canonical production URL,
+which only tracks main — a non-main push has no production deployment to
+prove, so the poll times out (exit 1) rather than claiming success. Exit
+codes: 0 ready · 1 a step failed (push or deploy timeout) · 2
+`VERCEL_TOKEN` invalid/revoked · 3 git unusable — and the final
+`ship:ready` step passes its own exit code through unchanged.
+
 **Sub-rows in the summary table:** capture gates emit
 `VERIFY-SUBRESULT|<name>|<PASS|FAIL>` markers that `verify:all` renders as
 indented rows directly under the parent gate. A sub-row is **visibility only**
