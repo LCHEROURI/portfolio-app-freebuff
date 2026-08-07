@@ -35,6 +35,11 @@ Everything a new maintainer needs to pick this repo up cold, in one place.
 The sections below and **docs/launch.md** (the go-live checklist) hold the
 deep detail; when they disagree, the deeper prose wins.
 
+> **Going live?** The operational go-live companion lives in
+> [**docs/launch.md**](docs/launch.md) — project identity, env vars across the
+> three secret stores, and the exact commands behind the 11 verification
+> gates. This section is the overview; that checklist is the drill-down.
+
 ### Architecture in one paragraph
 
 Next.js 14 (App Router) + React 18 + TypeScript, styled with Tailwind. The
