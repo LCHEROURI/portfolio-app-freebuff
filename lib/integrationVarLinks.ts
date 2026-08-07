@@ -31,6 +31,21 @@ export const firebaseConsoleUrl = (projectId?: string): VarSource =>
       }
     : { label: 'Firebase console', href: 'https://console.firebase.google.com' };
 
+/**
+ * Env identifiers of REMOVED integrations. This is the single source of truth
+ * for "dead" env vars: the Integrations lock test (integrationVarLinks.test.ts)
+ * asserts each resolves to no source page, and the dead-feature lint
+ * (scripts/lint-dead-words.mjs) derives its banned env-identifier phrases from
+ * exactly this list — the sweep and the lock can never drift from it.
+ */
+export const REMOVED_ENV_VARS = [
+  'SUPABASE_URL',
+  'SUPABASE_SERVICE_ROLE_KEY',
+  'RESEND_API_KEY',
+  'REPORT_EMAIL',
+  'REPORT_FROM',
+] as const;
+
 const VAR_SOURCE_URLS: Record<string, VarSource> = {
   GITHUB_TOKEN: { label: 'GitHub token page', href: 'https://github.com/settings/personal-access-tokens/new' },
   VERCEL_TOKEN: { label: 'Vercel token page', href: 'https://vercel.com/account/tokens' },
@@ -41,10 +56,15 @@ const VAR_SOURCE_URLS: Record<string, VarSource> = {
  * (values you invent yourself). Firebase client-config vars all resolve to
  * the console's project settings page.
  */
-export const varSourceUrl = (name: string, firebaseProjectId?: string): VarSource | null =>
-  name.startsWith('NEXT_PUBLIC_FIREBASE_')
+export const varSourceUrl = (name: string, firebaseProjectId?: string): VarSource | null => {
+  // Removed integrations are structurally locked: a future re-add to the maps
+  // below can never resolve — the null contract is enforced by the source of
+  // truth itself, not just by the test that asserts it.
+  if (REMOVED_ENV_VARS.some((v) => v === name)) return null;
+  return name.startsWith('NEXT_PUBLIC_FIREBASE_')
     ? firebaseConsoleUrl(firebaseProjectId)
     : VAR_SOURCE_URLS[name] ?? null;
+};
 
 /**
  * The source page of the first var in `names` that has one, or null when none
@@ -73,4 +93,5 @@ const VAR_ENV_LINES: Record<string, string> = {
  * The .env.example line to paste for a var (placeholder included), or null
  * when there is none (values you invent yourself).
  */
-export const varEnvLine = (name: string): string | null => VAR_ENV_LINES[name] ?? null;
+export const varEnvLine = (name: string): string | null =>
+  REMOVED_ENV_VARS.some((v) => v === name) ? null : VAR_ENV_LINES[name] ?? null;

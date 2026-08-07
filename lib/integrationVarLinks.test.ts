@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { firebaseConsoleUrl, firstVarSource, varEnvLine, varSourceUrl } from './integrationVarLinks';
+import { firebaseConsoleUrl, firstVarSource, REMOVED_ENV_VARS, varEnvLine, varSourceUrl } from './integrationVarLinks';
 
 // ─── varSourceUrl ───────────────────────────────────────────────────────────
 
@@ -12,13 +12,16 @@ describe('varSourceUrl', () => {
     });
   });
 
-  it('maps removed data-store and delivery vars to null and Firebase client vars to the console', () => {
+  it('maps every REMOVED_ENV_VARS entry to null (no source page)', () => {
     // The old data store and the delivery sender were removed with their
     // features — none of their env vars may resolve to a source page anymore.
-    expect(varSourceUrl('SUPABASE_URL')).toBeNull();
-    expect(varSourceUrl('SUPABASE_SERVICE_ROLE_KEY')).toBeNull();
-    expect(varSourceUrl('RESEND_API_KEY')).toBeNull();
-    expect(varSourceUrl('REPORT_FROM')).toBeNull();
+    // Looping the source-of-truth array keeps this lock in sync with the
+    // dead-feature lint, which derives its banned env-identifier phrases from
+    // the SAME list — a new removed var can never drift between the two.
+    expect(REMOVED_ENV_VARS.length).toBeGreaterThan(0);
+    for (const name of REMOVED_ENV_VARS) {
+      expect(varSourceUrl(name)).toBeNull();
+    }
   });
 
   it('maps VERCEL_TOKEN to the account tokens page', () => {
@@ -73,10 +76,15 @@ describe('varEnvLine', () => {
     expect(varEnvLine('NEXT_PUBLIC_FIREBASE_PROJECT_ID')).toBe('NEXT_PUBLIC_FIREBASE_PROJECT_ID=<project-id>');
   });
 
-  it('returns null for removed vars and values you invent yourself (no template line)', () => {
-    expect(varEnvLine('RESEND_API_KEY')).toBeNull();
+  it('returns null for every REMOVED_ENV_VARS entry (no template line)', () => {
+    // Same source-of-truth loop as the varSourceUrl lock above.
+    for (const name of REMOVED_ENV_VARS) {
+      expect(varEnvLine(name)).toBeNull();
+    }
+  });
+
+  it('returns null for values you invent yourself (no template line)', () => {
     expect(varEnvLine('CRON_SECRET')).toBeNull();
-    expect(varEnvLine('REPORT_EMAIL')).toBeNull();
     expect(varEnvLine('GITHUB_OWNER')).toBeNull();
     expect(varEnvLine('GITHUB_REPOS')).toBeNull();
     expect(varEnvLine('NEXT_PUBLIC_LIVE_REPOS')).toBeNull();

@@ -98,6 +98,21 @@ const LOCK_FILE = 'lib/integrationVarLinks.test.ts';
 const LOCK_HELPER_CALL = /varSourceUrl\(|varEnvLine\(|firstVarSource\(/;
 const LOCK_STATEMENT = /^\s*(?:expect\(|return\s)/;
 
+// The REMOVED_ENV_VARS array in lib/integrationVarLinks.ts is the single
+// source of truth for removed env identifiers. Its array-literal lines must
+// quote the dead names to define them, so exactly those lines are exempt from
+// this sweep; every other line in the truth file is still scanned.
+const TRUTH_FILE = 'lib/integrationVarLinks.ts';
+const REMOVED_VARS_RE = /export\s+const\s+REMOVED_ENV_VARS\s*=\s*\[([\s\S]*?)\]\s*(?:as\s+const\s*)?;/;
+
+/** [startLine, endLine] (1-based, inclusive) of the array literal, for exemption. */
+export function removedVarsArraySpan(source) {
+  const m = source.match(REMOVED_VARS_RE);
+  if (!m) return null;
+  const startLine = source.slice(0, m.index).split('\n').length;
+  return [startLine, startLine + m[0].split('\n').length - 1];
+}
+
 // Case-insensitive prose phrases that describe removed features (report email
 // + dead integrations). Each entry names the human wording it catches; the
 // regex is applied per line.
@@ -128,8 +143,13 @@ const BANNED_PHRASES = [
 export function auditSource(source, fileName = 'file') {
   const findings = [];
   const lines = source.split('\n');
+  // Source-of-truth exemption: the REMOVED_ENV_VARS array literal lines in
+  // lib/integrationVarLinks.ts must quote the dead names to define them. The
+  // rest of that file is still swept normally.
+  const truthSpan = fileName === TRUTH_FILE ? removedVarsArraySpan(source) : null;
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
+    if (truthSpan && i + 1 >= truthSpan[0] && i + 1 <= truthSpan[1]) continue;
     for (const { phrase, re } of BANNED_PHRASES) {
       if (!re.test(line)) continue;
       // Lock exemption: the integrationVarLinks test must quote the dead env
