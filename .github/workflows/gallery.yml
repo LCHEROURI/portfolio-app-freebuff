@@ -92,6 +92,17 @@ jobs:
           BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
           CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
 
+      - name: Render onboarding docs to PNG
+        # Local-file render of README Handoff + docs/launch.md §4 into
+        # screenshots/ — no deployed URL, no secrets, no network. Deliberately
+        # NOT gated on the Vercel env trio (unlike the gallery steps above), so
+        # the onboarding visuals ship in the artifact even when the preview
+        # steps skip (fork PR, missing secrets). Writes into the same
+        # screenshots/ dir the upload step collects.
+        run: npm run capture:docs
+        env:
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+
       - name: Upload captured screenshots
         if: always()
         uses: actions/upload-artifact@v6

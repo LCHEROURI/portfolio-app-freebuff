@@ -192,6 +192,34 @@ describe('.github/workflows/gallery.yml · PR/dispatch gallery capture', () => {
     expect(GALLERY).toContain('CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}');
   });
 
+  it('still renders the onboarding docs to PNG for the artifact', () => {
+    // Scoped to the step block (from the step name to the next step) so the
+    // CHROME_PATH assertion can only be satisfied by THIS step, not the
+    // pre-existing Capture step's identical env line. The wiring is
+    // load-bearing: on the Linux runner the default /Applications/… fallback
+    // in capture-docs.mjs does not exist, so losing it breaks CI silently.
+    const stepStart = GALLERY.indexOf('Render onboarding docs to PNG');
+    const upload = GALLERY.indexOf('Upload captured screenshots');
+    const stepBlock = GALLERY.slice(stepStart, upload);
+    expect(stepBlock.length).toBeGreaterThan(0);
+    expect(stepBlock).toContain('npm run capture:docs');
+    expect(stepBlock).toContain('CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}');
+  });
+
+  it('keeps the docs render UNGATED (no Vercel trio, so it ships when preview steps skip)', () => {
+    // The docs render needs no secrets/URL; gating it on the env trio would
+    // tie the onboarding visuals to the preview deploy and starve forks or
+    // secret-less runs. Scoped to the step block so the trio count below is
+    // unaffected and the step's own intent stays pinned.
+    const stepStart = GALLERY.indexOf('Render onboarding docs to PNG');
+    const upload = GALLERY.indexOf('Upload captured screenshots');
+    const stepBlock = GALLERY.slice(stepStart, upload);
+    expect(stepBlock.length).toBeGreaterThan(0);
+    expect(stepBlock).not.toContain("env.VERCEL_TOKEN != ''");
+    expect(stepBlock).not.toContain('steps.deploy.outputs.url');
+    expect(stepBlock).not.toContain('VERCEL_PROTECTION_BYPASS');
+  });
+
   it('keeps the run-safety envelope (concurrency, timeout, Node 22)', () => {
     // Dropping any of these would let gallery runs pile up on rapid pushes,
     // hang without a bound, or silently drift the runtime the CDP driver
