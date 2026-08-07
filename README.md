@@ -56,6 +56,40 @@ points: `app/` (routes + API), `lib/` (client store + live facade),
 `lib/server/` (server data + rules), `scripts/` (verify suite + local tools),
 `.github/workflows/` (CI + deploy gates).
 
+Data flow at a glance:
+
+```text
+┌──────────────────────────────────────────────────────┐
+│                        BROWSER                       │
+│  AuthGate → Firebase Auth (email/password + Google)  │
+└─────────────────────────┬────────────────────────────┘
+                          │  Authorization: Bearer <Firebase ID token>
+                          ▼
+┌──────────────────────────────────────────────────────┐
+│            NEXT.JS APP ROUTER (app/ + lib/)          │
+│   pages · client store (lib/store) · live facade     │
+└──────┬──────────────────┬──────────────────┬─────────┘
+       │                  │                  │
+  /api/* routes      GitHub REST        Vercel API
+  (app/api/,         (lib/server/       (lib/server/
+  token-verified)     github.ts)         deployments.ts)
+       │                  │                  │
+       ▼                  ▼                  ▼
+┌──────────────┐   ┌─────────────┐   ┌──────────────┐
+│   Firestore  │   │   GitHub    │   │    Vercel    │
+│  (the single │   │   repos     │   │  deployments │
+│  data store) │   │   feed      │   │  + health    │
+└──────┬───────┘   └─────────────┘   └──────────────┘
+       │
+       │  reads the same docs via service account (FIREBASE_SERVICE_ACCOUNT)
+       ▼
+┌──────────────────────────────────────────────────────┐
+│  Vercel Cron — /api/cron/reports                     │
+│  composes daily/weekly report bodies                 │
+│  → in-app Reports page (nothing is sent)             │
+└──────────────────────────────────────────────────────┘
+```
+
 ### The 11 verification gates
 
 `npm run verify:all` runs all eleven against the production URL (or

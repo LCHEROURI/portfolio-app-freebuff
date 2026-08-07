@@ -5,6 +5,11 @@ deployment, the env vars it depends on, and the exact verification gates that
 prove it works. Written after the go-live pass on **2026-08-05/06** so the
 next launch (or a new maintainer) doesn't re-derive any of it.
 
+> **New here?** Start with the README's **Handoff — read this first** section
+> (`../README.md#handoff--read-this-first`) — architecture, the 11
+> verification gates, and the three-secret-store reality in one page. This
+> checklist is the operational go-live companion to that overview.
+
 > This is the checklist companion to the README's *Production environment on
 > Vercel* section. When the two disagree, the README's deeper setup prose wins;
 > this doc is the short version.
