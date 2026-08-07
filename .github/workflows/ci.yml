@@ -98,20 +98,19 @@ jobs:
         env:
           CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
 
-      # Docs-render diff gate (mirror of the pre-push hook's 0.6c): re-renders
-      # the README Handoff + launch.md §4 sections and byte-compares against the
-      # committed screenshots/ PNGs. A doc edit that changes the onboarding
-      # visuals without committing the re-captured PNGs fails CI here — the
-      # same protection the pre-push hook gives local pushes, now enforced on
-      # every run even where the hook never fires. Skips-not-fails when no
-      # committed baseline exists yet (first capture), matching the hook's
-      # contract. Reuses the Chrome installed for the dimension test above;
-      # no secrets, so forks and unconfigured repos stay green.
-      - name: Verify docs-render diff (gate 0.6c)
-        run: npm run verify:docs-render
-        env:
-          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
-
+      # Docs-render diff gate (gate 0.6c) is deliberately NOT run in CI: it
+      # byte-compares fresh renders against committed PNGs produced on the
+      # developer's macOS, and hosted runners cannot reproduce that render —
+      # the Linux runner's fallback fonts (and a macOS runner's different
+      # macOS version) yield different font metrics, so the same docs render a
+      # different pixel height and the gate fails on EVERY push (observed:
+      # handoff 4609px committed vs 4556px on the runner). The authoritative
+      # byte gate therefore lives in the pre-push hook, which runs on the same
+      # machine that produced the PNGs. CI still covers the docs renders two
+      # ways: the dimension test above re-renders them on the runner and
+      # asserts sane bounds (a broken renderer goes red), and the gallery
+      # workflow re-captures fresh PNGs on every deploy so the artifacts
+      # always match the current docs.
       - name: Production build
         run: npm run build
 

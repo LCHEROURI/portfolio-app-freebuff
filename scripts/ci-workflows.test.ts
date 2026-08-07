@@ -39,41 +39,40 @@ const PREVIEW_URL_WIRING = 'PREVIEW_URL: ${{ steps.deploy.outputs.url }}';
 // assertion honest — a script name can only match inside this job.
 const verifyDeployedBlock = CI.slice(CI.indexOf('verify-deployed:'), CI.indexOf('verify-auth-domains:'));
 
-describe('.github/workflows/ci.yml · validate job (docs-render diff gate)', () => {
+describe('.github/workflows/ci.yml · validate job (docs-render coverage)', () => {
   // The validate job block: everything between the job key and the next
   // top-level job (`verify-launch-checklist:`). Scoping here keeps every
   // assertion honest — the step name and its Chrome wiring can only match
   // inside this job, never in a comment elsewhere in the file.
   const validateBlock = CI.slice(CI.indexOf('\n  validate:'), CI.indexOf('\n  verify-launch-checklist:'));
 
-  it('defines the docs-render diff gate step in the validate job', () => {
+  it('keeps the dimension-test Chrome install + Test env wiring (CI docs-render coverage)', () => {
     // A non-empty block guard: if the jobs are ever reordered so the slice
     // resolves to '', every toContain below would fail confusingly.
     expect(validateBlock.length).toBeGreaterThan(0);
-    expect(validateBlock).toContain('Verify docs-render diff (gate 0.6c)');
-    // The step must run the --check mode (npm script), never the write-mode
-    // capture that would silently rewrite the committed PNGs.
-    expect(validateBlock).toContain('run: npm run verify:docs-render');
-  });
-
-  it('wires the Chrome install output into the docs-render step', () => {
-    // On the Linux runner the default /Applications/… fallback in
-    // capture-docs.mjs does not exist, so losing this env wiring would make
-    // the gate skip-not-fail on every run instead of actually verifying.
-    expect(validateBlock).toContain('CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}');
+    // The dimension test re-renders the two docs PNGs on the runner and
+    // asserts sane bounds (width 1200, height 2000-6000), so a broken
+    // renderer fails CI. The Chrome install and the Test step's CHROME_PATH
+    // wiring are what make that check actually execute on the Linux runner
+    // (the /Applications fallback does not exist there).
+    expect(validateBlock).toContain('Install Chrome for docs-render dimension test');
     expect(validateBlock).toContain('uses: browser-actions/setup-chrome@v2');
+    expect(validateBlock).toContain('CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}');
   });
 
-  it('runs the docs-render gate AFTER the Test step (post-test, mirroring the hook ordering)', () => {
-    // The step must sit after the suite that re-renders docs (the dimension
-    // contract test) so the gate proves the committed PNGs match at the end
-    // of the job — and before the build, so a drift fails fast.
-    const testIdx = validateBlock.indexOf('- name: Test');
-    const gateIdx = validateBlock.indexOf('Verify docs-render diff (gate 0.6c)');
-    const buildIdx = validateBlock.indexOf('- name: Production build');
-    expect(testIdx).toBeGreaterThan(-1);
-    expect(gateIdx).toBeGreaterThan(testIdx);
-    expect(buildIdx).toBeGreaterThan(gateIdx);
+  it('does NOT run the docs-render BYTE gate on the runner (not byte-reproducible there)', () => {
+    // The byte gate (gate 0.6c) compares fresh renders against committed PNGs
+    // produced on the developer's macOS. Hosted runners render different font
+    // metrics (observed: handoff 4609px committed vs 4556px on the runner),
+    // so the gate can never pass there — re-adding it as a step would make
+    // every push red. The authoritative byte gate lives in the pre-push hook
+    // (the same machine that produced the PNGs); CI covers the renders via
+    // the dimension test above and the gallery workflow's re-capture.
+    expect(validateBlock).not.toContain('Verify docs-render diff (gate 0.6c)');
+    expect(validateBlock).not.toContain('run: npm run verify:docs-render');
+    // The decision must stay documented in the workflow, so a future edit
+    // that re-adds the gate without consciously re-deciding fails here.
+    expect(validateBlock).toContain('byte-compares fresh renders against committed PNGs');
   });
 });
 
