@@ -63,6 +63,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // The Save-as-HTML test stubs the global URL (FakeURL) — restore it so the
+  // stub never lingers for later tests in this file (mirrors Command Center).
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
@@ -131,5 +134,53 @@ describe('TodayPage — Top Three hero print', () => {
     expect(html).toContain('btn-print');
     expect(printSpy).not.toHaveBeenCalled();
     expect(screen.queryByTestId('print-report')).toBeNull();
+  });
+});
+
+// ─── Save as HTML ───────────────────────────────────────────────────────────
+
+// 'Save as HTML' is a PURE client-side download: the SAME standalone document
+// the preview window writes (buildPreviewHtml) becomes a blob saved via an
+// <a download> — no route, no auth, no printer.
+
+// Shared download stub: jsdom lacks URL.createObjectURL and blob: navigation,
+// so a URL subclass stubs the two statics and the anchor click is spied.
+const stubDownloadWindow = () => {
+  const createObjectURL = vi.fn((_blob: Blob) => 'blob:fake');
+  const revokeObjectURL = vi.fn();
+  class FakeURL extends URL {
+    static createObjectURL = createObjectURL;
+    static revokeObjectURL = revokeObjectURL;
+  }
+  vi.stubGlobal('URL', FakeURL as unknown as typeof URL);
+  const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  return { createObjectURL, revokeObjectURL, clickSpy };
+};
+
+describe('TodayPage — save top three as HTML', () => {
+  it('saves the ranked action list as a standalone HTML file sharing the print payload', async () => {
+    const { createObjectURL, clickSpy } = stubDownloadWindow();
+    render(<TodayPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: "Save today's top three as HTML" }));
+
+    await waitFor(() => expect(clickSpy).toHaveBeenCalledTimes(1));
+    const blob = createObjectURL.mock.calls[0][0] as Blob;
+    const html = await blob.text();
+    // The exact standalone document: toolbar, escaped title, ranked list with
+    // project context — the same payload the Print button renders.
+    expect(blob.type).toBe('text/html;charset=utf-8');
+    expect(html).toContain('class="btn-print"');
+    expect(html).toContain('Today&#39;s Top Three');
+    expect(html).toContain('Ship onboarding');
+    expect(html).toContain('Weeknight Meal Planner');
+    const anchor = clickSpy.mock.instances[0] as HTMLAnchorElement;
+    expect(anchor.getAttribute('download')).toBe('today-s-top-three.html');
+  });
+
+  it('hides the Save as HTML button when there are no actions', () => {
+    tasksOverride = [];
+    render(<TodayPage />);
+    expect(screen.queryByRole('button', { name: "Save today's top three as HTML" })).toBeNull();
   });
 });

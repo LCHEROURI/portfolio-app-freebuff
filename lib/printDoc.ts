@@ -13,6 +13,8 @@
 
 import { z } from 'zod';
 
+import { modelLabel } from './labels';
+
 export const PrintCalloutSchema = z.object({
   heading: z.string().min(1).max(120),
   /** Friendly model label shown next to the heading, when present. */
@@ -72,6 +74,62 @@ export const briefingPrintMeta = (actionCount: number): string =>
 /** Meta line for an AI winner recommendation print (recommended version). */
 export const recommendationPrintMeta = (recommendedVersionName: string): string =>
   `AI winner recommendation · Recommended: ${recommendedVersionName}`;
+
+/** Payload for an AI winner recommendation print. Shared by the Model
+ *  Comparison panels and the project detail Overview tab, so both surfaces
+ *  resolve the same fields before calling buildRecommendationPrintDoc. */
+export interface PrintRecommendation {
+  projectName: string;
+  recommendedVersionName: string;
+  note: string;
+  model: string;
+}
+
+/** Map a project's AI winner recommendation to the shared print-preview
+ *  document: the note becomes a callout with the friendly model label. Shared
+ *  by EVERY surface that prints a winner recommendation (Model Comparison, the
+ *  project detail Overview tab) — never inline a copy. The recommendation is
+ *  printed as it reads on screen (editable draft wins over the saved note). */
+export const buildRecommendationPrintDoc = (payload: PrintRecommendation): PrintDoc => ({
+  title: `${payload.projectName} — AI winner recommendation`,
+  // Shared builder — the in-page .print-report fallback calls the same
+  // function, so the two render paths can never drift.
+  meta: recommendationPrintMeta(payload.recommendedVersionName),
+  callouts: payload.note
+    ? [{ heading: 'AI winner recommendation', label: modelLabel(payload.model), text: payload.note }]
+    : [],
+});
+
+/** Meta line for the all-projects review sheet (recommendation count). */
+export const allRecommendationsPrintMeta = (count: number): string =>
+  `${count} AI winner ${count === 1 ? 'recommendation' : 'recommendations'} across all projects`;
+
+/** Build ONE review-sheet document listing every project's AI winner
+ *  recommendation: the project, the recommended version, the note, and the
+ *  friendly model label. Shared by the Model Comparison 'Print all' button
+ *  and its in-page fallback — the fallback renders THIS document's list, so
+ *  the preview and the fallback can never drift. */
+export const buildAllRecommendationsPrintDoc = (items: PrintRecommendation[]): PrintDoc => ({
+  title: 'AI winner recommendations — all projects',
+  // Shared builder — the in-page .print-report fallback renders the exact
+  // list below, so the two render paths can never drift.
+  meta: allRecommendationsPrintMeta(items.length),
+  list: items.map((item, i) => {
+    const label = item.model ? ` (${modelLabel(item.model)})` : '';
+    const detail = item.note ? `${item.note}${label}` : label.trim() || undefined;
+    // Deliberate field mapping for the review sheet: the numbered entry is the
+    // PROJECT, the muted span carries the recommended version, and the note
+    // (with the friendly model label) is the detail line. Both the preview and
+    // the in-page fallback render these SAME fields, so the mapping is the
+    // contract — never rearrange one path without the other.
+    return {
+      number: i + 1,
+      title: item.projectName,
+      project: `Recommended: ${item.recommendedVersionName}`,
+      detail,
+    };
+  }),
+});
 
 /** Standalone stylesheet for the preview window. The .paper sheet mirrors the
  *  print layout (white sheet, dark text, wrapped monospace body); the toolbar

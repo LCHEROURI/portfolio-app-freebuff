@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Scale, Trophy, Sparkles, Check, Printer } from 'lucide-react';
+import { Scale, Trophy, Sparkles, Check, Printer, FileCode } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader } from '@/components/ui/Card';
@@ -12,8 +12,8 @@ import { useStore } from '@/lib/store';
 import { buildComparison } from '@/lib/engine';
 import { fetchWinnerRecommendation } from '@/lib/liveData';
 import { modelLabel } from '@/lib/labels';
-import { recommendationPrintMeta, type PrintDoc } from '@/lib/printDoc';
-import { usePrint } from '@/lib/usePrint';
+import { buildAllRecommendationsPrintDoc, buildRecommendationPrintDoc, recommendationPrintMeta, type PrintRecommendation } from '@/lib/printDoc';
+import { downloadPrintHtml, usePrint } from '@/lib/usePrint';
 import { type Project, type ModelEvaluation } from '@/types';
 
 const COLUMNS = [
@@ -35,35 +35,13 @@ interface RecState {
   model: string;
 }
 
-// The print-only area mirrors a project's AI winner recommendation panel: the
-// recommended version and the note. Shares the .print-report recipe with the
-// Command Center, Today page, and Reports page via the usePrint hook — print
-// never touches the data layer.
-type PrintRecommendation = {
-  projectName: string;
-  recommendedVersionName: string;
-  note: string;
-  model: string;
-};
-
-// Map a project's recommendation to the shared print-preview document: the
-// note becomes a callout with the friendly model label. The recommendation is
-// printed as it reads on screen (editable draft wins over the saved note).
-const buildPrintDoc = (payload: PrintRecommendation): PrintDoc => ({
-  title: `${payload.projectName} — AI winner recommendation`,
-  // Shared builder — the in-page .print-report fallback below calls the same
-  // function, so the two render paths can never drift.
-  meta: recommendationPrintMeta(payload.recommendedVersionName),
-  callouts: payload.note
-    ? [{ heading: 'AI winner recommendation', label: modelLabel(payload.model), text: payload.note }]
-    : [],
-});
-
 export default function ModelComparisonPage() {
   const store = useStore();
   const rows = buildComparison(store);
   // Shared print lifecycle for the per-project AI winner recommendation panels.
-  const { printTarget, printReport } = usePrint<PrintRecommendation>(buildPrintDoc);
+  const { printTarget, printReport } = usePrint<PrintRecommendation>(buildRecommendationPrintDoc);
+  // Shared print lifecycle for the single review sheet across all projects.
+  const { printTarget: allTarget, printReport: printAllRecommendations } = usePrint<PrintRecommendation[]>(buildAllRecommendationsPrintDoc);
 
   // Per-project AI recommendation state. Drafts are editable text the user can
   // tweak before saving onto the project.
@@ -155,11 +133,35 @@ export default function ModelComparisonPage() {
     };
   };
 
+  // Projects with a recommendation on screen — the review sheet lists exactly
+  // the panels that are visible (same condition the panels render under),
+  // each with its on-screen payload (editable draft wins over the saved note).
+  const recommendedProjects = rows.filter(({ project }) => recs[project.id] || project.winnerRecommendation);
+  const buildAllRecommendationsPayload = (): PrintRecommendation[] =>
+    recommendedProjects.map(({ project }) => buildPrintRecommendation(project));
+
+  // The in-page fallback renders THIS document's list, so the preview window
+  // and the fallback share the exact same content by construction.
+  const allPrintDoc = allTarget ? buildAllRecommendationsPrintDoc(allTarget) : null;
+
   return (
     <div>
       <PageHeader
         title="Model Comparison"
         description="Side-by-side weighted scores (1–10) across every evaluated build. Pick a winner per project."
+        action={
+          recommendedProjects.length > 0 ? (
+            <button
+              type="button"
+              className="btn-secondary"
+              aria-label="Print all winner recommendations"
+              title="One review sheet across every project's AI winner recommendation"
+              onClick={() => printAllRecommendations(buildAllRecommendationsPayload())}
+            >
+              <Printer size={15} aria-hidden="true" /> Print all recommendations
+            </button>
+          ) : undefined
+        }
       />
 
       {rows.length === 0 ? (
@@ -255,6 +257,15 @@ export default function ModelComparisonPage() {
                       >
                         <Printer size={13} aria-hidden="true" /> Print
                       </button>
+                      <button
+                        type="button"
+                        className="btn-ghost text-xs"
+                        aria-label={`Save winner recommendation for ${project.name} as HTML`}
+                        title="Save the standalone preview document as a shareable HTML file"
+                        onClick={() => downloadPrintHtml(buildRecommendationPrintDoc(buildPrintRecommendation(project)))}
+                      >
+                        <FileCode size={13} aria-hidden="true" /> Save as HTML
+                      </button>
                     </div>
                     {recs[project.id] && (
                       <p className="mt-1 text-xs text-pepper-500">
@@ -321,6 +332,28 @@ export default function ModelComparisonPage() {
               <p>{printTarget.note}</p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Print-only area for the all-projects review sheet — visible ONLY in the
+          print dialog (@media print in globals.css hides everything else and
+          anchors this to the top of the page). Rendered only while the review
+          sheet is being printed, so it never lingers in the on-screen DOM. The
+          list comes from the SHARED builder, so the fallback and the preview
+          window render the exact same document. */}
+      {allPrintDoc && (
+        <div className="print-report" data-testid="print-report-all" aria-hidden="true">
+          <h2 className="print-report-title">{allPrintDoc.title}</h2>
+          <p className="print-report-meta">{allPrintDoc.meta}</p>
+          <ol>
+            {allPrintDoc.list?.map((item) => (
+              <li key={item.number}>
+                <strong>{item.number}. {item.title}</strong>
+                {item.project && <span> · {item.project}</span>}
+                {item.detail && <p>{item.detail}</p>}
+              </li>
+            ))}
+          </ol>
         </div>
       )}
     </div>

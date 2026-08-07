@@ -4,7 +4,7 @@ import { useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import {
   CalendarClock, AlertCircle, TrendingUp, CheckCircle2, ChevronRight,
-  Plus, Bell, RotateCcw, Printer,
+  Plus, Bell, RotateCcw, Printer, FileCode,
 } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -15,7 +15,7 @@ import { TaskModal } from '@/components/tasks/TaskModal';
 import { useStore } from '@/lib/store';
 import { buildTopThree, isDueToday, isOverdue, timeAgo } from '@/lib/engine';
 import { briefingPrintMeta, type PrintDoc } from '@/lib/printDoc';
-import { usePrint } from '@/lib/usePrint';
+import { downloadPrintHtml, usePrint } from '@/lib/usePrint';
 import type { Task, Reminder } from '@/types';
 
 // The print-only area mirrors the Top Three hero card: the ranked action list
@@ -134,6 +134,17 @@ export default function TodayPage() {
                     onClick={() => printReport(buildPrintBriefing())}
                   >
                     <Printer size={14} aria-hidden="true" /> Print
+                  </button>
+                )}
+                {topThree.length > 0 && (
+                  <button
+                    type="button"
+                    className="btn-ghost text-xs"
+                    aria-label="Save today's top three as HTML"
+                    title="Save the standalone preview document as a shareable HTML file"
+                    onClick={() => downloadPrintHtml(buildPrintDoc(buildPrintBriefing()))}
+                  >
+                    <FileCode size={14} aria-hidden="true" /> Save as HTML
                   </button>
                 )}
                 <TrendingUp size={18} className="text-tomato-500" aria-hidden="true" />

@@ -6,11 +6,12 @@ import Link from 'next/link';
 import {
   ArrowLeft, Pencil, Trash2, GitFork, Rocket, GitBranch, Scale, ListTodo,
   History, StickyNote, Trophy, Plus, AlertTriangle, ExternalLink, CheckCircle2,
+  Printer, Sparkles, FileCode,
 } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader } from '@/components/ui/Card';
-import { StatusBadge, PriorityBadge, Badge, HealthBadge } from '@/components/ui/Badge';
+import { StatusBadge, PriorityBadge, Badge, HealthBadge, ModelBadge } from '@/components/ui/Badge';
 import { Progress } from '@/components/ui/Progress';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ProjectModal } from '@/components/projects/ProjectModal';
@@ -19,7 +20,9 @@ import { VersionModal } from '@/components/versions/VersionModal';
 import { TaskModal } from '@/components/tasks/TaskModal';
 import { useStore } from '@/lib/store';
 import { timeAgo, formatDate } from '@/lib/engine';
-import { PROVIDER_LABELS } from '@/lib/labels';
+import { PROVIDER_LABELS, modelLabel } from '@/lib/labels';
+import { buildRecommendationPrintDoc, recommendationPrintMeta, type PrintRecommendation } from '@/lib/printDoc';
+import { downloadPrintHtml, usePrint } from '@/lib/usePrint';
 import { type Task as TaskEntity, type ProjectVersion } from '@/types';
 
 const TABS = [
@@ -44,6 +47,10 @@ export default function ProjectDetailPage() {
   const [taskModal, setTaskModal] = useState<null | { editing?: TaskEntity }>(null);
   const [evalModal, setEvalModal] = useState<null | { versionId: string }>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Shared print lifecycle for the saved AI winner recommendation card. The
+  // builder lives in lib/printDoc.ts — the SAME document the Model Comparison
+  // page prints — so the two surfaces can never drift.
+  const { printTarget, printReport } = usePrint<PrintRecommendation>(buildRecommendationPrintDoc);
 
   const project = store.projects.find((p) => p.id === id);
   if (!project) {
@@ -64,6 +71,15 @@ export default function ProjectDetailPage() {
   const activity = store.activity.filter((a) => a.projectId === project.id).slice(0, 20);
   const current = versions.find((v) => v.id === project.currentVersionId) ?? versions[0];
   const winner = allVersions.find((v) => v.id === project.winningVersionId || v.isWinner);
+
+  // The print payload mirrors the saved recommendation on screen: the winning
+  // version and the AI note. Read-only here — editing lives on Model Comparison.
+  const buildPrintRecommendation = (): PrintRecommendation => ({
+    projectName: project.name,
+    recommendedVersionName: winner?.versionName ?? '…',
+    note: project.winnerRecommendation ?? '',
+    model: project.winnerRecommendationModel ?? '',
+  });
 
   const handleDelete = async () => {
     await store.deleteProject(project.id);
@@ -145,6 +161,48 @@ export default function ProjectDetailPage() {
               <Card>
                 <CardHeader title="Notes" />
                 <p className="whitespace-pre-wrap text-sm text-pepper-600 dark:text-pepper-200">{project.notes}</p>
+              </Card>
+            )}
+
+            {project.winnerRecommendation && (
+              <Card>
+                <CardHeader
+                  title={
+                    <span className="inline-flex items-center gap-2">
+                      <Sparkles size={15} className="text-eggplant-500" aria-hidden="true" />
+                      AI winner recommendation
+                    </span>
+                  }
+                  action={
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        className="btn-ghost text-xs"
+                        aria-label={`Print winner recommendation for ${project.name}`}
+                        title="Print this recommendation"
+                        onClick={() => printReport(buildPrintRecommendation())}
+                      >
+                        <Printer size={13} aria-hidden="true" /> Print
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-ghost text-xs"
+                        aria-label={`Save winner recommendation for ${project.name} as HTML`}
+                        title="Save the standalone preview document as a shareable HTML file"
+                        onClick={() => downloadPrintHtml(buildRecommendationPrintDoc(buildPrintRecommendation()))}
+                      >
+                        <FileCode size={13} aria-hidden="true" /> Save as HTML
+                      </button>
+                    </div>
+                  }
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <ModelBadge model={project.winnerRecommendationModel} />
+                  {winner && (
+                    <Badge tone="basil"><Trophy size={12} aria-hidden="true" /> Recommended: {winner.versionName}</Badge>
+                  )}
+                </div>
+                <p className="mt-3 whitespace-pre-wrap text-sm text-pepper-600 dark:text-pepper-200">{project.winnerRecommendation}</p>
               </Card>
             )}
 
@@ -481,6 +539,28 @@ export default function ProjectDetailPage() {
       <VersionModal open={versionModal !== null} onClose={() => setVersionModal(null)} editing={versionModal?.editing} projectId={project.id} />
       <TaskModal open={taskModal !== null} onClose={() => setTaskModal(null)} editing={taskModal?.editing} projectId={project.id} />
       <EvaluationModal open={evalModal !== null} onClose={() => setEvalModal(null)} projectId={project.id} versionId={evalModal?.versionId ?? ''} />
+
+      {/* Print-only area — visible ONLY in the print dialog (@media print in
+          globals.css hides everything else and anchors this to the top of the
+          page). Rendered only while a recommendation is being printed, so it
+          never lingers in the on-screen DOM. */}
+      {printTarget && (
+        <div className="print-report" data-testid="print-report" aria-hidden="true">
+          <h2 className="print-report-title">{printTarget.projectName} — AI winner recommendation</h2>
+          <p className="print-report-meta">
+            {/* Same shared builder as the preview document — never inline a copy. */}
+            {recommendationPrintMeta(printTarget.recommendedVersionName)}
+          </p>
+          {printTarget.note && (
+            <div className="print-report-summary">
+              <strong>AI winner recommendation</strong>
+              {/* Friendly label, not the raw model id — matches the on-screen badge. */}
+              <span> ({modelLabel(printTarget.model)})</span>
+              <p>{printTarget.note}</p>
+            </div>
+          )}
+        </div>
+      )}
 
       {confirmDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-pepper-900/60 p-4 backdrop-blur-xs" onClick={() => setConfirmDelete(false)}>
