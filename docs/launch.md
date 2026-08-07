@@ -168,6 +168,20 @@ or when `VERCEL_TOKEN` isn't set locally. `npm run verify:all` runs the same
 canonical-URL `deployed-hash` gate (`--url` + `--check-local`/`--expect`), so
 the one-command checklist covers it too.
 
+**Final pre-push capstone:** the hook ends with the `ship:ready` verdict
+(`scripts/ship-ready.mjs`, 20-minute budget — the full `verify:all` suite far
+exceeds the 90s per-verifier timebox): after every individual gate passes, it
+asserts the working tree is clean (nothing staged, unstaged, or untracked — a
+dirty tree means the pushed commit cannot match the code you just ran) and
+runs the complete eleven-gate suite against production, printing a single
+`SHIP READY` / `SHIP BLOCKED` verdict. Any nonzero exit aborts the push — so
+the same one-command verdict the go-live checklist uses is enforced at the
+point of no return. `SKIP_VERIFY_SIGNIN=1` bypasses it like every other gate.
+Note the deployed-hash gate inside `verify:all` uses `--check-local`
+(warn-only, never fails) precisely because the commit being pushed is not yet
+live during a pre-push — the full drift assertion belongs to CI's
+`deployment_status` gate after the deploy lands.
+
 **Known transient:** the auth-domains gate can briefly FAIL right after a
 deploy because the deployed `/api/status` serves a 2-minute cached
 `getProjectConfig` snapshot. Re-run it; it passes with `refresh=1`.

@@ -21,6 +21,9 @@
 #   2. scripts/verify-cron-reports.mjs  (needs CRON_SECRET)
 #   3. scripts/verify-prod-signin.mjs    (needs FIREBASE_WEB_API_KEY + Chrome)
 #   3b. scripts/verify-profile-no-email.mjs (needs FIREBASE_WEB_API_KEY + Chrome)
+#   4. scripts/ship-ready.mjs            (FINAL capstone: clean tree + FULL
+#                                          verify:all suite — 20-min budget,
+#                                          well beyond the 90s per-verifier)
 # A check that cannot run (missing key / secret / Chrome / script file) is
 # skipped with a notice, not a failure — so machines without the deployment
 # secrets, and repos without the verify suite, are never blocked. Any check
@@ -292,6 +295,38 @@ if [ -n "$KEY" ] && [ -f scripts/verify-profile-no-email.mjs ]; then
 else
   [ -f scripts/verify-profile-no-email.mjs ] || echo "pre-push: verify suite not present — skipping profile no-email proof"
   [ -n "$KEY" ] || echo "pre-push: FIREBASE_WEB_API_KEY not set — skipping profile no-email proof"
+fi
+
+# ── 4. ship:ready final capstone gate (runs the FULL verify:all suite) ──────
+# The one-command go-live verdict as the final gate: after every individual
+# verifier above passes, run scripts/ship-ready.mjs — it asserts the working
+# tree is clean (nothing staged, unstaged, or untracked — a dirty tree means
+# the pushed/deployed commit cannot match the code you just ran) and then runs
+# the full verify:all suite (all eleven §4 gates) against production, printing
+# a single SHIP READY / SHIP BLOCKED verdict. Any nonzero exit aborts the
+# push. Budget 1200s (20 min): ship:ready runs the WHOLE suite sequentially
+# including the Chrome sign-in walkthroughs, far beyond the 90s per-verifier
+# budget used above, so it is timeboxed separately. Always runs when the
+# script file is present — no secret gates it, because verify:all's own gates
+# skip-not-fail internally on missing secrets and the summary's REQUIRES
+# column makes the skips visible.
+if [ -f scripts/ship-ready.mjs ]; then
+  echo "pre-push: running final ship:ready verdict (clean tree + full verify:all suite)…"
+  if perl -e 'alarm shift; exec @ARGV' 1200 node scripts/ship-ready.mjs; then
+    echo "pre-push: ship:ready passed ✓"
+  else
+    ship_rc=$?
+    if [ "$ship_rc" -eq 142 ]; then
+      echo "pre-push: ship:ready exceeded 1200s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+    elif [ "$ship_rc" -eq 2 ]; then
+      echo "pre-push: working tree is dirty — commit or stash before pushing (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+    else
+      echo "pre-push: ship:ready FAILED (exit $ship_rc) — fix before pushing (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+    fi
+    exit 1
+  fi
+else
+  echo "pre-push: verify suite not present — skipping ship:ready capstone"
 fi
 
 echo "pre-push: all applicable checks passed ✓"
