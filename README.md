@@ -100,7 +100,7 @@ auth gate.
 - **Frontend:** Next.js 14 (App Router), React 18, TypeScript
 - **Styling:** Tailwind CSS, Lucide icons, light/dark/system themes (`?theme=` URL override)
 - **Data:** Firebase Auth + Cloud Firestore (typed, user-isolated, `firestore.rules`) with a fully functional **local demo fallback** (localStorage) — local demo data can be **imported into a real account** on first sign-in
-- **Automation:** 14-rule engine + priority queue + "Today's Top Three", fired by a Vercel Cron (`/api/cron/reports`) that emails daily/weekly reports against live data
+- **Automation:** 14-rule engine + priority queue + "Today's Top Three", fired by a Vercel Cron (`/api/cron/reports`) that composes daily/weekly reports against live data
 - **Integrations:** GitHub REST, Vercel API, Google Calendar, Gemini AI summaries
 
 ## Getting started
@@ -297,13 +297,13 @@ route.
 > (`npm run scanner`) reports those and the store overlays them onto the live
 > GitHub feed (see `mergeScannerOverlay` in `lib/store.tsx`).
 
-### 🤖 Automation Engine — scheduled daily/weekly report emails
+### 🤖 Automation Engine — scheduled daily/weekly report generation
 
 The 14 rules aren't just a dashboard widget — a **Vercel Cron job**
 (`vercel.json` → `/api/cron/reports`) evaluates them against the **live data**
 (Firestore tasks/projects/versions/evaluations via the service account, live
-GitHub repos, Vercel/Firebase deployments with health checks) and emails you a
-report:
+GitHub repos, Vercel/Firebase deployments with health checks) and composes a
+report for the in-app **Reports** page (nothing is emailed):
 
 - **Daily (07:00 UTC):** attention items, overdue + due-today + completed-
 yesterday tasks, failed deployments, unpushed commits, priority queue, and
@@ -323,10 +323,10 @@ CRON_SECRET=<long-random-string>   # Vercel Cron sends this as the auth header
 # 3. Redeploy — Vercel registers the cron from vercel.json automatically.
 ```
 
-> **Emailed reports are disabled.** The cron evaluates the 14 automation rules
-> and composes the report bodies for the in-app Reports page and the
-> verification suite (`?previewBody=1`, `format=text`), but never sends email —
-> no `RESEND_API_KEY`, `REPORT_EMAIL`, or `REPORT_FROM` is needed.
+> **No email.** The cron evaluates the 14 automation rules and composes the
+> report bodies for the in-app Reports page and the verification suite
+> (`?previewBody=1`, `format=text`) — it never sends email, so no
+> `RESEND_API_KEY`, `REPORT_EMAIL`, or `REPORT_FROM` is needed.
 
 The route returns `401` without the `Authorization: Bearer <CRON_SECRET>`
 header, so it can't be triggered by the public. Test a run manually:
@@ -336,16 +336,15 @@ curl -H "Authorization: Bearer $CRON_SECRET" \
   "https://portfolio-app-freebuff.vercel.app/api/cron/reports?kind=daily"
 ```
 
-It skips emailing while no live sources are wired (nothing to report), and each
+It skips composing while no live sources are wired (nothing to report), and each
 report is also visible in the Vercel cron invocation logs.
 
-**Verifying the emailed bodies without an inbox:** the route accepts a dev-only
+**Verifying the composed bodies without an inbox:** the route accepts a dev-only
 `?previewBody=1` flag (still CRON_SECRET-authed) that includes each composed
-email body — plus the structured top-three narration — in the JSON response.
-Add `&format=text` to get a **plain-text email preview**: the composed body is
-served as `text/plain` and the email is NOT sent, so the exact text can be
-piped into a mail client or file without touching the real inbox or waiting
-for the scheduled cron:
+report body — plus the structured top-three narration — in the JSON response.
+Add `&format=text` to get a **plain-text report preview**: the composed body is
+served as `text/plain` (nothing is sent), so the exact text can be piped into
+a file or viewer without waiting for the scheduled cron:
 
 ```bash
 curl -H "Authorization: Bearer $CRON_SECRET" \
@@ -356,8 +355,8 @@ The packaged smoke test asserts the auth gate, the friendly model heading, and
 the raw-id footer for both daily and weekly bodies:
 
 ```bash
-npm run verify:cron-email                 # against the production URL
-node scripts/verify-cron-email.mjs \
+npm run verify:cron-reports               # against the production URL
+node scripts/verify-cron-reports.mjs \
   --base http://localhost:3000 \
   --secret "$CRON_SECRET"                 # against a local dev server
 ```
@@ -372,13 +371,13 @@ packaged smoke tests run against the deployed URL after each push to `main`
 
 | Script | What it proves | Required GitHub secret |
 | --- | --- | --- |
-| `npm run verify:cron-email` | Deployed `/api/cron/reports` 401s without auth; daily + weekly email bodies carry the friendly `(DeepSeek Chat)` heading and the raw-id `Model:` footer | `CRON_SECRET` |
+| `npm run verify:cron-reports` | Deployed `/api/cron/reports` 401s without auth; daily + weekly report bodies carry the friendly `(DeepSeek Chat)` heading and the raw-id `Model:` footer | `CRON_SECRET` |
 | `npm run verify:firestore-rules` | Merged rules on the shared project: portfolio write/read under the user's uid, cross-user denied, meal-planner owner grants + stranger denials (mints + deletes a throwaway user) | `FIREBASE_WEB_API_KEY` |
 | `npm run verify:auth-domains` | Deployed `/api/status?project=<domain>` reports `authDomains.ok` for the shipping domain (defaults to the production URL; pass `--domain <preview-url>` to validate a preview before it ships) | `FIREBASE_WEB_API_KEY` |
 
 Set `CRON_SECRET` and `FIREBASE_WEB_API_KEY` in **GitHub → Settings → Secrets
 → Actions** (and the same values in Vercel's env for the deployed app). The
-`verify-deployed` CI job runs cron-email + Firestore rules after every push;
+`verify-deployed` CI job runs cron-reports + Firestore rules after every push;
 the `verify-auth-domains` job fails the run when the domain is not in the
 project's Firebase **Authorized domains** list; and
 `.github/workflows/preview-gate.yml` runs the same check against every Vercel
@@ -390,7 +389,7 @@ constraints survive future edits.
 Local equivalents (against `localhost`):
 
 ```bash
-node scripts/verify-cron-email.mjs --base http://localhost:3000 --secret "$CRON_SECRET"
+node scripts/verify-cron-reports.mjs --base http://localhost:3000 --secret "$CRON_SECRET"
 node scripts/verify-firestore-rules.mjs
 node scripts/verify-auth-domains.mjs --app http://localhost:3000 --domain localhost
 ```
@@ -474,9 +473,9 @@ POSTs **metadata only** (never source code) to the Command Center API.
 
 Sweep every local repo in one shot with the scan-all command, which runs the
 scanner against each `.git` folder under a root (default `~/Documents`), prints
-a summary table, and — with `--notify` — regenerates the daily report email
-immediately after a clean sweep so fresh local facts reach the inbox without
-waiting for the scheduled run:
+a summary table, and — with `--notify` — regenerates the daily report
+immediately after a clean sweep so fresh local facts reach the in-app feed
+without waiting for the scheduled run:
 
 ```bash
 npm run scan:all                          # sweep ~/Documents → local API
@@ -584,7 +583,7 @@ lib/            firebase.ts, auth.tsx, firestore.ts, seed.ts, engine.ts,
 app/api/        Live API routes: repos (GitHub), deployments (Vercel + health
                 checks), scanner, cron/reports (automation engine)
 lib/server/     github.ts, deployments.ts, firestoreAdmin.ts,
-                reporting/ (data assembly + email)
+                reporting/ (data assembly)
 lib/firestore.ts  Client Firestore store — the app's single data layer
 types/          Full domain model + zod schemas + scoring
 scripts/        repo-scanner.mjs (local CLI companion)

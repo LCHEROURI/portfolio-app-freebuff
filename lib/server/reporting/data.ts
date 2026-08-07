@@ -75,7 +75,7 @@ export const loadLiveSnapshot = async (ownerId: string): Promise<LiveSnapshot> =
 
   // Overlay local scanner facts (uncommitted/unpushed, branch, ahead/behind)
   // onto the live GitHub feed using the SAME merge the client store applies,
-  // so the emailed report shows the same 'push these repos' items as the
+  // so the composed report shows the same 'push these repos' items as the
   // dashboard. Scanner metadata is source-aware (lib/server/scans.ts): with
   // FIREBASE_SERVICE_ACCOUNT configured it comes from the Firestore
   // `repositories` rows written by POST /api/scanner; without one it falls

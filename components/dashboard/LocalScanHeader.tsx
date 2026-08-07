@@ -7,7 +7,7 @@ import { LOCAL_SCAN_SUBTITLE, LOCAL_SCAN_TITLE } from '@/lib/scan';
  * Shared 'Local scan' heading block. Used by the LastScanStrip on both the
  * Command Center and Reports pages, with an optional action slot for a
  * per-surface link (e.g. the launchd schedule). The label/subtitle text comes
- * from lib/scan — the same constants the emailed report bodies derive their
+ * from lib/scan — the same constants the composed report bodies derive their
  * 'Local scan freshness' heading from, so all three surfaces stay in sync.
  */
 export const LocalScanHeader = ({ action }: { action?: ReactNode }) => (

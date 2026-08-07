@@ -119,7 +119,12 @@ const SETUP_GUIDES: Record<string, SetupStep[]> = {
     {
       label: 'Pick a CRON_SECRET',
       code: 'CRON_SECRET=<long-random-string>',
-      note: 'Vercel Cron sends CRON_SECRET automatically as Authorization: Bearer — the route rejects requests without it. Reports are composed in-app (emailed reports are disabled).',
+      note: 'Vercel Cron sends CRON_SECRET automatically as Authorization: Bearer — the route rejects requests without it. The cron composes daily/weekly report bodies that feed the in-app Reports page; nothing is emailed.',
+    },
+    {
+      label: 'Optional: scope composed reports to an owner',
+      code: 'REPORT_OWNER_ID=<firebase-uid>',
+      note: 'Defaults to demo-user. Set it to your Firebase uid so the cron composes reports (and the local seed-in-app-reports) under the account your Reports page reads.',
     },
   ],
   'google-idp': [

@@ -6,7 +6,7 @@ import { getRequestUserId } from '@/lib/server/user';
 // ============================================================================
 // GET /api/repos — live GitHub repository feed.
 // Delegates to the shared lib/server/github.ts (also used by the automation
-// cron) so the client view and the emailed reports always see the same truth.
+// cron) so the client view and the composed report bodies always see the same truth.
 // ============================================================================
 
 export async function GET(req: NextRequest) {

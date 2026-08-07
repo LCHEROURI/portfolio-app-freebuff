@@ -336,11 +336,12 @@ const checkAutomation = (): IntegrationStatus => {
     id: 'automation', name: 'Automation engine', enabled: configured, configured,
     env: [
       envVar('CRON_SECRET', true),
+      envVar('REPORT_OWNER_ID'),
       envVar('REPORT_WEEKLY_DAY'),
       envVar('REPORT_STALE_DAYS'),
     ],
     endpoint: null,
-    note: 'Vercel Cron invokes /api/cron/reports daily at 07:00 UTC — composed reports feed the in-app Reports page; emailed reports are disabled.',
+    note: 'Vercel Cron invokes /api/cron/reports daily at 07:00 UTC — it composes daily/weekly report bodies that feed the in-app Reports page; nothing is emailed.',
   };
 };
 

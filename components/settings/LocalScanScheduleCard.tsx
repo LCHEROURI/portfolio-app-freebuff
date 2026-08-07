@@ -76,7 +76,7 @@ export const LocalScanScheduleCard = () => {
             The scanner runs on <strong>this machine</strong> via launchd (macOS) or cron, then{' '}
             <code className="font-mono">--notify</code> regenerates the daily report with the fresh
             facts, and <code className="font-mono">seed-in-app-reports</code> saves the composed report
-            into the in-app Reports feed (emailed reports are disabled).
+            into the in-app Reports feed (nothing is emailed).
           </p>
 
           <div className="space-y-2">

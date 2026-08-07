@@ -3,8 +3,8 @@
 //
 // OpenRouter exposes an OpenAI-compatible chat-completions endpoint, so we
 // talk to it with a plain fetch — no SDK, matching the project's
-// fetch-over-API convention (Firestore REST, GitHub, Vercel, Resend are all
-// wired the same way).
+// fetch-over-API convention (Firestore REST, GitHub, and Vercel are all wired
+// the same way).
 //
 // Degradation contract: every entry point returns null (or throws only when
 // the caller opted into the raw helper) when OPENROUTER_API_KEY is unset or
@@ -55,7 +55,7 @@ export const chatCompletion = async (
   if (!apiKey) throw new Error('OPENROUTER_API_KEY is not set.');
 
   const model = options.model?.trim() || getOpenRouterModel();
-  // Hard timeout so a hung provider can never block the caller (the cron email
+  // Hard timeout so a hung provider can never block the caller (the cron report
   // must still send even if AI never answers). The error is caught upstream and
   // degrades to the deterministic report text.
   const res = await fetch(OPENROUTER_URL, {
@@ -399,7 +399,7 @@ export const narrateTopThree = async (
 const withRawModelFooter = (section: string, model: string | null): string =>
   model ? `${section}\n\nModel: \`${model}\`` : section;
 
-/** Prepend an AI summary to an email body with a clear section heading. */
+/** Prepend an AI summary to a report body with a clear section heading. */
 export const withExecutiveSummary = (
   body: string,
   summary: string | null,
@@ -407,12 +407,12 @@ export const withExecutiveSummary = (
 ): string => {
   if (!summary) return body;
   // Friendly model label in the heading; the exact raw id rides along in a
-  // footer line so the emailed report stays fully traceable.
+  // footer line so the composed report stays fully traceable.
   const heading = `## ✨ AI executive summary${model ? ` (${modelLabel(model)})` : ''}`;
   return `${withRawModelFooter(`${heading}\n\n${summary}`, model)}\n\n${body}`;
 };
 
-/** Prepend an AI top-three narration to an email body with a clear section heading. */
+/** Prepend an AI top-three narration to a report body with a clear section heading. */
 export const withTopThreeNarration = (
   body: string,
   paragraph: string | null,
@@ -429,7 +429,7 @@ export const withTopThreeNarration = (
 // WEEKLY WINNER RECOMMENDATION
 // ============================================================================
 
-/** One project's AI winner recommendation, ready to render into an email body. */
+/** One project's AI winner recommendation, ready to render into a report body. */
 export interface WinnerRecommendationSection {
   projectName: string;
   /** Name of the version the AI recommends (resolved server-side). */
@@ -440,10 +440,10 @@ export interface WinnerRecommendationSection {
 }
 
 /**
- * Prepend an AI winner-recommendation section to an email body. Renders the
+ * Prepend an AI winner-recommendation section to a report body. Renders the
  * friendly model label in the heading (matching the in-app badges) and the
  * exact raw id in a footer line, mirroring withExecutiveSummary /
- * withTopThreeNarration so no emailed AI surface ever shows a raw id inline.
+ * withTopThreeNarration so no composed AI surface ever shows a raw id inline.
  * Empty sections → body unchanged.
  */
 export const withWinnerRecommendations = (
