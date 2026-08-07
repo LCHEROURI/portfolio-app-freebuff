@@ -2,5 +2,12 @@
   "root": true,
   "extends": ["next/core-web-vitals", "next/typescript"],
   "ignorePatterns": ["functions/", "scripts/", ".next/", "node_modules/", "dist/", "out/"],
-  "rules": {}
+  "rules": {
+    // Intentionally-unused params/vars use the underscore prefix (e.g. a
+    // `(_blob: Blob)` mock param that keeps the vitest call tuple typed).
+    "@typescript-eslint/no-unused-vars": [
+      "error",
+      { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_", "caughtErrorsIgnorePattern": "^_" }
+    ]
+  }
 }
