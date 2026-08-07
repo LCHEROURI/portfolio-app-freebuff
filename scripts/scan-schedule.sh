@@ -3,10 +3,11 @@
 # scripts/scan-schedule.sh — install/uninstall/status for the daily scan-all
 # launchd agent (plus a cron alternative).
 #
-# Schedules `scripts/scan-all-scheduled.sh` (which runs scan-all --notify) every
-# morning BEFORE the 07:00 daily report so local repo facts are always fresh
-# when the email sends. Default 06:30 local time; override with SCAN_HOUR and
-# SCAN_MINUTE.
+# Schedules `scripts/scan-all-scheduled.sh` (which runs scan-all --notify and
+# then seed-in-app-reports --owner <REPORT_OWNER_ID>) every morning BEFORE the
+# 07:00 daily report so local repo facts are always fresh and the composed
+# report lands in the in-app Reports feed. Default 06:30 local time; override
+# with SCAN_HOUR and SCAN_MINUTE.
 #
 # Usage:
 #   npm run scan:schedule install      # write ~/Library/LaunchAgents plist + load
@@ -108,6 +109,8 @@ cron_line() {
   echo "30 6 * * * /bin/bash ${WRAPPER} >> ${LOG_FILE} 2>&1"
   echo "# Or run the wrapper with an explicit API target:"
   echo "# 30 6 * * * SCAN_ALL_API=https://portfolio-app-freebuff.vercel.app/api/scanner /bin/bash ${WRAPPER}"
+  echo "# The wrapper also seeds the in-app report after the scan; the report owner"
+  echo "# comes from REPORT_OWNER_ID (env -> .env.local -> demo-user)."
 }
 
 case "${1:-}" in

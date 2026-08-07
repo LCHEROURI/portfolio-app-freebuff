@@ -20,7 +20,7 @@ interface ScannedRepo {
 }
 
 const INSTALL_CMDS = [
-  { cmd: 'npm run scan:schedule install', hint: 'Installs a launchd agent that runs scan-all --notify every morning at 06:30 (before the 07:00 daily report).' },
+  { cmd: 'npm run scan:schedule install', hint: 'Installs a launchd agent that runs scan-all --notify, then seed-in-app-reports, every morning at 06:30 (before the 07:00 daily report).' },
   { cmd: 'npm run scan:schedule status', hint: 'Shows whether the agent is loaded and tails the last scan log lines.' },
   { cmd: 'npm run scan:schedule uninstall', hint: 'Stops the agent and removes the launchd plist.' },
   { cmd: 'npm run scan:schedule cron', hint: 'Prints the crontab alternative line if you prefer cron over launchd.' },
@@ -74,7 +74,9 @@ export const LocalScanScheduleCard = () => {
         <div className="space-y-4">
           <p className="text-sm text-pepper-600 dark:text-pepper-200">
             The scanner runs on <strong>this machine</strong> via launchd (macOS) or cron, then{' '}
-            <code className="font-mono">--notify</code> regenerates the daily email with the fresh facts.
+            <code className="font-mono">--notify</code> regenerates the daily report with the fresh
+            facts, and <code className="font-mono">seed-in-app-reports</code> saves the composed report
+            into the in-app Reports feed (emailed reports are disabled).
           </p>
 
           <div className="space-y-2">

@@ -495,8 +495,10 @@ GitHub feed).
 
 To keep local facts fresh every morning **before** the 07:00 daily report,
 install the launchd agent (or use its cron alternative) — it runs
-`scan-all --notify` at **06:30 local time** by default and logs to
-`.freebuff/scan-all.log`:
+`scan-all --notify` at **06:30 local time** by default, then seeds the
+composed report into the in-app Reports feed via `seed-in-app-reports
+--owner <REPORT_OWNER_ID>` (env var, else `.env.local`, else `demo-user`)
+— and logs to `.freebuff/scan-all.log`:
 
 ```bash
 npm run scan:schedule install      # write ~/Library/LaunchAgents plist + load
