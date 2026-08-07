@@ -39,10 +39,16 @@
 //     exempt), and every secret the mapped gate declares must actually be
 //     gated somewhere in the workflow. crossCheckCiGates runs this when its
 //     optional deploymentStatusWorkflows argument is supplied.
+//   crossCheckPipelineDiagrams  — asserts BOTH onboarding docs (README.md's
+//     handoff section and docs/launch.md §4) still carry the "When each gate
+//     runs:" pipeline-diagram section — the marker line AND a non-empty
+//     fenced diagram body after it — so the picture itself is contract-locked
+//     in CI, not just in the vitest suite that asserts its content.
 //
-// All four share one GATES parser and one command→gate resolver, so the
-// name, doc-secrets, CI-gating, and deployment-status checks can never
-// disagree about what a gate is.
+// The four gate checks share one GATES parser and one command→gate resolver,
+// so the name, doc-secrets, CI-gating, and deployment-status checks can never
+// disagree about what a gate is. The diagram-presence check is independent of
+// both (it parses no gate source at all).
 //
 // Resolution rules (mirror the runner's own gate table):
 //   - `npm run verify:X [args…]`  → gate name X (args after the script name,
@@ -64,6 +70,10 @@ const FILE_RE = /file:\s*'([^']+)'/;
 const SECRETS_RE = /secrets:\s*\[([^\]]*)\]/;
 // A script target: `node scripts/<file>.mjs` inside a package.json value.
 const SCRIPT_TARGET_RE = /scripts\/[\w./-]+\.(mjs|ts|js|sh|cjs)\b/;
+// The pipeline-diagram lead-in, matched line-anchored (mirrors
+// scripts/readme-pipeline.test.ts's parser) so a future prose mention of the
+// phrase can't be mistaken for the section.
+const PIPELINE_DIAGRAM_MARKER_RE = /^When each gate runs/m;
 // §4 command forms (tolerate trailing args on npm gates).
 const NPM_CMD_RE = /^npm run (verify:[^\s]+)/;
 const NODE_CMD_RE = /^node (scripts\/[\w./-]+\.mjs)/;
@@ -491,6 +501,58 @@ export function crossCheckDeploymentStatusGates({ workflows, verifyAllSrc, npmSc
     }
   }
 
+  return failures;
+}
+
+/**
+ * Cross-check that both onboarding docs still carry the "When each gate
+ * runs:" pipeline-diagram section. Returns an array of failure strings —
+ * empty means every doc has the marker line AND a non-empty fenced diagram
+ * body after it. A doc that loses the marker, keeps the marker but drops the
+ * fence, or leaves an empty/unterminated fenced body fails, so the picture
+ * itself is contract-locked in CI — not just asserted by the readme-pipeline
+ * vitest that checks the diagram's content (job/workflow names). Pure: reads
+ * nothing itself.
+ *
+ * @param {{ readmeSrc: string, launchSrc: string }} args
+ */
+export function crossCheckPipelineDiagrams({ readmeSrc, launchSrc }) {
+  const failures = [];
+  const docs = [
+    { label: 'README.md', src: readmeSrc },
+    { label: 'docs/launch.md', src: launchSrc },
+  ];
+  for (const { label, src } of docs) {
+    const marker = src.search(PIPELINE_DIAGRAM_MARKER_RE);
+    if (marker === -1) {
+      failures.push(
+        `${label} lost the "When each gate runs:" pipeline-diagram section — restore it so the onboarding docs keep the verification-pipeline picture.`,
+      );
+      continue;
+    }
+    // The FIRST fence after the marker is treated as the diagram's opening
+    // fence — the same first-fence convention scripts/readme-pipeline.test.ts
+    // uses, so the presence guard and the content contract can never disagree
+    // about which block is the picture. Fences before the marker are ignored
+    // because the search starts at the marker index.
+    const fenceStart = src.indexOf('```', marker);
+    if (fenceStart === -1) {
+      failures.push(
+        `${label} has the "When each gate runs:" lead-in but no diagram code fence — restore the fenced picture.`,
+      );
+      continue;
+    }
+    // The body starts after the opening fence LINE (the fence may carry a
+    // language tag, e.g. ```text, which must not count as diagram content).
+    const lineEnd = src.indexOf('\n', fenceStart);
+    const bodyStart = lineEnd === -1 ? fenceStart + 3 : lineEnd + 1;
+    const fenceEnd = src.indexOf('```', bodyStart);
+    if (fenceEnd === -1 || src.slice(bodyStart, fenceEnd).trim() === '') {
+      failures.push(
+        `${label} has an empty or unterminated diagram after "When each gate runs:" — restore the fenced picture.`,
+      );
+    }
+  }
   return failures;
 }
 

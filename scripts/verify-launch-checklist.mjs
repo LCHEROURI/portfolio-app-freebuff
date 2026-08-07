@@ -14,6 +14,10 @@
 //     GATE_NAMES / GATES arrays (the runner that executes the checklist). A
 //     gate renamed, dropped, or added in the runner without a matching §4
 //     change fails here, even when the doc and package.json stay runnable.
+//   - the pipeline picture → BOTH onboarding docs (README.md's handoff
+//     section and this doc's §4) must still carry the "When each gate runs:"
+//     pipeline-diagram section, so the picture itself is contract-locked in
+//     CI — not just asserted by the vitest suite that checks its content.
 //
 // Also enforces the doc's "eleven gates" claim: if §4 stops listing one of the
 // gates, or a new gate is added to the doc without a matching script, this
@@ -25,13 +29,14 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { crossCheckCiGates, crossCheckDeploymentStatusGates, crossCheckVerifyAllGates, crossCheckVerifyAllSecrets, parseLaunchChecklistTable } from './launch-checklist-gates.mjs';
+import { crossCheckCiGates, crossCheckDeploymentStatusGates, crossCheckPipelineDiagrams, crossCheckVerifyAllGates, crossCheckVerifyAllSecrets, parseLaunchChecklistTable } from './launch-checklist-gates.mjs';
 
 const ROOT = process.cwd();
 
 const read = (path) => readFileSync(resolve(ROOT, path), 'utf8');
 
 const DOC = 'docs/launch.md';
+const README = 'README.md';
 const VERIFY_ALL = 'scripts/verify-all.mjs';
 const CI = '.github/workflows/ci.yml';
 const GATE_SECTION_HEADING = /^## \d+\. The verification gates/;
@@ -250,6 +255,21 @@ const dsFailures = crossCheckDeploymentStatusGates({
 for (const msg of dsFailures) fail(msg);
 if (dsFailures.length === 0) {
   ok('every deployment_status workflow gates on secrets verify-all.mjs declares for its gate');
+}
+
+// The onboarding docs (README.md handoff + docs/launch.md §4) both carry a
+// "When each gate runs:" pipeline diagram. The readme-pipeline vitest locks
+// the diagram's CONTENT (the five ci.yml job names + three deployment_status
+// workflow names); this step locks its PRESENCE in CI — a doc that loses the
+// section fails the drift guard on every push, not just the test suite.
+console.log('\n[3e/4] Cross-referencing onboarding-doc pipeline-diagram presence');
+const diagramFailures = crossCheckPipelineDiagrams({
+  readmeSrc: read(README),
+  launchSrc: doc,
+});
+for (const msg of diagramFailures) fail(msg);
+if (diagramFailures.length === 0) {
+  ok('README.md and docs/launch.md both carry the "When each gate runs:" pipeline diagram');
 }
 
 console.log('\n[4/4] Summary');
