@@ -5,7 +5,7 @@ import Link from 'next/link';
 import {
   FolderKanban, AlertTriangle, CalendarClock, GitBranch, ArrowUpFromLine, Rocket,
   HeartPulse, Clock4, ShieldAlert, ArrowRight, ListChecks, TrendingUp, Plug, Sparkles,
-  RefreshCw,
+  RefreshCw, Printer, FileDown,
 } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -16,13 +16,15 @@ import { ScanFreshnessBadge } from '@/components/ui/ScanFreshnessBadge';
 import { LastScanStrip } from '@/components/dashboard/LastScanStrip';
 import { VercelEnvSettingsLink } from '@/components/integrations/VercelEnvSettingsLink';
 import { isFirebaseConfigured } from '@/lib/firebase';
-import { fetchTopThreeNarration, isAiBriefingsEnabled, readLiveFlags } from '@/lib/liveData';
+import { downloadPrintPdf, fetchTopThreeNarration, isAiBriefingsEnabled, readLiveFlags } from '@/lib/liveData';
+import { briefingPrintMeta, type PrintDoc } from '@/lib/printDoc';
+import { usePrint } from '@/lib/usePrint';
 import { useStore } from '@/lib/store';
 import {
   computeMetrics, buildPriorityQueue, buildTopThree, runAutomationRules, timeAgo,
   type QueueItem,
 } from '@/lib/engine';
-import { QUEUE_RULE_LABELS } from '@/lib/labels';
+import { modelLabel, QUEUE_RULE_LABELS } from '@/lib/labels';
 import { SCAN_STALE_MS } from '@/lib/scan';
 import type { Repository } from '@/types';
 
@@ -45,6 +47,33 @@ type StoredBriefing = {
   scope: string | 'all';
   signature: string;
 };
+
+// The print-only area mirrors the Top Three card: the AI narration (if any)
+// plus the ranked action list. Shares the .print-report recipe with the
+// Reports page via the usePrint hook — print never touches the data layer.
+type PrintBriefing = {
+  narration: { paragraph: string; model: string } | null;
+  actions: Array<{ priority: number; title: string; description: string; projectName?: string }>;
+};
+
+// Map the on-screen briefing to the shared print-preview document: the AI
+// narration becomes a callout with the friendly model label, and the ranked
+// actions become a numbered list with project + rank context.
+const buildPrintDoc = (payload: PrintBriefing): PrintDoc => ({
+  title: "Today's Top Three",
+  // Shared builder — the in-page .print-report fallback below calls the same
+  // function, so the two render paths can never drift.
+  meta: briefingPrintMeta(payload.actions.length),
+  callouts: payload.narration
+    ? [{ heading: 'Why these three matter today', label: modelLabel(payload.narration.model), text: payload.narration.paragraph }]
+    : [],
+  list: payload.actions.map((action, i) => ({
+    number: i + 1,
+    title: action.title,
+    project: action.projectName,
+    detail: `${action.description} (rank ${action.priority})`,
+  })),
+});
 
 const persistBriefing = (
   narration: { paragraph: string; model: string; projectIds: string[] } | null,
@@ -88,6 +117,24 @@ export default function CommandCenterPage() {
   } | null>(null);
   const [narrating, setNarrating] = useState(false);
   const [scopeProjectId, setScopeProjectId] = useState<string | 'all'>('all');
+  // Shared print lifecycle for the Today's Top Three briefing card.
+  const { printTarget, printReport } = usePrint<PrintBriefing>(buildPrintDoc);
+  // Download-as-PDF state: the route renders the SAME buildPrintDoc through
+  // headless Chrome, so the file can never drift from the preview.
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+
+  const downloadPdf = async () => {
+    setPdfBusy(true);
+    setPdfError(null);
+    try {
+      await downloadPrintPdf(store.userId, buildPrintDoc(buildPrintBriefing()));
+    } catch (err) {
+      setPdfError(err instanceof Error ? err.message : 'PDF export failed.');
+    } finally {
+      setPdfBusy(false);
+    }
+  };
 
   const projectNameOf = (id: string | undefined) =>
     id ? store.projects.find((p) => p.id === id)?.name : undefined;
@@ -101,6 +148,21 @@ export default function CommandCenterPage() {
       .filter((a): a is { id: string; name: string } => Boolean(a.id && a.name))
       .map((a) => [a.id, a.name] as [string, string]),
   ).entries()).map(([id, name]) => ({ id, name }));
+
+  // The print payload mirrors what is on screen right now: the current
+  // narration paragraph (or null) plus the ranked action list with project
+  // names resolved for context.
+  const buildPrintBriefing = (): PrintBriefing => ({
+    narration: narration
+      ? { paragraph: narration.paragraph, model: narration.model }
+      : null,
+    actions: topThree.map((a) => ({
+      priority: a.priority,
+      title: a.title,
+      description: a.description,
+      projectName: projectNameOf(a.projectId),
+    })),
+  });
 
   // The narration request input, optionally narrowed to one project's actions.
   const buildNarrationActions = (projectId: string | 'all') =>
@@ -364,6 +426,29 @@ export default function CommandCenterPage() {
                       <button
                         type="button"
                         className="btn-ghost text-xs"
+                        aria-label="Download today's top three as PDF"
+                        title="Download this briefing as a PDF file"
+                        disabled={pdfBusy}
+                        onClick={() => void downloadPdf()}
+                      >
+                        <FileDown size={14} aria-hidden="true" /> Download PDF
+                      </button>
+                    )}
+                    {topThree.length > 0 && (
+                      <button
+                        type="button"
+                        className="btn-ghost text-xs"
+                        aria-label="Print today's top three"
+                        title="Print this briefing"
+                        onClick={() => printReport(buildPrintBriefing())}
+                      >
+                        <Printer size={14} aria-hidden="true" /> Print
+                      </button>
+                    )}
+                    {topThree.length > 0 && (
+                      <button
+                        type="button"
+                        className="btn-ghost text-xs"
                         disabled={narrating}
                         aria-label="Explain today's top three with AI"
                         onClick={() => void explainTopThree()}
@@ -457,6 +542,11 @@ export default function CommandCenterPage() {
                   ))}
                 </div>
               )}
+              {pdfError && (
+                <p role="alert" className="mb-3 text-xs font-medium text-paprika-600 dark:text-paprika-400">
+                  {pdfError}
+                </p>
+              )}
               {topThree.length === 0 ? (
                 <p className="text-sm text-pepper-500 dark:text-pepper-300">Nothing urgent. Revisit comparisons and roadmap instead.</p>
               ) : (
@@ -536,6 +626,37 @@ export default function CommandCenterPage() {
           </section>
         </div>
       </div>
+
+      {/* Print-only area — visible ONLY in the print dialog (@media print in
+          globals.css hides everything else and anchors this to the top of the
+          page). Rendered only while a briefing is being printed, so it never
+          lingers in the on-screen DOM. */}
+      {printTarget && (
+        <div className="print-report" data-testid="print-report" aria-hidden="true">
+          <h2 className="print-report-title">Today&apos;s Top Three</h2>
+          <p className="print-report-meta">
+            {/* Same shared builder as the preview document — never inline a copy. */}
+            {briefingPrintMeta(printTarget.actions.length)}
+          </p>
+          {printTarget.narration && (
+            <div className="print-report-summary">
+              <strong>Why these three matter today</strong>
+              {/* Friendly label, not the raw model id — matches the on-screen badge. */}
+              <span> ({modelLabel(printTarget.narration.model)})</span>
+              <p>{printTarget.narration.paragraph}</p>
+            </div>
+          )}
+          <ol>
+            {printTarget.actions.map((action, i) => (
+              <li key={i}>
+                <strong>{i + 1}. {action.title}</strong>
+                {action.projectName && <span> · {action.projectName}</span>}
+                <p>{action.description} (rank {action.priority})</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
     </div>
   );
 }

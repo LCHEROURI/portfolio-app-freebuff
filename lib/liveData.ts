@@ -17,6 +17,7 @@
 // ============================================================================
 
 import { getFirebaseAuth } from '@/lib/firebase';
+import { printPdfFileName, type PrintDoc } from '@/lib/printDoc';
 import type { Repository, Deployment } from '@/types';
 
 export interface LiveFlags {
@@ -202,6 +203,51 @@ export interface ScansRow {
  */
 export const fetchScans = (userId: string) =>
   call<{ ok: boolean; repos: ScansRow[] }>('/api/scans', userId);
+
+// ─── Print document → PDF download (via /api/print/pdf) ─────────────────────
+export interface PrintPdfResult {
+  ok: true;
+}
+
+/**
+ * Render a print document to a PDF and save it as a file download. Goes
+ * through the same identity facade as every other live route (verified
+ * Firebase ID token, or the demo x-app-user header) because the route is
+ * owner-scoped. The filename comes from the SAME shared helper the route's
+ * Content-Disposition uses, so the saved file always matches the server's
+ * suggested name.
+ */
+export const downloadPrintPdf = async (userId: string, doc: PrintDoc): Promise<void> => {
+  const token = await getAuthToken();
+  const headers = new Headers();
+  headers.set('Content-Type', 'application/json');
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
+  } else {
+    headers.set('x-app-user', userId);
+  }
+
+  const res = await fetch('/api/print/pdf', {
+    method: 'POST',
+    cache: 'no-store',
+    headers,
+    body: JSON.stringify(doc),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? `PDF export failed (${res.status})`);
+  }
+
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = printPdfFileName(doc);
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+};
 
 // ─── Integration connection status ──────────────────────────────────────────
 export interface IntegrationEnvVar {

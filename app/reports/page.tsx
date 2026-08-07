@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { FileText, RefreshCw, Clock4, Sparkles, CalendarClock, Trash2, Printer } from 'lucide-react';
+import { FileDown, FileText, RefreshCw, Clock4, Sparkles, CalendarClock, Trash2, Printer } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
@@ -11,8 +11,11 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { Modal } from '@/components/ui/Modal';
 import { LastScanStrip } from '@/components/dashboard/LastScanStrip';
 import { useStore } from '@/lib/store';
-import { fetchAiSummary } from '@/lib/liveData';
+import { downloadPrintPdf, fetchAiSummary } from '@/lib/liveData';
 import { buildDailyReportBody, buildWeeklyReportBody, timeAgo } from '@/lib/engine';
+import { modelLabel } from '@/lib/labels';
+import { reportPrintMeta, type PrintDoc } from '@/lib/printDoc';
+import { usePrint } from '@/lib/usePrint';
 import type { ReportPreviewPayload } from '@/lib/reportPreview';
 import type { Report } from '@/types';
 
@@ -36,12 +39,70 @@ type PrintReport = Pick<Report, 'kind' | 'title' | 'body' | 'attentionCount' | '
   createdAt?: string;
 };
 
+// Map the on-screen report to the shared print-preview document. The AI
+// executive summary becomes a callout with the friendly model label; the body
+// is the monospace report body. All text is escaped when the preview window is
+// written, so report bodies can never inject markup.
+const buildPrintDoc = (payload: PrintReport): PrintDoc => ({
+  title: payload.title,
+  // Shared builder — the in-page .print-report fallback below calls the same
+  // function, so the two render paths can never drift.
+  meta: reportPrintMeta({
+    kind: payload.kind,
+    attentionCount: payload.attentionCount,
+    ageLabel: payload.createdAt ? timeAgo(payload.createdAt) : undefined,
+  }),
+  callouts: payload.aiSummary
+    ? [{ heading: 'AI executive summary', label: payload.aiModel ? modelLabel(payload.aiModel) : undefined, text: payload.aiSummary }]
+    : [],
+  body: payload.body,
+});
+
+// The exact PrintReport both Print and Download PDF act on — one builder per
+// surface (preview modal vs. saved rows) so the two actions can never drift.
+const modalPrint = (p: ReportPreview): PrintReport => ({
+  kind: p.kind,
+  title: p.title,
+  body: p.body,
+  attentionCount: p.attentionCount,
+  aiSummary: p.aiSummary,
+  aiModel: p.aiModel,
+});
+
+const rowPrint = (r: Report): PrintReport => ({
+  kind: r.kind,
+  title: r.title,
+  body: r.body,
+  attentionCount: r.attentionCount,
+  aiSummary: r.aiSummary,
+  aiModel: r.aiModel ?? null,
+  createdAt: r.createdAt,
+});
+
 export default function ReportsPage() {
   const store = useStore();
   const [generating, setGenerating] = useState<'daily' | 'weekly' | null>(null);
   const [preview, setPreview] = useState<ReportPreview | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
-  const [printTarget, setPrintTarget] = useState<PrintReport | null>(null);
+  // Shared print lifecycle: prefers a styled preview window (popup-blocked
+  // falls back to the in-page .print-report area + window.print).
+  const { printTarget, printReport } = usePrint<PrintReport>(buildPrintDoc);
+  // Download-as-PDF state: the route renders the SAME buildPrintDoc through
+  // headless Chrome, so the file can never drift from the preview.
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
+
+  const downloadPdf = async (payload: PrintReport) => {
+    setPdfBusy(true);
+    setPdfError(null);
+    try {
+      await downloadPrintPdf(store.userId, buildPrintDoc(payload));
+    } catch (err) {
+      setPdfError(err instanceof Error ? err.message : 'PDF export failed.');
+    } finally {
+      setPdfBusy(false);
+    }
+  };
 
   // Build the report and open a preview modal instead of saving immediately, so
   // the user sees the exact report body (freshness section + AI summary)
@@ -113,19 +174,6 @@ export default function ReportsPage() {
     }
     setConfirmDiscard(false);
     setPreview(null);
-  };
-
-  // Open the browser print dialog with ONLY the report visible — the rest of
-  // the page is hidden by the @media print visibility recipe in globals.css.
-  // The print-only area renders from printTarget for one frame (long enough
-  // for the dialog to snapshot it), then is released, so no hidden duplicate
-  // text lingers in the DOM after printing.
-  const printReport = (r: PrintReport) => {
-    setPrintTarget(r);
-    requestAnimationFrame(() => {
-      window.print();
-      setPrintTarget(null);
-    });
   };
 
   const recent = store.reports.slice(0, 8);
@@ -216,18 +264,25 @@ export default function ReportsPage() {
                     // Don't toggle the <details> — just print.
                     e.preventDefault();
                     e.stopPropagation();
-                    printReport({
-                      kind: r.kind,
-                      title: r.title,
-                      body: r.body,
-                      attentionCount: r.attentionCount,
-                      aiSummary: r.aiSummary,
-                      aiModel: r.aiModel ?? null,
-                      createdAt: r.createdAt,
-                    });
+                    printReport(rowPrint(r));
                   }}
                 >
                   <Printer size={12} aria-hidden="true" /> Print
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Download PDF of ${r.title}`}
+                  className="btn-ghost rounded-md px-2 py-1 text-xs"
+                  title="Download this report as a PDF file"
+                  disabled={pdfBusy}
+                  onClick={(e) => {
+                    // Don't toggle the <details> — just download.
+                    e.preventDefault();
+                    e.stopPropagation();
+                    void downloadPdf(rowPrint(r));
+                  }}
+                >
+                  <FileDown size={12} aria-hidden="true" /> Download PDF
                 </button>
               </summary>
               {r.aiSummary && (
@@ -288,18 +343,19 @@ export default function ReportsPage() {
                 </div>
               </div>
             )}
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               <button
                 type="button"
                 className="btn-secondary"
-                onClick={() => printReport({
-                  kind: preview.kind,
-                  title: preview.title,
-                  body: preview.body,
-                  attentionCount: preview.attentionCount,
-                  aiSummary: preview.aiSummary,
-                  aiModel: preview.aiModel,
-                })}
+                disabled={pdfBusy}
+                onClick={() => void downloadPdf(modalPrint(preview))}
+              >
+                <FileDown size={15} aria-hidden="true" /> Download PDF
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => printReport(modalPrint(preview))}
               >
                 <Printer size={15} aria-hidden="true" /> Print report
               </button>
@@ -318,6 +374,11 @@ export default function ReportsPage() {
                 </button>
               )}
             </div>
+            {pdfError && (
+              <p role="alert" className="text-xs font-medium text-paprika-600 dark:text-paprika-400">
+                {pdfError}
+              </p>
+            )}
           </div>
         </Modal>
       )}
@@ -330,13 +391,17 @@ export default function ReportsPage() {
         <div className="print-report" data-testid="print-report" aria-hidden="true">
           <h2 className="print-report-title">{printTarget.title}</h2>
           <p className="print-report-meta">
-            {printTarget.kind} report · {printTarget.attentionCount} attention items
-            {printTarget.createdAt ? ` · ${timeAgo(printTarget.createdAt)}` : ''}
+            {/* Same shared builder as the preview document — never inline a copy. */}
+            {reportPrintMeta({
+              kind: printTarget.kind,
+              attentionCount: printTarget.attentionCount,
+              ageLabel: printTarget.createdAt ? timeAgo(printTarget.createdAt) : undefined,
+            })}
           </p>
           {printTarget.aiSummary && (
             <div className="print-report-summary">
               <strong>AI executive summary</strong>
-              {printTarget.aiModel && <span> ({printTarget.aiModel})</span>}
+              {printTarget.aiModel && <span> ({modelLabel(printTarget.aiModel)})</span>}
               <p>{printTarget.aiSummary}</p>
             </div>
           )}

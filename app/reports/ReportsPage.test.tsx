@@ -90,10 +90,22 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   vi.clearAllMocks();
 });
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
+
+// A fake window.open() return value: a minimal window whose document spies
+// capture the standalone HTML the preview flow writes.
+const fakePreviewWindow = () => {
+  const write = vi.fn();
+  const win = {
+    document: { open: vi.fn(), write, close: vi.fn() },
+    focus: vi.fn(),
+  } as unknown as Window;
+  return { win, write };
+};
 
 // Generating now opens a preview modal instead of saving immediately, so tests
 // confirm the preview first, then click Save to persist.
@@ -263,11 +275,15 @@ describe('ReportsPage — Preview body toggle', () => {
 
 // ─── Print report ───────────────────────────────────────────────────────────
 
-// The page opens the browser print dialog with ONLY the report visible (the
-// @media print recipe in globals.css hides the rest of the page). window.print
-// is stubbed; the test asserts the print-only area rendered the exact body.
+// Printing prefers a styled preview window (usePrint) and only falls back to
+// the in-page .print-report recipe when the popup is blocked. These tests mock
+// window.open to return null so the in-page fallback runs, then assert the
+// print-only area rendered the exact body and window.print fired.
 describe('ReportsPage — print report', () => {
+  const blockPopup = () => vi.spyOn(window, 'open').mockReturnValue(null);
+
   it('prints the previewed report body from the modal Print report button', async () => {
+    blockPopup();
     const printMock = vi.fn();
     const printSpy = vi.spyOn(window, 'print').mockImplementation(printMock);
     queue = [{ ok: true, configured: false, summary: null, model: null }];
@@ -290,6 +306,7 @@ describe('ReportsPage — print report', () => {
   });
 
   it('prints a saved report from its row, including the AI summary', async () => {
+    blockPopup();
     const printMock = vi.fn();
     const printSpy = vi.spyOn(window, 'print').mockImplementation(printMock);
     savedReports.push({
@@ -314,6 +331,139 @@ describe('ReportsPage — print report', () => {
     expect(within(printArea).getByText('Deploy the winner.')).toBeInTheDocument();
     await waitFor(() => expect(printSpy).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.queryByTestId('print-report')).toBeNull());
+  });
+
+  it('opens a styled preview window with the report when the popup is allowed', async () => {
+    const { win, write } = fakePreviewWindow();
+    vi.spyOn(window, 'open').mockReturnValue(win);
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {});
+    queue = [{ ok: true, configured: false, summary: null, model: null }];
+    render(<ReportsPage />);
+
+    await generateDaily();
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Print report' }));
+
+    // The preview window received the standalone document with the report's
+    // title and exact body; the browser dialog never opens directly and the
+    // in-page recipe is not rendered.
+    expect(write).toHaveBeenCalledTimes(1);
+    const html = String(write.mock.calls[0][0]);
+    expect(html).toContain('Daily Command Center Report');
+    expect(html).toContain('## Local scan freshness');
+    expect(printSpy).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('print-report')).toBeNull();
+  });
+});
+
+// ─── Download PDF ────────────────────────────────────────────────────────────
+
+// Downloading renders the SAME PrintDoc the preview shows through the shared
+// /api/print/pdf route, then saves the returned blob. jsdom lacks
+// URL.createObjectURL and blob: navigation, so a URL subclass stubs the two
+// statics (inheriting the real URL for any `new URL(...)` call) and the anchor
+// click is spied.
+describe('ReportsPage — download PDF', () => {
+  const stubPdfWindow = () => {
+    const createObjectURL = vi.fn(() => 'blob:fake');
+    const revokeObjectURL = vi.fn();
+    class FakeURL extends URL {
+      static createObjectURL = createObjectURL;
+      static revokeObjectURL = revokeObjectURL;
+    }
+    vi.stubGlobal('URL', FakeURL as unknown as typeof URL);
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    return { createObjectURL, revokeObjectURL, clickSpy };
+  };
+
+  it('downloads the previewed report as a PDF via the shared route', async () => {
+    const { createObjectURL, clickSpy } = stubPdfWindow();
+    let pdfBody: unknown;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/scans')) {
+        return { ok: true, status: 200, json: async () => ({ ok: true, repos: [] }) } as Response;
+      }
+      if (url.includes('/api/print/pdf')) {
+        pdfBody = JSON.parse(String(init?.body));
+        return {
+          ok: true, status: 200,
+          blob: async () => new Blob(['%PDF-1.4'], { type: 'application/pdf' }),
+        } as unknown as Response;
+      }
+      throw new Error(`Unexpected fetch in reports pdf test: ${url}`);
+    }));
+    queue = [{ ok: true, configured: false, summary: null, model: null }];
+    render(<ReportsPage />);
+
+    await generateDaily();
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Download PDF' }));
+
+    await waitFor(() => expect(clickSpy).toHaveBeenCalledTimes(1));
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    // The request carried the same PrintDoc the preview renders: a date-based
+    // title plus the exact body (incl. the Local scan freshness section).
+    expect((pdfBody as { title: string }).title).toMatch(/^Daily Report/);
+    expect((pdfBody as { body: string }).body).toContain('Daily Command Center Report');
+    expect((pdfBody as { body: string }).body).toContain('## Local scan freshness');
+  });
+
+  it('shows a targeted error when the PDF route is unavailable', async () => {
+    stubPdfWindow();
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/scans')) {
+        return { ok: true, status: 200, json: async () => ({ ok: true, repos: [] }) } as Response;
+      }
+      if (url.includes('/api/print/pdf')) {
+        return {
+          ok: false, status: 503,
+          json: async () => ({ ok: false, error: 'Headless Chrome not available here.' }),
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch in reports pdf test: ${url}`);
+    }));
+    queue = [{ ok: true, configured: false, summary: null, model: null }];
+    render(<ReportsPage />);
+
+    await generateDaily();
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Download PDF' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Headless Chrome not available here.');
+  });
+
+  it('downloads a saved report from its row', async () => {
+    const { createObjectURL, clickSpy } = stubPdfWindow();
+    let pdfBody: unknown;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/scans')) {
+        return { ok: true, status: 200, json: async () => ({ ok: true, repos: [] }) } as Response;
+      }
+      if (url.includes('/api/print/pdf')) {
+        pdfBody = JSON.parse(String(init?.body));
+        return {
+          ok: true, status: 200,
+          blob: async () => new Blob(['%PDF-1.4'], { type: 'application/pdf' }),
+        } as unknown as Response;
+      }
+      throw new Error(`Unexpected fetch in reports pdf test: ${url}`);
+    }));
+    savedReports.push({
+      id: 'r-pdf',
+      userId: 'e2e-user',
+      kind: 'daily',
+      title: 'Daily Report 8/7/2026',
+      body: '# Daily Command Center Report\n\n## Local scan freshness\n- Newest: **LCHEROURI/new-repo** — scanned 1h ago\n',
+      attentionCount: 2,
+      createdAt: new Date().toISOString(),
+    });
+    render(<ReportsPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Download PDF of Daily Report 8/7/2026' }));
+
+    await waitFor(() => expect(clickSpy).toHaveBeenCalledTimes(1));
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect((pdfBody as { title: string }).title).toBe('Daily Report 8/7/2026');
   });
 });
 

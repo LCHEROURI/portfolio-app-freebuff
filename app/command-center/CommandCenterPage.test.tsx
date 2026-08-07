@@ -114,6 +114,7 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env.NEXT_PUBLIC_ENABLE_AI_BRIEFINGS;
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   vi.clearAllMocks();
 });
 
@@ -500,6 +501,196 @@ describe('CommandCenterPage — auto-briefing on load', () => {
     expect(await screen.findByText('Why these three matter today')).toBeInTheDocument();
     // Exactly one AI call for the whole lifecycle (ignoring the /api/scans feed).
     expect(aiCalls(lastFetchMock as ReturnType<typeof vi.fn>)).toHaveLength(1);
+  });
+});
+
+// ─── Print today's top three ─────────────────────────────────────────────────
+
+// A fake window.open() return value: a minimal window whose document spies
+// capture the standalone HTML the preview flow writes.
+const fakePreviewWindow = () => {
+  const write = vi.fn();
+  const win = {
+    document: { open: vi.fn(), write, close: vi.fn() },
+    focus: vi.fn(),
+  } as unknown as Window;
+  return { win, write };
+};
+
+// Printing prefers a styled preview window (usePrint) and only falls back to
+// the in-page .print-report recipe when the popup is blocked. These tests mock
+// window.open to return null so the in-page fallback runs, then assert the
+// print-only area mirrored the narration + ranked actions and window.print
+// fired.
+describe('CommandCenterPage — print top three briefing', () => {
+  const blockPopup = () => vi.spyOn(window, 'open').mockReturnValue(null);
+
+  it('prints the AI briefing narration and the ranked action list', async () => {
+    blockPopup();
+    const printMock = vi.fn();
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(printMock);
+    queue = [{
+      ok: true, configured: true,
+      narration: {
+        paragraph: 'Fix the failing deploy first, then ship onboarding.',
+        model: 'deepseek/deepseek-chat',
+        projectIds: [],
+      },
+    }];
+    render(<CommandCenterPage />);
+
+    // Generate the briefing first so the print payload carries the narration.
+    fireEvent.click(screen.getByRole('button', { name: "Explain today's top three with AI" }));
+    expect(await screen.findByText('Why these three matter today')).toBeInTheDocument();
+
+    // Print the card: the print-only area mirrors the narration + the actions.
+    fireEvent.click(screen.getByRole('button', { name: "Print today's top three" }));
+
+    const printArea = screen.getByTestId('print-report');
+    expect(within(printArea).getByText(/Why these three matter today/)).toBeInTheDocument();
+    expect(within(printArea).getByText(/Fix the failing deploy first/)).toBeInTheDocument();
+    expect(within(printArea).getByText(/1\. .*Ship onboarding/)).toBeInTheDocument();
+    await waitFor(() => expect(printSpy).toHaveBeenCalledTimes(1));
+
+    // The area is released after the dialog opens — nothing lingers on screen.
+    await waitFor(() => expect(screen.queryByTestId('print-report')).toBeNull());
+  });
+
+  it('prints the ranked list alone when there is no AI briefing', async () => {
+    blockPopup();
+    const printMock = vi.fn();
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(printMock);
+    render(<CommandCenterPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: "Print today's top three" }));
+
+    const printArea = screen.getByTestId('print-report');
+    expect(within(printArea).getByText(/1\. .*Ship onboarding/)).toBeInTheDocument();
+    // No narration block when the briefing was never generated.
+    expect(within(printArea).queryByText(/Why these three matter today/)).toBeNull();
+    await waitFor(() => expect(printSpy).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByTestId('print-report')).toBeNull());
+  });
+
+  it('opens a styled preview window with the narration and ranked list when the popup is allowed', async () => {
+    const { win, write } = fakePreviewWindow();
+    vi.spyOn(window, 'open').mockReturnValue(win);
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {});
+    queue = [{
+      ok: true, configured: true,
+      narration: {
+        paragraph: 'Fix the failing deploy first, then ship onboarding.',
+        model: 'deepseek/deepseek-chat',
+        projectIds: [],
+      },
+    }];
+    render(<CommandCenterPage />);
+
+    // Generate the briefing first so the preview carries the narration.
+    fireEvent.click(screen.getByRole('button', { name: "Explain today's top three with AI" }));
+    expect(await screen.findByText('Why these three matter today')).toBeInTheDocument();
+
+    // Print: the preview window receives the standalone document with the
+    // narration callout and the ranked list; the in-page recipe never renders
+    // and the browser dialog does not open directly.
+    fireEvent.click(screen.getByRole('button', { name: "Print today's top three" }));
+
+    expect(write).toHaveBeenCalledTimes(1);
+    const html = String(write.mock.calls[0][0]);
+    expect(html).toContain('Why these three matter today');
+    expect(html).toContain('Fix the failing deploy first, then ship onboarding.');
+    expect(html).toContain('Ship onboarding');
+    expect(printSpy).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('print-report')).toBeNull();
+  });
+});
+
+// ─── Download PDF ────────────────────────────────────────────────────────────
+
+// Downloading renders the SAME PrintDoc the preview shows through the shared
+// /api/print/pdf route, then saves the returned blob. jsdom lacks
+// URL.createObjectURL and blob: navigation, so a URL subclass stubs the two
+// statics and the anchor click is spied.
+describe('CommandCenterPage — download top three PDF', () => {
+  const stubPdfWindow = () => {
+    const createObjectURL = vi.fn(() => 'blob:fake');
+    const revokeObjectURL = vi.fn();
+    class FakeURL extends URL {
+      static createObjectURL = createObjectURL;
+      static revokeObjectURL = revokeObjectURL;
+    }
+    vi.stubGlobal('URL', FakeURL as unknown as typeof URL);
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    return { createObjectURL, clickSpy };
+  };
+
+  it('downloads the briefing as a PDF, including the AI narration when present', async () => {
+    const { createObjectURL, clickSpy } = stubPdfWindow();
+    let pdfBody: unknown;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/scans')) {
+        return { ok: true, status: 200, json: async () => ({ ok: true, repos: [] }) } as Response;
+      }
+      if (url.includes('/api/ai/top-three')) {
+        return {
+          ok: true, status: 200,
+          json: async () => ({
+            ok: true, configured: true,
+            narration: {
+              paragraph: 'Fix the failing deploy first, then ship onboarding.',
+              model: 'deepseek/deepseek-chat',
+              projectIds: [],
+            },
+          }),
+        } as Response;
+      }
+      if (url.includes('/api/print/pdf')) {
+        pdfBody = JSON.parse(String(init?.body));
+        return {
+          ok: true, status: 200,
+          blob: async () => new Blob(['%PDF-1.4'], { type: 'application/pdf' }),
+        } as unknown as Response;
+      }
+      throw new Error(`Unexpected fetch in command-center pdf test: ${url}`);
+    }));
+    render(<CommandCenterPage />);
+
+    // Generate the briefing first so the PDF carries the narration.
+    fireEvent.click(screen.getByRole('button', { name: "Explain today's top three with AI" }));
+    expect(await screen.findByText('Why these three matter today')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: "Download today's top three as PDF" }));
+
+    await waitFor(() => expect(clickSpy).toHaveBeenCalledTimes(1));
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    // The request carried the same PrintDoc the preview renders: the narration
+    // callout plus the ranked action list.
+    expect((pdfBody as { title: string }).title).toBe("Today's Top Three");
+    expect((pdfBody as { callouts: Array<{ heading: string }> }).callouts[0].heading).toBe('Why these three matter today');
+    expect((pdfBody as { list: unknown[] }).list).toHaveLength(1);
+  });
+
+  it('shows a targeted error when the PDF route is unavailable', async () => {
+    stubPdfWindow();
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/scans')) {
+        return { ok: true, status: 200, json: async () => ({ ok: true, repos: [] }) } as Response;
+      }
+      if (url.includes('/api/print/pdf')) {
+        return {
+          ok: false, status: 503,
+          json: async () => ({ ok: false, error: 'Headless Chrome not available here.' }),
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch in command-center pdf test: ${url}`);
+    }));
+    render(<CommandCenterPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: "Download today's top three as PDF" }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Headless Chrome not available here.');
   });
 });
 
