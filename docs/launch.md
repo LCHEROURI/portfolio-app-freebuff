@@ -87,6 +87,32 @@ auth-domains rows (they share one script), and prints a summary table,
 exiting nonzero on any failure. `--only a,b` / `--skip a,b` narrow a run;
 `--expect <sha>` forwards a deployed-hash assertion into the runner.
 
+**Sub-rows in the summary table:** capture gates emit
+`VERIFY-SUBRESULT|<name>|<PASS|FAIL>` markers that `verify:all` renders as
+indented rows directly under the parent gate. A sub-row is **visibility only**
+— the parent gate's exit code still governs the run. Not every sub-row appears
+on every run: a sub-check that could not run emits **no row at all**, so an
+absent row means *check skipped*, never *check passed*. The conditional rows
+are:
+
+- `admin-config` (under `verify:google-idp`) — only when
+  `FIREBASE_SERVICE_ACCOUNT` is configured locally, because the admin-API
+  cross-check needs a service-account token to mint.
+- `email-idp-config` and `google-idp-config` (under `verify-prod-signin`) —
+  only when the service account is configured AND the Firebase project id is
+  known; the admin-API IdP probes cannot run without both.
+- `firestore-sync` (under `verify-prod-signin`) — only when a throwaway user
+  is minted (the default); fixed-credential runs (`--email`/`--password`)
+  skip the Firestore REST probe and prove sync via the shell render instead.
+- `verify-deployed-hash`'s `alias-drift`, `expect-match`, and `check-local`
+  rows follow the same contract — each appears only when its flag
+  (`--compare-url`, `--expect`, `--check-local`) actually ran and compared two
+  shas.
+
+So when reading the `verify:all` table, a missing conditional row is expected
+on a machine without the service account (or without `--expect`): it means the
+sub-check was skipped, not that it failed — and never that it passed.
+
 CI runs the cron-reports + firestore-rules + auth-domains gates after every push
 (`ci.yml`), a sign-in gate, and `preview-gate.yml` validates every Vercel
 preview URL via `deployment_status`. A separate `verify-deployed-hash.yml`
