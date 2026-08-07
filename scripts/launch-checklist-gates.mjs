@@ -9,7 +9,7 @@
 // the doc and package.json can stay perfectly runnable while the runner and
 // the checklist disagree about what exists.
 //
-// This module closes that gap with three pure cross-checks (no file I/O, no
+// This module closes that gap with four pure cross-checks (no file I/O, no
 // network, no secrets — they take the parsed inputs, the raw
 // verify-all.mjs source, and package.json scripts as arguments and return an
 // array of human-readable failure strings; empty = consistent):
@@ -29,10 +29,18 @@
 //     a step gated on a secret the runner never declared fails, and a step
 //     that runs UNGATED while its gate declares secrets fails too — so the
 //     doc, the runner, and CI can never disagree about what a gate needs.
+//   crossCheckDeploymentStatusGates — the same credential contract for the
+//     deployment_status workflows (gallery / preview-gate / deployed-hash):
+//     each workflow is mapped to the gate whose credentials it consumes, and
+//     every secret its steps gate on must be declared by that gate (with
+//     workflow-plumbing secrets like VERCEL_ORG_ID / VERCEL_PROTECTION_BYPASS
+//     exempt), and every secret the mapped gate declares must actually be
+//     gated somewhere in the workflow. crossCheckCiGates runs this when its
+//     optional deploymentStatusWorkflows argument is supplied.
 //
-// All three share one GATES parser and one command→gate resolver, so the
-// name, doc-secrets, and CI-gating checks can never disagree about what a
-// gate is.
+// All four share one GATES parser and one command→gate resolver, so the
+// name, doc-secrets, CI-gating, and deployment-status checks can never
+// disagree about what a gate is.
 //
 // Resolution rules (mirror the runner's own gate table):
 //   - `npm run verify:X [args…]`  → gate name X (args after the script name,
@@ -337,15 +345,164 @@ export function parseCiGateSteps(ciSrc) {
     }));
 }
 
+// Secrets that are workflow PLUMBING, not gate requirements: the Vercel
+// org/project scoping, the deployment protection-bypass header, and the
+// Firebase service-account admin credential exist so a workflow can reach
+// its platform at all. They are not per-gate credentials verify-all.mjs
+// declares, so the deployment-status check exempts them from the
+// declared-secret rule.
+const INFRA_SECRETS = new Set([
+  'VERCEL_ORG_ID',
+  'VERCEL_PROJECT_ID',
+  'VERCEL_PROTECTION_BYPASS',
+  'VERCEL_TEAM_ID',
+  'FIREBASE_SERVICE_ACCOUNT',
+]);
+
 /**
- * Cross-check ci.yml's gated verify steps against verify-all.mjs's `secrets`
- * arrays. Returns an array of failure strings — empty means every CI verify
- * step is gated on secrets the runner declares for its gate (and no gate with
- * declared secrets is run ungated).
+ * Parse a deployment_status workflow (gallery.yml, preview-gate.yml,
+ * verify-deployed-hash.yml) into its gated steps. Unlike ci.yml's verify
+ * jobs, these workflows invoke their gate scripts in block-scalar `run: |`
+ * bodies (the script line is indented BELOW the `run:` key), so the parser
+ * scans the block for `node scripts/verify-*.mjs` and captures every step's
+ * `if:` env-gating. Returns `[{ name, run, gatingSecrets }]` — one entry per
+ * step with a non-empty `if:` condition (`run` is '' for steps that run no
+ * gate script, e.g. checkout / vercel CLI / capture). Pure: reads nothing
+ * itself.
  *
- * @param {{ ciSrc: string, verifyAllSrc: string, npmScripts: Record<string, string> }} args
+ * @param {string} src
  */
-export function crossCheckCiGates({ ciSrc, verifyAllSrc, npmScripts }) {
+export function parseDeploymentStatusSteps(src) {
+  const lines = src.split('\n');
+  const steps = [];
+  let current = null;
+  let inRunBlock = false;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    const stepMatch = line.match(/^      - name:\s*(.*)$/);
+    if (stepMatch) {
+      current = { name: stepMatch[1].trim(), ifCondition: '', run: '' };
+      steps.push(current);
+      inRunBlock = false;
+      continue;
+    }
+    if (!current) continue;
+    const ifMatch = line.match(/^        if:\s*(.*)$/);
+    if (ifMatch) {
+      current.ifCondition = ifMatch[1];
+      inRunBlock = false;
+      continue;
+    }
+    const runMatch = line.match(/^        run:\s*(.*)$/);
+    if (runMatch) {
+      // A block scalar (`run: |`) means the command sits on the indented
+      // lines below; an inline `run: node scripts/X.mjs` matches directly.
+      inRunBlock = runMatch[1] === '|';
+      if (!inRunBlock) {
+        const m = runMatch[1].match(/node scripts\/(verify-[\w-]+\.mjs)/);
+        if (m) current.run = m[1];
+      }
+      continue;
+    }
+    if (inRunBlock) {
+      // Block-scalar content is indented ≥10 spaces (deeper than the 8-space
+      // step keys); blank lines continue the block. Anything else ends it.
+      if (/^\s{10,}/.test(line) || line.trim() === '') {
+        const m = line.match(/node scripts\/(verify-[\w-]+\.mjs)/);
+        if (m) current.run = m[1];
+        continue;
+      }
+      inRunBlock = false;
+    }
+  }
+  return steps
+    .filter((s) => s.ifCondition.length > 0)
+    .map((s) => ({
+      name: s.name,
+      run: s.run,
+      gatingSecrets: [...s.ifCondition.matchAll(CI_GATING_RE)].map((m) => m[1]),
+    }));
+}
+
+/**
+ * Cross-check the deployment_status workflows (gallery / preview-gate /
+ * deployed-hash) against verify-all.mjs's `secrets` arrays. Each workflow is
+ * mapped to the gate whose credentials it exercises; every secret the mapped
+ * gate declares must actually be gated somewhere in the workflow, and every
+ * gated secret must be declared by the gate the step runs (resolved) or by
+ * the workflow's mapped gate — workflow-plumbing secrets (Vercel org/project
+ * scoping, protection bypass, service account) are exempt. Returns an array
+ * of failure strings — empty means every deployment_status workflow gates on
+ * secrets the runner declares for its gate.
+ *
+ * @param {{ workflows: Array<{ name: string, gate: string, src: string }>, verifyAllSrc: string, npmScripts: Record<string, string> }} args
+ */
+export function crossCheckDeploymentStatusGates({ workflows, verifyAllSrc, npmScripts }) {
+  const failures = [];
+  const parsed = parseVerifyAllGates(verifyAllSrc);
+  if (parsed.error) return [parsed.error];
+  const { entries } = parsed;
+  const secretsByGate = new Map(entries.map((e) => [e.name, e.secrets]));
+
+  for (const wf of workflows) {
+    const { name: wfName, gate: mappedGate, src } = wf;
+    const mappedSecrets = secretsByGate.get(mappedGate);
+    if (!mappedSecrets) {
+      failures.push(`deployment_status workflow "${wfName}" maps to gate "${mappedGate}" which verify-all.mjs does not declare.`);
+      continue;
+    }
+    const steps = parseDeploymentStatusSteps(src);
+
+    // Reverse contract: every secret the mapped gate declares must actually
+    // be gated somewhere in the workflow — a workflow that stops gating the
+    // credential its gate needs fails instead of silently running ungated.
+    const gatedEverywhere = new Set();
+    for (const s of steps) for (const g of s.gatingSecrets) gatedEverywhere.add(g);
+    for (const s of mappedSecrets) {
+      if (!gatedEverywhere.has(s)) {
+        failures.push(
+          `deployment_status workflow "${wfName}" (gate ${mappedGate}) never gates on ${s} — add it to a step's if-condition.`,
+        );
+      }
+    }
+
+    // Forward contract per step: every gated secret must be declared by the
+    // gate the step's script resolves to (verify scripts), or by the
+    // workflow's mapped gate (vercel/capture steps run no gate script).
+    for (const step of steps) {
+      let gate = mappedGate;
+      if (step.run) {
+        const resolved = resolveDocCommands([`node scripts/${step.run}`], entries, npmScripts);
+        failures.push(...resolved.failures);
+        if (resolved.results[0]?.gate) gate = resolved.results[0].gate;
+      }
+      const runnerSecrets = secretsByGate.get(gate) ?? [];
+      for (const s of step.gatingSecrets) {
+        if (INFRA_SECRETS.has(s)) continue;
+        if (!runnerSecrets.includes(s)) {
+          failures.push(
+            `deployment_status step "${step.name}" (${wfName}) gates on ${s}, `
+            + `but the ${gate} gate declares [${runnerSecrets.join(', ')}].`,
+          );
+        }
+      }
+    }
+  }
+
+  return failures;
+}
+
+/**
+ * Cross-check ci.yml's gated verify steps AND the deployment_status
+ * workflows against verify-all.mjs's `secrets` arrays. Returns an array of
+ * failure strings — empty means every CI verify step is gated on secrets the
+ * runner declares for its gate (no gate with declared secrets runs ungated),
+ * and every deployment_status workflow gates on the secrets its mapped gate
+ * declares.
+ *
+ * @param {{ ciSrc: string, verifyAllSrc: string, npmScripts: Record<string, string>, deploymentStatusWorkflows?: Array<{ name: string, gate: string, src: string }> }} args
+ */
+export function crossCheckCiGates({ ciSrc, verifyAllSrc, npmScripts, deploymentStatusWorkflows = [] }) {
   const failures = [];
   const parsed = parseVerifyAllGates(verifyAllSrc);
   if (parsed.error) return [parsed.error];
@@ -385,6 +542,15 @@ export function crossCheckCiGates({ ciSrc, verifyAllSrc, npmScripts }) {
         );
       }
     }
+  }
+
+  // deployment_status workflows: the gallery / preview-gate / deployed-hash
+  // workflows fire on Vercel's deployment_status event (NOT on push like the
+  // ci.yml jobs), so they are invisible to the ci.yml step parser above. The
+  // same credential contract applies — each workflow gates on the secrets the
+  // gate it exercises declares.
+  if (deploymentStatusWorkflows.length > 0) {
+    failures.push(...crossCheckDeploymentStatusGates({ workflows: deploymentStatusWorkflows, verifyAllSrc, npmScripts }));
   }
 
   return failures;

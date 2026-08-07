@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { crossCheckCiGates, parseCiGateSteps } from './launch-checklist-gates.mjs';
+import { crossCheckCiGates, crossCheckDeploymentStatusGates, parseCiGateSteps, parseDeploymentStatusSteps } from './launch-checklist-gates.mjs';
 
 const ROOT = process.cwd();
 const read = (p) => readFileSync(resolve(ROOT, p), 'utf8');
@@ -154,5 +154,154 @@ jobs:
     expect(failures).toEqual([
       'verify-all.mjs has no GATES array — a rename or restructure broke the runner.',
     ]);
+  });
+});
+
+// ── parseDeploymentStatusSteps: the deployment_status workflow parser ───────
+describe('parseDeploymentStatusSteps (live repo)', () => {
+  it('reads the block-scalar verify invocation in preview-gate', () => {
+    const steps = parseDeploymentStatusSteps(read('.github/workflows/preview-gate.yml'));
+    const verify = steps.find((s) => s.name === 'Verify deployed domain is authorized');
+    expect(verify).toBeDefined();
+    expect(verify.run).toBe('verify-auth-domains.mjs');
+    expect(verify.gatingSecrets).toEqual(['FIREBASE_WEB_API_KEY']);
+  });
+
+  it('reads the block-scalar verify invocation in verify-deployed-hash', () => {
+    const steps = parseDeploymentStatusSteps(read('.github/workflows/verify-deployed-hash.yml'));
+    const verify = steps.find((s) => s.name === 'Verify deployed commit matches the pushed head');
+    expect(verify).toBeDefined();
+    expect(verify.run).toBe('verify-deployed-hash.mjs');
+    expect(verify.gatingSecrets).toEqual(['VERCEL_TOKEN']);
+  });
+
+  it('captures the gallery steps gated on the Vercel env trio', () => {
+    const steps = parseDeploymentStatusSteps(read('.github/workflows/gallery.yml'));
+    const deploy = steps.find((s) => s.name === 'Deploy preview of this branch');
+    expect(deploy).toBeDefined();
+    expect(deploy.gatingSecrets).toEqual(['VERCEL_TOKEN', 'VERCEL_ORG_ID', 'VERCEL_PROJECT_ID']);
+  });
+});
+
+// ── crossCheckDeploymentStatusGates: live repo (the real lock) ──────────────
+describe('crossCheckDeploymentStatusGates (live repo)', () => {
+  const verifyAllSrc = read('scripts/verify-all.mjs');
+  const npmScripts = JSON.parse(read('package.json')).scripts ?? {};
+  const workflows = [
+    { name: 'gallery', gate: 'deployed-hash', src: read('.github/workflows/gallery.yml') },
+    { name: 'preview-gate', gate: 'auth-domains', src: read('.github/workflows/preview-gate.yml') },
+    { name: 'verify-deployed-hash', gate: 'deployed-hash', src: read('.github/workflows/verify-deployed-hash.yml') },
+  ];
+
+  it('passes: every deployment_status workflow gates on secrets its gate declares', () => {
+    const failures = crossCheckDeploymentStatusGates({ workflows, verifyAllSrc, npmScripts });
+    expect(failures).toEqual([]);
+  });
+
+  it('passes through crossCheckCiGates when supplied via deploymentStatusWorkflows', () => {
+    const failures = crossCheckCiGates({
+      ciSrc: read('.github/workflows/ci.yml'),
+      verifyAllSrc,
+      npmScripts,
+      deploymentStatusWorkflows: workflows,
+    });
+    expect(failures).toEqual([]);
+  });
+});
+
+// ── crossCheckDeploymentStatusGates: synthetic fixture ──────────────────────
+describe('crossCheckDeploymentStatusGates (fixture)', () => {
+  const FIXTURE_SRC = `
+const GATE_NAMES = ['deployed-hash', 'auth-domains'];
+
+const GATES = [
+  { name: 'deployed-hash', label: 'Deployed hash', script: 'verify:deployed-hash', secrets: ['VERCEL_TOKEN'] },
+  { name: 'auth-domains', label: 'Auth domains', script: 'verify:auth-domains', secrets: ['FIREBASE_WEB_API_KEY'] },
+];
+`;
+  const SCRIPTS = {
+    'verify:deployed-hash': 'node scripts/verify-deployed-hash.mjs',
+    'verify:auth-domains': 'node scripts/verify-auth-domains.mjs',
+  };
+  // The `${{ … }}` GitHub expressions must be escaped inside these template
+  // literals — a bare `${{` would be parsed as a JS `${` interpolation.
+  const FIXTURE_GALLERY = `
+jobs:
+  capture:
+    env:
+      VERCEL_TOKEN: \${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: \${{ secrets.VERCEL_ORG_ID }}
+    steps:
+      - name: Deploy preview
+        if: \${{ env.VERCEL_TOKEN != '' && env.VERCEL_ORG_ID != '' }}
+        run: npx --yes vercel deploy --prebuilt
+`;
+  const FIXTURE_PREVIEW = `
+jobs:
+  verify-preview-auth-domains:
+    steps:
+      - name: Verify deployed domain is authorized
+        if: \${{ env.FIREBASE_WEB_API_KEY != '' }}
+        run: |
+          run_verify() {
+            node scripts/verify-auth-domains.mjs --app "\${{ github.event.deployment_status.target_url }}"
+          }
+          if run_verify; then
+            echo "preview-gate: authorized"
+          else
+            exit 1
+          fi
+`;
+
+  it('passes on a consistent gallery (declared token + exempt infra secrets)', () => {
+    const failures = crossCheckDeploymentStatusGates({
+      workflows: [{ name: 'gallery', gate: 'deployed-hash', src: FIXTURE_GALLERY }],
+      verifyAllSrc: FIXTURE_SRC,
+      npmScripts: SCRIPTS,
+    });
+    expect(failures).toEqual([]);
+  });
+
+  it('passes on a consistent preview-gate (block-scalar run resolved to auth-domains)', () => {
+    const failures = crossCheckDeploymentStatusGates({
+      workflows: [{ name: 'preview-gate', gate: 'auth-domains', src: FIXTURE_PREVIEW }],
+      verifyAllSrc: FIXTURE_SRC,
+      npmScripts: SCRIPTS,
+    });
+    expect(failures).toEqual([]);
+  });
+
+  it('flags a workflow that gates on a secret its mapped gate never declared', () => {
+    const broken = FIXTURE_GALLERY.replace("env.VERCEL_ORG_ID != ''", "env.VERCEL_ORG_ID != '' && env.CRON_SECRET != ''");
+    const failures = crossCheckDeploymentStatusGates({
+      workflows: [{ name: 'gallery', gate: 'deployed-hash', src: broken }],
+      verifyAllSrc: FIXTURE_SRC,
+      npmScripts: SCRIPTS,
+    });
+    expect(failures.join('\n')).toContain('CRON_SECRET');
+    expect(failures.join('\n')).toContain('deployed-hash');
+  });
+
+  it('flags a workflow that never gates its mapped gate declared secret', () => {
+    // Drop VERCEL_TOKEN from the gating entirely — the deployed-hash gate
+    // declares it, so the workflow must gate on it somewhere.
+    const broken = FIXTURE_GALLERY.replace("env.VERCEL_TOKEN != '' && ", '');
+    const failures = crossCheckDeploymentStatusGates({
+      workflows: [{ name: 'gallery', gate: 'deployed-hash', src: broken }],
+      verifyAllSrc: FIXTURE_SRC,
+      npmScripts: SCRIPTS,
+    });
+    expect(failures.join('\n')).toContain('never gates on VERCEL_TOKEN');
+    expect(failures.join('\n')).toContain('deployed-hash');
+  });
+
+  it('flags a workflow mapped to a gate verify-all.mjs does not declare', () => {
+    const failures = crossCheckDeploymentStatusGates({
+      workflows: [{ name: 'gallery', gate: 'ghost-gate', src: FIXTURE_GALLERY }],
+      verifyAllSrc: FIXTURE_SRC,
+      npmScripts: SCRIPTS,
+    });
+    expect(failures.join('\n')).toContain('ghost-gate');
+    expect(failures.join('\n')).toContain('does not declare');
   });
 });
