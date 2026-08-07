@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
-import { auditSource, main, scanDir, scanRoots } from './lint-email-words.mjs';
+import { auditSource, main, scanDir, scanRoots } from './lint-dead-words.mjs';
 
 // ── auditSource: banned phrase detection ─────────────────────────────────────
 describe('auditSource · banned report-email phrasing', () => {
@@ -157,7 +157,7 @@ describe('scanRoots (live repo)', () => {
     // phrases (its definition list) and the test plants them as fixtures, so
     // scanning the real scripts/ root must never report either file.
     const findings = scanDir(join(process.cwd(), 'scripts'));
-    const self = findings.filter((f) => f.file.includes('lint-email-words'));
+    const self = findings.filter((f) => f.file.includes('lint-dead-words'));
     expect(self).toEqual([]);
   });
 
@@ -178,7 +178,7 @@ describe('scanRoots (live repo)', () => {
   });
 
   it('finds a planted violation under a temp root and reports file + line', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'lint-email-words-'));
+    const dir = mkdtempSync(join(tmpdir(), 'lint-dead-words-'));
     try {
       const file = join(dir, 'verify-bad.mjs');
       writeFileSync(file, '// the cron-email gate is gone\nconst x = 1;\n');
@@ -192,7 +192,7 @@ describe('scanRoots (live repo)', () => {
   });
 
   it('sweeps the prose extensions too (yaml, shell, markdown), not just source files', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'lint-email-words-ext-'));
+    const dir = mkdtempSync(join(tmpdir(), 'lint-dead-words-ext-'));
     try {
       writeFileSync(join(dir, 'ci.yml'), '      # the email body is composed here\n');
       writeFileSync(join(dir, 'deploy.sh'), '# emailed reports go out at 06:30\n');
@@ -212,7 +212,7 @@ describe('scanRoots (live repo)', () => {
 // ── main: the CLI exit-code contract ─────────────────────────────────────────
 describe('main (CLI exit-code contract)', () => {
   it('returns 1 when the scanned roots contain a banned phrase', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'lint-email-words-cli-'));
+    const dir = mkdtempSync(join(tmpdir(), 'lint-dead-words-cli-'));
     try {
       writeFileSync(join(dir, 'verify-bad.mjs'), '// email body still here\n');
       expect(main([dir])).toBe(1);

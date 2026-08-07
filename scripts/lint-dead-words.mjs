@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // ============================================================================
-// scripts/lint-email-words.mjs — static guard against dead-feature wording
+// scripts/lint-dead-words.mjs — static guard against dead-feature wording
 // returning to the repo.
 //
 // Removed features must stay removed — not just the behavior, but the words.
@@ -59,9 +59,9 @@
 // and exits 0 otherwise.
 //
 // Usage:
-//   node scripts/lint-email-words.mjs
+//   node scripts/lint-dead-words.mjs
 //   npm run lint                     # next lint, then this after import-surface
-//   npm run verify:email-words       # standalone
+//   npm run verify:dead-words       # standalone
 //
 // Exports (for the unit test): auditSource, scanDir, scanRoots, main.
 // Read-only against the working tree.
@@ -82,10 +82,10 @@ const SKIP_DIRS = new Set(['node_modules', '.next', '.git', '.freebuff', 'review
 const SKIP_SUBTREE = 'docs/reviews';
 // The linter itself and its test must quote the banned phrases (the list
 // below and the planted fixtures). Excluded so the sweep stays green; locked
-// by a dedicated test in lint-email-words.test.ts.
+// by a dedicated test in lint-dead-words.test.ts.
 const SELF_FILES = new Set([
-  'scripts/lint-email-words.mjs',
-  'scripts/lint-email-words.test.ts',
+  'scripts/lint-dead-words.mjs',
+  'scripts/lint-dead-words.test.ts',
 ]);
 
 // The removed-var LOCK: integrationVarLinks.test.ts quotes the dead env
@@ -210,7 +210,7 @@ export function scanRoots(roots = DEFAULT_ROOTS) {
     try {
       statSync(resolved);
     } catch {
-      throw new Error(`lint-email-words: root not found: ${resolved} — run from the repo root`);
+      throw new Error(`lint-dead-words: root not found: ${resolved} — run from the repo root`);
     }
     findings.push(...scanDir(resolved));
   }
@@ -238,10 +238,10 @@ export function main(roots = DEFAULT_ROOTS) {
     return 1;
   }
   if (findings.length === 0) {
-    console.log('lint-email-words: clean — no dead-feature phrasing found (see the banned list in this file).');
+    console.log('lint-dead-words: clean — no dead-feature phrasing found (see the banned list in this file).');
     return 0;
   }
-  console.error('lint-email-words: FAIL');
+  console.error('lint-dead-words: FAIL');
   for (const f of findings) {
     console.error(`  ${f.file}:${f.line} — banned phrase "${f.phrase}"`);
   }

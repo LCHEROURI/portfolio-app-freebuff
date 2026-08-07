@@ -14,7 +14,7 @@
 #      serves the last PUSHED commit; a bare fallback needs no team scope)
 #   0.5 scripts/verify-token-health.mjs  (needs VERCEL_TOKEN — cheap, no Chrome)
 #   0.6 scripts/lint-import-surface.mjs  (no secrets, pure static, near-instant)
-#   0.6b scripts/lint-email-words.mjs     (dead-feature phrasing — no secrets, pure static)
+#   0.6b scripts/lint-dead-words.mjs      (dead-feature phrasing — no secrets, pure static)
 #   0.7 scripts/verify-vercel-env.mjs    (needs VERCEL_TOKEN + vercel CLI — pulls prod
 #                                          env and asserts it matches .env.local)
 #   1. scripts/verify-auth-domains.mjs   (needs FIREBASE_WEB_API_KEY)
@@ -222,10 +222,10 @@ fi
 # removed integration name / env identifier (data store, delivery sender). The
 # composed reports feed the in-app Reports page; nothing is emailed. Same
 # always-run contract as the import-surface gate.
-if [ -f scripts/lint-email-words.mjs ]; then
-  run_verify "email-word lint" scripts/lint-email-words.mjs
+if [ -f scripts/lint-dead-words.mjs ]; then
+  run_verify "dead-word lint" scripts/lint-dead-words.mjs
 else
-  echo "pre-push: lint-email-words.mjs not present — skipping email-word lint"
+  echo "pre-push: lint-dead-words.mjs not present — skipping dead-word lint"
 fi
 
 # ── 0.7 Vercel-env drift gate (needs VERCEL_TOKEN + vercel CLI) ───────────
