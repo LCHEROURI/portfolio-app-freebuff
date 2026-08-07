@@ -118,6 +118,41 @@ codes: 0 ready · 1 a step failed (push or deploy timeout) · 2
 `VERCEL_TOKEN` invalid/revoked · 3 git unusable — and the final
 `ship:ready` step passes its own exit code through unchanged.
 
+When each gate runs (same picture as the README handoff section):
+
+```text
+   ┌───────────────────────────────────────────────────────────────┐
+   │  LOCAL — every git push (.githooks/pre-push)                  │
+   │  runs the 11 verify:all gates + drift guards (timeboxed); a   │
+   │  dirty tree or any failure ABORTS the push                    │
+   └──────────────────────────────┬────────────────────────────────┘
+                                  │  push lands only when green
+                                  ▼
+   ┌───────────────────────────────────────────────────────────────┐
+   │  npm run ship:go — the one-command path                       │
+   │  commit → push → wait for the Vercel deploy → re-run          │
+   │  ship:ready against the LIVE build                            │
+   └──────────────────────────────┬────────────────────────────────┘
+                                  │  the push fires, in parallel
+                                  ▼
+   ┌───────────────────────────────────────────────────────────────┐
+   │  GITHUB ACTIONS — ci.yml (push event)                         │
+   │  · Typecheck · Lint · Test · Build                            │
+   │  · Verify launch checklist matches scripts                    │
+   │  · Verify authorized domains                                  │
+   │  · Verify production sign-in + Firestore sync                 │
+   │  · Verify deployed cron reports + rules (secret-gated)        │
+   └──────────────────────────────┬────────────────────────────────┘
+                                  │  after Vercel finishes building
+                                  ▼
+   ┌───────────────────────────────────────────────────────────────┐
+   │  DEPLOYMENT_STATUS GATES (per preview/production deploy)      │
+   │  · Preview gate — auto-authorize + verify the deployed domain │
+   │  · Deployed-hash gate — live build serves the pushed commit   │
+   │  · Gallery — screenshots the deployed preview                 │
+   └───────────────────────────────────────────────────────────────┘
+```
+
 **Sub-rows in the summary table:** capture gates emit
 `VERIFY-SUBRESULT|<name>|<PASS|FAIL>` markers that `verify:all` renders as
 indented rows directly under the parent gate. A sub-row is **visibility only**
