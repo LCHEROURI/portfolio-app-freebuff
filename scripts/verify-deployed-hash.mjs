@@ -308,6 +308,17 @@ async function main() {
   console.log(`  project ${PROJECT} (team ${teamId ?? 'unscoped'})`);
 
   let anyFailed = false;
+  // Per-section failure counts so the end-of-run VERIFY-SUBRESULT markers
+  // (which verify-all.mjs renders as indented sub-rows in the summary table)
+  // reflect each conditional check independently. A check that genuinely ran
+  // and compared two shas emits a row (FAIL when they diverge); an
+  // unverifiable skip (no sha recorded on a side) emits NO row — the parent
+  // gate row already carries the skip warning, and claiming PASS would imply
+  // a comparison that never happened.
+  const sectionFails = {};
+  let driftCompared = false;
+  let expectCompared = false;
+  let checkLocalCompared = false;
 
   // ── --compare-url <url>: alias-routing drift watch ────────────────────────
   // Resolves the deployment serving <url> and asserts it serves the same
@@ -341,10 +352,13 @@ async function main() {
       console.log('\n  ⚠ one or both deployments record no commit sha — cannot compare');
       console.log('  → skipping the drift assertion (not a mismatch)');
     } else if (verdict === 'match') {
+      driftCompared = true;
       console.log(`\n  ✓ canonical URL and deployment-specific URL serve the same commit (${deployedSha.slice(0, 12)})`);
     } else {
+      driftCompared = true;
       console.error(`\n  ✗ ALIAS-ROUTING DRIFT: ${COMPARE_URL} serves ${other.sha} but the primary target serves ${deployedSha}`);
       console.error('  The canonical alias and the deployment-specific URL point at different deployments.');
+      sectionFails.drift = (sectionFails.drift ?? 0) + 1;
       anyFailed = true;
     }
   }
@@ -355,6 +369,11 @@ async function main() {
       const localSha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
       const match = (deployedSha && localSha.startsWith(deployedSha.slice(0, 12)))
         || (deployedSha && deployedSha.startsWith(localSha.slice(0, 12)));
+      checkLocalCompared = true;
+      // Informational sub-contract: a differ is a visibility FAIL row under a
+      // green gate (the parent row still passes — this check only warns, per
+      // the gate's documented --check-local contract).
+      if (!match) sectionFails.checkLocal = (sectionFails.checkLocal ?? 0) + 1;
       console.log(`\n  local HEAD ${localSha.slice(0, 12)} → ${match ? 'MATCHES deployed' : 'DIFFERS from deployed (push needed?)'}`);
     } catch {
       console.log('\n  (could not read local git HEAD)');
@@ -372,11 +391,31 @@ async function main() {
       console.log('\n  ⚠ no commit sha recorded for this deployment (CLI/prebuilt deploy without git metadata?)');
       console.log('  → cannot verify against --expect — skipping the assertion (not a mismatch)');
     } else if (deployedSha.startsWith(EXPECT.toLowerCase())) {
+      expectCompared = true;
       console.log(`\n  ✓ deployed commit matches --expect ${EXPECT}`);
     } else {
+      expectCompared = true;
       console.error(`\n  ✗ deployed commit ${deployedSha} does not match --expect ${EXPECT}`);
+      sectionFails.expect = (sectionFails.expect ?? 0) + 1;
       anyFailed = true;
     }
+  }
+
+  // Machine-readable markers for verify:all: only checks that actually RAN and
+  // compared two shas emit a sub-row (matching the conditional contract
+  // elsewhere) — the alias-drift watch when --compare-url ran, the expect
+  // assertion when --expect ran, and the local-HEAD comparison when
+  // --check-local ran (the mode verify:all uses by default). Unverifiable
+  // skips emit nothing: the gate row carries the skip warning, and a PASS
+  // would imply a comparison that never happened.
+  if (driftCompared) {
+    console.log(`VERIFY-SUBRESULT|alias-drift|${(sectionFails.drift ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
+  }
+  if (expectCompared) {
+    console.log(`VERIFY-SUBRESULT|expect-match|${(sectionFails.expect ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
+  }
+  if (checkLocalCompared) {
+    console.log(`VERIFY-SUBRESULT|check-local|${(sectionFails.checkLocal ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
   }
 
   if (anyFailed) {

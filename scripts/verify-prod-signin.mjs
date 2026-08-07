@@ -84,7 +84,18 @@ const FS = projectId
   : null;
 
 let failures = 0;
-const fail = (msg) => { failures += 1; console.error(`  ✗ FAIL: ${msg}`); };
+// Per-section failure counts so the end-of-run VERIFY-SUBRESULT markers (which
+// verify-all.mjs renders as indented sub-rows in the summary table) reflect
+// each sub-check independently instead of one global pass/fail. Early-exit
+// failures (AuthGate never visible, form fill fail, shell never renders) exit
+// before the markers, so their gate row alone tells the story.
+const sectionFails = {};
+const fail = (msg, section) => {
+  failures += 1;
+  const sections = Array.isArray(section) ? section : [section];
+  for (const s of sections) if (s) sectionFails[s] = (sectionFails[s] ?? 0) + 1;
+  console.error(`  ✗ FAIL: ${msg}`);
+};
 const ok = (msg) => console.log(`  ✓ ${msg}`);
 
 // ── 1. Mint the throwaway user (or use fixed credentials) ──────────────────
@@ -229,7 +240,7 @@ for (let i = 0; i < 30; i++) {
 }
 if (!gateVisible) {
   const text = await evaluate(`document.body?.innerText?.slice(0, 300) || ''`);
-  fail(`AuthGate never became visible. Page text: ${text.replace(/\s+/g, ' ').slice(0, 200)}`);
+  fail(`AuthGate never became visible. Page text: ${text.replace(/\s+/g, ' ').slice(0, 200)}`, 'authgate');
   ws.close(); chrome.kill();
   console.error(`\nRESULT: FAIL (${failures})`);
   process.exit(1);
@@ -252,7 +263,7 @@ const emailInput = await evaluate(`(() => {
 })()`);
 emailInput
   ? ok('email/password inputs render on the AuthGate')
-  : fail('email/password inputs missing from the AuthGate');
+  : fail('email/password inputs missing from the AuthGate', 'provider-ui');
 
 const googleButton = await evaluate(`(() => {
   const btns = [...document.querySelectorAll('button')];
@@ -261,9 +272,14 @@ const googleButton = await evaluate(`(() => {
 })()`);
 googleButton
   ? ok('Google sign-in button renders on the AuthGate')
-  : fail('Google sign-in button missing from the AuthGate');
+  : fail('Google sign-in button missing from the AuthGate', 'provider-ui');
 
-if (getServiceAccount() && projectId) {
+// The admin IdP checks run only when the service account is configured AND the
+// project id is known — hoisted once so the run guard and the marker-emission
+// guard below can never drift apart (a section that ran must always emit).
+const adminChecksRan = Boolean(getServiceAccount() && projectId);
+
+if (adminChecksRan) {
   try {
     const adminToken = await mintServiceAccountToken();
     const AUTH = { authorization: `Bearer ${adminToken}` };
@@ -277,9 +293,9 @@ if (getServiceAccount() && projectId) {
       const emailCfg = (await cfg.json()).signIn?.email ?? {};
       emailCfg.enabled === true
         ? ok('Email/Password IdP config enabled (admin API)')
-        : fail(`Email/Password IdP config present but enabled=${emailCfg.enabled}`);
+        : fail(`Email/Password IdP config present but enabled=${emailCfg.enabled}`, 'email-idp');
     } else {
-      fail(`Email/Password IdP probe → HTTP ${cfg.status}`);
+      fail(`Email/Password IdP probe → HTTP ${cfg.status}`, 'email-idp');
     }
 
     // Google lives on defaultSupportedIdpConfigs/google.com.
@@ -291,15 +307,18 @@ if (getServiceAccount() && projectId) {
       const gcfg = await idp.json();
       gcfg.enabled === true
         ? ok('google.com IdP config enabled (admin API)')
-        : fail(`google.com IdP config present but enabled=${gcfg.enabled}`);
+        : fail(`google.com IdP config present but enabled=${gcfg.enabled}`, 'google-idp');
       if (gcfg.clientId) ok(`auto-created OAuth client present (${gcfg.clientId.slice(0, 24)}…)`);
     } else if (idp.status === 404) {
-      fail('google.com IdP config NOT FOUND — enable Google in the Firebase console Auth settings');
+      fail('google.com IdP config NOT FOUND — enable Google in the Firebase console Auth settings', 'google-idp');
     } else {
-      fail(`google.com IdP probe → HTTP ${idp.status}`);
+      fail(`google.com IdP probe → HTTP ${idp.status}`, 'google-idp');
     }
   } catch (err) {
-    fail(`sign-in provider admin checks errored: ${err.message}`);
+    // A single unexpected admin-block error makes BOTH IdP configs
+    // unverifiable — tag both sections so neither sub-row can read PASS
+    // while the other surfaced a failure.
+    fail(`sign-in provider admin checks errored: ${err.message}`, ['email-idp', 'google-idp']);
   }
 } else {
   console.log('  (skipping provider admin checks — FIREBASE_SERVICE_ACCOUNT not configured here)');
@@ -361,13 +380,13 @@ for (let i = 0; i < 60; i++) {
 }
 if (!shell) {
   const state = await evaluate(`({ text: (document.body?.innerText || '').slice(0, 300) })`);
-  fail(`Command Center never rendered after sign-in. Page: ${state?.text?.replace(/\s+/g, ' ').slice(0, 220)}`);
+  fail(`Command Center never rendered after sign-in. Page: ${state?.text?.replace(/\s+/g, ' ').slice(0, 220)}`, 'release');
   ws.close(); chrome.kill();
   console.error(`\nRESULT: FAIL (${failures})`);
   process.exit(1);
 }
 ok('sign-in gate released — Command Center shell rendered');
-if (shell.error) fail('store surfaced "Failed to load data"');
+if (shell.error) fail('store surfaced "Failed to load data"', 'release');
 
 // ── 5a. Optional screenshot of the rendered Command Center ──────────────────
 if (SCREENSHOT_PATH) {
@@ -394,9 +413,9 @@ if (FS && !useFixedCredentials) {
   if (res.status === 200) {
     ok(`wrote projects/${probeDoc} as the signed-in user`);
     const read = await fetch(`${FS}/projects/${probeDoc}`, { headers: AUTH });
-    read.status === 200 ? ok('read it back (rules allow owner read)') : fail(`read back → ${read.status}`);
+    read.status === 200 ? ok('read it back (rules allow owner read)') : fail(`read back → ${read.status}`, 'sync');
   } else {
-    fail(`create probe doc → ${res.status} (rules may block the account's own writes)`);
+    fail(`create probe doc → ${res.status} (rules may block the account's own writes)`, 'sync');
   }
 } else if (useFixedCredentials) {
   console.log('  (skipping Firestore REST probe — fixed-credential mode has no idToken; the shell render above already proves sync)');
@@ -407,5 +426,23 @@ if (FS && !useFixedCredentials) {
 ws.close();
 chrome.kill();
 try { rmSync(USER_DATA_DIR, { recursive: true, force: true }); } catch { /* best-effort */ }
+// Machine-readable sub-check markers for verify:all: each becomes its own
+// indented row under the gate in the runner's summary table (same contract as
+// the email-envelope sweep in verify-cron-reports.mjs). The firestore-sync
+// row only appears when the probe actually ran (minted-user mode).
+console.log(`VERIFY-SUBRESULT|authgate-render|${(sectionFails.authgate ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
+console.log(`VERIFY-SUBRESULT|provider-ui|${(sectionFails['provider-ui'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
+// The IdP-config rows only appear when the admin cross-check actually ran
+// (SA configured + project id known), mirroring the conditional admin-config
+// row in verify-google-idp.mjs — an absent row means the check was skipped,
+// not that it passed.
+if (adminChecksRan) {
+  console.log(`VERIFY-SUBRESULT|email-idp-config|${(sectionFails['email-idp'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
+  console.log(`VERIFY-SUBRESULT|google-idp-config|${(sectionFails['google-idp'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
+}
+console.log(`VERIFY-SUBRESULT|signin-release|${(sectionFails.release ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
+if (FS && !useFixedCredentials) {
+  console.log(`VERIFY-SUBRESULT|firestore-sync|${(sectionFails.sync ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
+}
 console.error(`\nRESULT: ${failures === 0 ? 'PASS' : `FAIL (${failures})`}`);
 process.exit(failures === 0 ? 0 : 1);

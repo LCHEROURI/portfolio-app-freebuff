@@ -50,8 +50,13 @@ if (!projectId || !API_KEY) {
 const FS = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents`;
 
 let failures = 0;
-const fail = (msg) => {
+// Per-section failure counts so the end-of-run VERIFY-SUBRESULT markers (which
+// verify-all.mjs renders as indented sub-rows in the summary table) reflect
+// each sub-check independently instead of one global pass/fail.
+const sectionFails = {};
+const fail = (msg, section) => {
   failures += 1;
+  if (section) sectionFails[section] = (sectionFails[section] ?? 0) + 1;
   console.error(`  ✗ FAIL: ${msg}`);
 };
 const ok = (msg) => console.log(`  ✓ ${msg}`);
@@ -103,28 +108,33 @@ let res = await fetch(`${FS}/profiles?documentId=${uid}`, {
   body: JSON.stringify({ fields: { displayName: { stringValue: 'Probe' } } }),
 });
 probeDocs.push(`profiles/${uid}`);
-res.status === 200 ? ok('create profiles/<uid> (keyed by uid)') : fail(`create profiles/<uid> → ${res.status}`);
+res.status === 200 ? ok('create profiles/<uid> (keyed by uid)') : fail(`create profiles/<uid> → ${res.status}`, 'write-read');
 
 res = await fetch(`${FS}/profiles/${uid}`, { headers: AUTH });
-res.status === 200 ? ok('read profiles/<uid>') : fail(`read profiles/<uid> → ${res.status}`);
+res.status === 200 ? ok('read profiles/<uid>') : fail(`read profiles/<uid> → ${res.status}`, 'write-read');
 
 res = await fetch(`${FS}/projects?documentId=${probeA}`, {
   method: 'POST', headers: { ...AUTH, 'content-type': 'application/json' },
   body: JSON.stringify({ fields: { userId: { stringValue: uid } } }),
 });
 probeDocs.push(`projects/${probeA}`);
-res.status === 200 ? ok('create projects/<probe> with userId == auth.uid') : fail(`create projects/<probe> → ${res.status}`);
+res.status === 200 ? ok('create projects/<probe> with userId == auth.uid') : fail(`create projects/<probe> → ${res.status}`, 'write-read');
 
 res = await fetch(`${FS}/projects/${probeA}`, { headers: AUTH });
-res.status === 200 ? ok('read projects/<probe>') : fail(`read projects/<probe> → ${res.status}`);
+res.status === 200 ? ok('read projects/<probe>') : fail(`read projects/<probe> → ${res.status}`, 'write-read');
 
 res = await fetch(`${FS}/projects?documentId=${probeB}`, {
   method: 'POST', headers: { ...AUTH, 'content-type': 'application/json' },
   body: JSON.stringify({ fields: { userId: { stringValue: stranger } } }),
 });
 probeDocs.push(`projects/${probeB}`);
-res.status === 403 ? ok('cross-user create projects/<probe> denied (403)') : fail(`cross-user create → ${res.status}`);
+res.status === 403 ? ok('cross-user create projects/<probe> denied (403)') : fail(`cross-user create → ${res.status}`, 'cross-user');
 
 // ── Result ──────────────────────────────────────────────────────────────────
+// Machine-readable sub-check markers for verify:all: each becomes its own
+// indented row under the gate in the runner's summary table (same contract as
+// the email-envelope sweep in verify-cron-reports.mjs).
+console.log(`VERIFY-SUBRESULT|portfolio-write-read|${(sectionFails['write-read'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
+console.log(`VERIFY-SUBRESULT|cross-user-denied|${(sectionFails['cross-user'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
 console.error(`\nRESULT: ${failures === 0 ? 'PASS' : `FAIL (${failures})`}`);
 process.exit(failures === 0 ? 0 : 1);

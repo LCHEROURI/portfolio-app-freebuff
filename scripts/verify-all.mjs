@@ -93,7 +93,7 @@ const GATES = [
   // before any gate that depends on a deployment or CI credential runs — a
   // revoked token is caught in ~1s instead of surfacing as a confusing 403
   // inside a later gate. Same rc=2 contract as the deployed-hash gate.
-  { name: 'token-health', label: 'Vercel token health', script: 'verify:token-health', secrets: ['VERCEL_TOKEN'] },
+  { name: 'token-health', label: 'Vercel token health', script: 'verify:token-health', secrets: ['VERCEL_TOKEN'], capture: true },
   // The vercel-env gate proves Vercel production env MATCHES .env.local
   // (names + values, lengths only in the report) and classifies GitHub
   // CI-only secrets as expected rather than drift. Runs right after token-
@@ -101,18 +101,23 @@ const GATES = [
   // first. Requires the Vercel CLI (falls back to npx) + gh for the GitHub
   // classification (which degrades to skip-not-fail when gh is absent).
   { name: 'vercel-env', label: 'Vercel prod env matches .env.local', script: 'verify:vercel-env', secrets: ['VERCEL_TOKEN'], note: 'vercel CLI' },
-  // capture: the gate emits VERIFY-SUBRESULT markers (e.g. the email-envelope
-  // sweep inside verify-cron-reports.mjs); the runner parses them off the
-  // piped stdout and renders each as its own indented row in the summary
-  // table, so a sub-contract like the no-email envelope sweep is visible at a
-  // glance instead of being buried in the gate's full output.
+  // capture: the gate emits VERIFY-SUBRESULT markers for its internal
+  // sub-checks — the auth/secret/body/envelope steps in verify-cron-reports,
+  // the write/read + cross-user checks in verify-firestore-rules, the
+  // authgate/provider-ui/IdP/release/sync steps in verify-prod-signin, the
+  // SDK surface + admin config in verify-google-idp, the token-active +
+  // expiry-verdict rows in verify-token-health, and the expect/alias-drift
+  // rows in verify-deployed-hash. The runner parses them off the piped
+  // stdout and renders each as its own indented row in the summary table, so
+  // a sub-contract is visible at a glance instead of being buried in the
+  // gate's full output.
   { name: 'cron-reports', label: 'Cron report bodies', script: 'verify:cron-reports', baseFlag: '--base', secrets: ['CRON_SECRET'], capture: true },
-  { name: 'firestore-rules', label: 'Firestore rules isolation', script: 'verify:firestore-rules', secrets: ['NEXT_PUBLIC_FIREBASE_PROJECT_ID', 'FIREBASE_WEB_API_KEY'] },
+  { name: 'firestore-rules', label: 'Firestore rules isolation', script: 'verify:firestore-rules', secrets: ['NEXT_PUBLIC_FIREBASE_PROJECT_ID', 'FIREBASE_WEB_API_KEY'], capture: true },
   { name: 'auth-domains', label: 'Authorized domains', script: 'verify:auth-domains', appFlag: '--app', secrets: ['FIREBASE_WEB_API_KEY'] },
-  { name: 'prod-signin', label: 'Production sign-in + Firestore sync', script: 'verify:prod-signin', appFlag: '--app', secrets: ['FIREBASE_WEB_API_KEY', 'NEXT_PUBLIC_FIREBASE_PROJECT_ID'], note: 'Chrome' },
-  { name: 'google-idp', label: 'Google IdP record', script: 'verify:google-idp', secrets: ['FIREBASE_WEB_API_KEY', 'NEXT_PUBLIC_FIREBASE_PROJECT_ID'] },
+  { name: 'prod-signin', label: 'Production sign-in + Firestore sync', script: 'verify:prod-signin', appFlag: '--app', secrets: ['FIREBASE_WEB_API_KEY', 'NEXT_PUBLIC_FIREBASE_PROJECT_ID'], note: 'Chrome', capture: true },
+  { name: 'google-idp', label: 'Google IdP record', script: 'verify:google-idp', secrets: ['FIREBASE_WEB_API_KEY', 'NEXT_PUBLIC_FIREBASE_PROJECT_ID'], capture: true },
   { name: 'auth-domains-direct', label: 'Authorized domains (direct script)', file: 'scripts/verify-auth-domains.mjs', appFlag: '--app', duplicateOf: 'auth-domains', secrets: ['FIREBASE_WEB_API_KEY'] },
-  { name: 'deployed-hash', label: 'Deployed commit matches expected', script: 'verify:deployed-hash', expectFlag: '--expect', url: PRODUCTION_URL, secrets: ['VERCEL_TOKEN'] },
+  { name: 'deployed-hash', label: 'Deployed commit matches expected', script: 'verify:deployed-hash', expectFlag: '--expect', url: PRODUCTION_URL, secrets: ['VERCEL_TOKEN'], capture: true },
   // Pure static lint over scripts/ + lib/ + app/: re-exported or unused
   // imports fail the run. No secrets, no network, near-instant — it always
   // runs (the REQUIRES column shows —). Also wired into the pre-push hook
@@ -130,7 +135,26 @@ const GATES = [
 // Sub-result labels: the marker name a gate emits → the friendly row label
 // shown in the summary table. Unknown names fall back to the raw marker name.
 const SUBRESULT_LABELS = {
+  'auth-gate': 'Unauthenticated 401 gate',
+  'secret-drift': 'Deployed CRON_SECRET matches local',
+  'weekly-body': 'Weekly body: heading + footer',
+  'daily-body': 'Daily body: narration + footer',
   'email-envelope-sweep': 'Email-envelope sweep',
+  'portfolio-write-read': 'Portfolio write/read',
+  'cross-user-denied': 'Cross-user write denied',
+  'authgate-render': 'AuthGate renders',
+  'provider-ui': 'Provider controls render (email + Google button)',
+  'email-idp-config': 'Email/Password IdP config (admin)',
+  'google-idp-config': 'Google IdP [3b] config + OAuth client (admin)',
+  'signin-release': 'Sign-in releases into shell',
+  'firestore-sync': 'Firestore sync',
+  'sdk-surface': 'SDK createAuthUri surface',
+  'admin-config': 'Admin API IdP config',
+  'token-active': 'Vercel token resolves + valid',
+  'expiry-verdict': 'Token expiry verdict',
+  'alias-drift': 'Alias-routing drift watch',
+  'expect-match': 'Deployed sha matches --expect',
+  'check-local': 'Local HEAD matches deployed',
 };
 
 const failures = [];
@@ -231,7 +255,7 @@ const runOne = async (gate) => {
   // Sub-result rows: parse any VERIFY-SUBRESULT|<name>|<PASS|FAIL> markers
   // the gate emitted and surface each as its own row directly under the
   // parent gate's row. Only rows with a real marker are added — a gate that
-  // fails before reaching the sweep contributes nothing extra (its own FAIL
+  // fails before emitting its markers contributes nothing extra (its own FAIL
   // row already tells the story). The parent gate's exit code still governs
   // pass/fail for the whole run; the sub-row is visibility, not a second gate.
   if (capture) {

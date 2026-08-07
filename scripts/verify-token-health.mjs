@@ -144,10 +144,18 @@ async function main() {
   // decision (expired / due-soon / ok / none) lives in the pure expiryVerdict
   // helper so the reminder behavior is unit-testable.
   const verdict = expiryVerdict(active.expiresAt);
+  // Machine-readable markers for verify:all: the token resolved + is valid + an
+  // active manual token exists (token-active), and the expiry verdict is not
+  // past-due (expiry-verdict). Early exits above (no token, unreachable API,
+  // invalid credential, HTTP error, no active token) emit nothing — the gate
+  // row alone tells that story, matching the other gates' contract.
+  console.log(`VERIFY-SUBRESULT|token-active|PASS`);
   if (verdict.kind === 'expired') {
     // Note: an expired token normally fails the /v2/user/tokens call first, so
     // this branch is defensive (clock skew, a token the API still honors past
-    // its date). Keep it as a hard fail regardless.
+    // its date). Keep it as a hard fail regardless — and surface the expiry
+    // sub-row before the early exit so the table shows WHY the gate failed.
+    console.log(`VERIFY-SUBRESULT|expiry-verdict|FAIL`);
     console.error(`\n  ✗ EXPIRED ${Math.abs(verdict.daysLeft)} day${Math.abs(verdict.daysLeft) === 1 ? '' : 's'} ago — rotate now (see README → Rotating VERCEL_TOKEN)`);
     console.error('RESULT: FAIL — the active VERCEL_TOKEN is past its expiry date.');
     process.exit(1);
@@ -160,6 +168,7 @@ async function main() {
     console.log('\n  ✓ no expiration — but account changes can still revoke it (the invalid/revoked check guards this)');
   }
 
+  console.log(`VERIFY-SUBRESULT|expiry-verdict|PASS`);
   console.log('\nRESULT: PASS');
   process.exit(0);
 }

@@ -43,7 +43,11 @@ const PROJECT_ID =
   process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? readEnv('NEXT_PUBLIC_FIREBASE_PROJECT_ID') ?? '';
 
 let failures = 0;
-const fail = (msg) => { failures += 1; console.error(`  ✗ FAIL: ${msg}`); };
+// Per-section failure counts so the end-of-run VERIFY-SUBRESULT markers (which
+// verify-all.mjs renders as indented sub-rows in the summary table) reflect
+// each sub-check independently instead of one global pass/fail.
+const sectionFails = {};
+const fail = (msg, section) => { failures += 1; if (section) sectionFails[section] = (sectionFails[section] ?? 0) + 1; console.error(`  ✗ FAIL: ${msg}`); };
 const ok = (msg) => console.log(`  ✓ ${msg}`);
 
 if (!API_KEY || !PROJECT_ID) {
@@ -72,7 +76,7 @@ const authUriRes = await fetch(
 ).then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) }));
 
 if (authUriRes.status !== 200) {
-  fail(`createAuthUri → HTTP ${authUriRes.status}`);
+  fail(`createAuthUri → HTTP ${authUriRes.status}`, 'sdk');
 } else {
   const uri = authUriRes.body;
   if (uri.providerId === 'google.com') {
@@ -82,15 +86,15 @@ if (authUriRes.status !== 200) {
       if (clientId && /^\d+-[\w-]+\.apps\.googleusercontent\.com$/.test(clientId)) {
         ok(`authUri embeds a classic web client id (${clientId.slice(0, 34)}…)`);
       } else if (clientId) {
-        fail(`authUri client id is not classic format: ${clientId.slice(0, 40)}`);
+        fail(`authUri client id is not classic format: ${clientId.slice(0, 40)}`, 'sdk');
       } else {
-        fail('authUri has no client_id');
+        fail('authUri has no client_id', 'sdk');
       }
     } else {
-      fail('createAuthUri returned providerId but no authUri');
+      fail('createAuthUri returned providerId but no authUri', 'sdk');
     }
   } else {
-    fail(`createAuthUri providerId=${uri.providerId ?? 'none'} — google.com not resolvable`);
+    fail(`createAuthUri providerId=${uri.providerId ?? 'none'} — google.com not resolvable`, 'sdk');
   }
 }
 
@@ -107,18 +111,26 @@ if (getServiceAccount()) {
       const cfg = await idp.json();
       cfg.enabled === true
         ? ok('admin API: google.com IdP config enabled')
-        : fail(`admin API: google.com present but enabled=${cfg.enabled}`);
+        : fail(`admin API: google.com present but enabled=${cfg.enabled}`, 'admin');
     } else if (idp.status === 404) {
-      fail('admin API: google.com IdP config NOT FOUND');
+      fail('admin API: google.com IdP config NOT FOUND', 'admin');
     } else {
-      fail(`admin API: google.com probe → HTTP ${idp.status}`);
+      fail(`admin API: google.com probe → HTTP ${idp.status}`, 'admin');
     }
   } catch (err) {
-    fail(`admin API cross-check errored: ${err.message}`);
+    fail(`admin API cross-check errored: ${err.message}`, 'admin');
   }
 } else {
   console.log('\n[2/2] Admin API cross-check (skipped — FIREBASE_SERVICE_ACCOUNT not configured)');
 }
 
+// Machine-readable sub-check markers for verify:all: each becomes its own
+// indented row under the gate in the runner's summary table (same contract as
+// the email-envelope sweep in verify-cron-reports.mjs). The admin-config row
+// only appears when the SA was configured and the cross-check actually ran.
+console.log(`VERIFY-SUBRESULT|sdk-surface|${(sectionFails.sdk ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
+if (getServiceAccount()) {
+  console.log(`VERIFY-SUBRESULT|admin-config|${(sectionFails.admin ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
+}
 console.error(`\nRESULT: ${failures === 0 ? 'PASS' : `FAIL (${failures})`}`);
 process.exit(failures === 0 ? 0 : 1);
