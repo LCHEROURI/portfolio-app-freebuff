@@ -31,7 +31,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           # Manual re-verify: check out the requested commit sha. On push/PR
           # this falls back to the ref head, identical to the old behavior.
@@ -65,7 +65,7 @@ jobs:
           echo "✓ no bare 'portfolio-app-freebuff' Firebase project id references"
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -100,7 +100,7 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           # Manual re-verify: check out the requested commit sha. On push/PR
           # this falls back to the ref head, identical to the old behavior.
@@ -135,14 +135,14 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           # Manual re-verify: check out the requested commit sha. On push/PR
           # this falls back to the ref head, identical to the old behavior.
           ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha || github.ref }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
 
@@ -231,14 +231,14 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           # Manual re-verify: check out the requested commit sha. On push/PR
           # this falls back to the ref head, identical to the old behavior.
           ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha || github.ref }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
 
@@ -299,14 +299,14 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           # Manual re-verify: check out the requested commit sha. On push/PR
           # this falls back to the ref head, identical to the old behavior.
           ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha || github.ref }}
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
 
@@ -327,7 +327,7 @@ jobs:
 
       - name: Install Chrome for headless CDP
         id: chrome
-        uses: browser-actions/setup-chrome@v1
+        uses: browser-actions/setup-chrome@v2
         with:
           chrome-version: stable
 
