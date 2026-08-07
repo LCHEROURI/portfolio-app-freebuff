@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Scale, Trophy, Sparkles, Check, Printer, FileCode } from 'lucide-react';
+import { Scale, Trophy, Sparkles, Check, Printer, FileCode, FileDown } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader } from '@/components/ui/Card';
@@ -10,7 +10,7 @@ import { Badge, ModelBadge } from '@/components/ui/Badge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { useStore } from '@/lib/store';
 import { buildComparison } from '@/lib/engine';
-import { fetchWinnerRecommendation } from '@/lib/liveData';
+import { downloadPrintPdf, fetchWinnerRecommendation } from '@/lib/liveData';
 import { modelLabel } from '@/lib/labels';
 import { buildAllRecommendationsPrintDoc, buildRecommendationPrintDoc, recommendationPrintMeta, type PrintRecommendation } from '@/lib/printDoc';
 import { downloadPrintHtml, usePrint } from '@/lib/usePrint';
@@ -50,6 +50,11 @@ export default function ModelComparisonPage() {
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [hint, setHint] = useState<Record<string, boolean>>({});
+  // Download-as-PDF state: the route renders the SAME shared review-sheet
+  // document through headless Chrome, so the file can never drift from the
+  // preview window or the Save-as-HTML export.
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
 
   const runRecommendation = async (projectId: string, projectName: string, evaluations: ModelEvaluation[]) => {
     if (loading[projectId]) return;
@@ -144,6 +149,21 @@ export default function ModelComparisonPage() {
   // and the fallback share the exact same content by construction.
   const allPrintDoc = allTarget ? buildAllRecommendationsPrintDoc(allTarget) : null;
 
+  // Download the review sheet as a PDF through the shared /api/print/pdf route.
+  // The route renders the SAME document the preview window shows, so Print,
+  // Save as HTML, and Download PDF can never drift.
+  const downloadPdf = async () => {
+    setPdfBusy(true);
+    setPdfError(null);
+    try {
+      await downloadPrintPdf(store.userId, buildAllRecommendationsPrintDoc(buildAllRecommendationsPayload()));
+    } catch (err) {
+      setPdfError(err instanceof Error ? err.message : 'PDF export failed.');
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
   return (
     <div>
       <PageHeader
@@ -170,10 +190,26 @@ export default function ModelComparisonPage() {
               >
                 <FileCode size={15} aria-hidden="true" /> Save all as HTML
               </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                aria-label="Download all winner recommendations as PDF"
+                title="Download the review sheet as a PDF file"
+                disabled={pdfBusy}
+                onClick={() => void downloadPdf()}
+              >
+                <FileDown size={15} aria-hidden="true" /> Download PDF
+              </button>
             </div>
           ) : undefined
         }
       />
+
+      {pdfError && (
+        <p role="alert" className="mb-3 text-xs font-medium text-paprika-600 dark:text-paprika-400">
+          {pdfError}
+        </p>
+      )}
 
       {rows.length === 0 ? (
         <EmptyState icon={<Scale size={32} aria-hidden="true" />} title="No evaluations yet" description="Add a Model Evaluation on a project's detail page to start comparing builders." />

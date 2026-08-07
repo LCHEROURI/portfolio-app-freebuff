@@ -349,13 +349,14 @@ describe('ModelComparisonPage — print all recommendations', () => {
     vi.restoreAllMocks();
   });
 
-  it('hides the Print all and Save all buttons when no project has a recommendation', () => {
+  it('hides the Print all, Save all, and Download PDF buttons when no project has a recommendation', () => {
     render(<ModelComparisonPage />);
     expect(screen.queryByRole('button', { name: 'Print all winner recommendations' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Save all winner recommendations as HTML' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Download all winner recommendations as PDF' })).toBeNull();
   });
 
-  it('shows the Print all and Save all buttons once a recommendation exists', async () => {
+  it('shows the Print all, Save all, and Download PDF buttons once a recommendation exists', async () => {
     queue = [{
       ok: true, configured: true,
       recommendation: { recommendedVersionId: 'v-gemini', note: 'Gemini wins.', model: 'deepseek/deepseek-chat' },
@@ -367,6 +368,7 @@ describe('ModelComparisonPage — print all recommendations', () => {
 
     expect(screen.getByRole('button', { name: 'Print all winner recommendations' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save all winner recommendations as HTML' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Download all winner recommendations as PDF' })).toBeInTheDocument();
   });
 
   it('prints one review sheet listing every project recommendation via the in-page recipe', async () => {
@@ -476,5 +478,85 @@ describe('ModelComparisonPage — print all recommendations', () => {
     expect(html).toContain('DeepSeek Chat');
     const anchor = clickSpy.mock.instances[0] as HTMLAnchorElement;
     expect(anchor.getAttribute('download')).toBe('ai-winner-recommendations-all-projects.html');
+  });
+});
+
+// ─── Download PDF (all recommendations) ─────────────────────────────────────
+
+// Downloading renders the SAME shared review-sheet document through the
+// /api/print/pdf route (headless Chrome server-side), then saves the returned
+// blob. jsdom lacks URL.createObjectURL and blob: navigation, so the same
+// stubDownloadWindow stubs the URL statics and the anchor click.
+
+describe('ModelComparisonPage — download all recommendations PDF', () => {
+  it('downloads the review sheet as a PDF via the shared /api/print/pdf route', async () => {
+    const { createObjectURL, clickSpy } = stubDownloadWindow();
+    let pdfBody: unknown;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/ai/recommend-winner')) {
+        const body = queue.shift();
+        if (!body) throw new Error('Unexpected recommend-winner call: response queue exhausted');
+        return { ok: true, status: 200, json: async () => body } as Response;
+      }
+      if (url.includes('/api/print/pdf')) {
+        pdfBody = JSON.parse(String(init?.body));
+        return {
+          ok: true, status: 200,
+          blob: async () => new Blob(['%PDF-1.4'], { type: 'application/pdf' }),
+        } as unknown as Response;
+      }
+      throw new Error(`Unexpected fetch in model-comparison pdf test: ${url}`);
+    }));
+    queue = [{
+      ok: true, configured: true,
+      recommendation: { recommendedVersionId: 'v-gemini', note: 'Gemini wins on features and overall score.', model: 'deepseek/deepseek-chat' },
+    }];
+    render(<ModelComparisonPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Recommend winner for Weeknight Meal Planner' }));
+    expect(await screen.findByText('AI winner recommendation')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Download all winner recommendations as PDF' }));
+
+    await waitFor(() => expect(clickSpy).toHaveBeenCalledTimes(1));
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    // The request carried the SAME review-sheet document the preview renders:
+    // title, meta with the recommendation count, the numbered project entry,
+    // the note, and the friendly model label.
+    expect((pdfBody as { title: string }).title).toBe('AI winner recommendations — all projects');
+    expect((pdfBody as { meta: string }).meta).toBe('1 AI winner recommendation across all projects');
+    expect((pdfBody as { list: Array<{ title: string; detail?: string }> }).list[0].title).toBe('Weeknight Meal Planner');
+    expect((pdfBody as { list: Array<{ detail?: string }> }).list[0].detail).toContain('DeepSeek Chat');
+    // The saved filename shares the slug stem with the HTML export.
+    const anchor = clickSpy.mock.instances[0] as HTMLAnchorElement;
+    expect(anchor.getAttribute('download')).toBe('ai-winner-recommendations-all-projects.pdf');
+  });
+
+  it('shows a targeted error when the PDF route is unavailable', async () => {
+    stubDownloadWindow();
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/print/pdf')) {
+        return {
+          ok: false, status: 503,
+          json: async () => ({ ok: false, error: 'Headless Chrome not available here.' }),
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch in model-comparison pdf test: ${url}`);
+    }));
+    // A saved recommendation (no AI run) still exposes the header buttons.
+    storeShape.projects = [{
+      ...project,
+      overallStatus: 'WINNER_SELECTED',
+      winningVersionId: 'v-gemini',
+      winnerRecommendation: 'Saved recommendation note.',
+      winnerRecommendationModel: 'deepseek/deepseek-chat',
+    }];
+    render(<ModelComparisonPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Download all winner recommendations as PDF' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Headless Chrome not available here.');
   });
 });
