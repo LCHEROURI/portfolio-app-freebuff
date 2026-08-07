@@ -142,3 +142,46 @@ describe('.githooks/pre-push · onboarding-docs render diff gate (gate 0.6c)', (
     expect(gate07).toBeGreaterThan(gate06c);
   });
 });
+
+describe('.githooks/pre-push · review-sheet byte gate (gate 0.6d)', () => {
+  it('lists the review-sheet byte gate in the header gate inventory', () => {
+    expect(hook).toContain('0.6d scripts/verify-review-sheet.mjs --check');
+    expect(hook).toContain('deterministically and FAILS if the committed pair');
+  });
+
+  it('defines the gate block that runs verify-review-sheet.mjs --check', () => {
+    expect(hook).toContain('# ── 0.6d Review-sheet byte gate');
+    expect(hook).toContain('verify-review-sheet.mjs --check --out /tmp/review-sheet-bytecheck');
+  });
+
+  it('timeboxes the gate with its OWN budget, not the 90s run_verify timebox', () => {
+    // The driver drives the LIVE app with two AI round-trips (up to ~90s
+    // each), so running it under run_verify's 90s budget would always alarm
+    // out. The gate must use a dedicated perl alarm (same treatment as the
+    // 1200s ship:ready capstone), NOT the run_verify function.
+    expect(hook).toContain("perl -e 'alarm shift; exec @ARGV' 420 node scripts/verify-review-sheet.mjs --check");
+    // Line-anchored: the gate's invocation must be its own exec line, never
+    // routed through run_verify's 90s wrapper.
+    expect(hook).toMatch(/^\s*if perl -e 'alarm shift; exec @ARGV' 420 node scripts\/verify-review-sheet\.mjs --check --out \/tmp\/review-sheet-bytecheck; then$/m);
+  });
+
+  it('gates on the web API key AND Chrome, skipping with notices when either is missing', () => {
+    expect(hook).toContain('[ -n "$KEY" ] && [ -f scripts/verify-review-sheet.mjs ]');
+    expect(hook).toContain('Chrome not found — skipping review-sheet byte gate');
+    expect(hook).toContain('FIREBASE_WEB_API_KEY not set — skipping review-sheet byte gate');
+  });
+
+  it('names the 142 alarm timeout and the re-capture failure reason', () => {
+    expect(hook).toContain('exceeded 420s');
+    expect(hook).toContain('re-capture and commit the PNGs');
+  });
+
+  it('sits after the docs-render gate (0.6c) and before the vercel-env gate (0.7)', () => {
+    const gate06d = hook.indexOf('# ── 0.6d Review-sheet byte gate');
+    const gate06c = hook.indexOf('# ── 0.6c Onboarding-docs render diff gate');
+    const gate07 = hook.indexOf('# ── 0.7 Vercel-env drift gate');
+    expect(gate06d).toBeGreaterThan(gate06c);
+    expect(gate06d).toBeGreaterThan(-1);
+    expect(gate07).toBeGreaterThan(gate06d);
+  });
+});

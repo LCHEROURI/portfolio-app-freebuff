@@ -122,11 +122,12 @@ checklist matches the runner's gate names and secrets, and the ci.yml +
 deployment_status workflows gate on exactly the secrets each gate declares —
 a gate renamed, dropped, or mis-gated fails before anything runs. The
 `.githooks/pre-push` hook runs the whole suite (timeboxed) on every push,
-preceded by the hook's three lint gates — **0.6** import-surface, **0.6b**
-dead-words, **0.6c** docs-render diff (re-renders the onboarding-docs PNGs
-and fails until the committed screenshots match) — and `npm run ship:go`
-commits, pushes, waits for the Vercel deploy, then re-runs `ship:ready`
-against the live build.
+preceded by the hook's static and render gates — **0.6** import-surface,
+**0.6b** dead-words, **0.6c** docs-render diff, **0.6d** review-sheet byte
+gate (re-renders the onboarding-docs and review-sheet PNGs and fails until
+the committed screenshots match; the review-sheet capture runs in
+deterministic mode) — and `npm run ship:go` commits, pushes, waits for the
+Vercel deploy, then re-runs `ship:ready` against the live build.
 
 When each gate runs:
 
@@ -134,7 +135,7 @@ When each gate runs:
    ┌───────────────────────────────────────────────────────────────┐
    │  LOCAL — every git push (.githooks/pre-push)                  │
    │  runs the 12 verify:all gates + drift guards (timeboxed); a  │
-   │  hook gates 0.6/0.6b/0.6c (lints + docs-render diff);         │
+   │  hook gates 0.6/0.6b/0.6c/0.6d (lints + render byte gates);   │
    │  dirty tree or any failure ABORTS the push                    │
    └──────────────────────────────┬────────────────────────────────┘
                                   │  push lands only when green
@@ -215,9 +216,11 @@ gallery workflow re-renders on every run:
 
 > Regenerate both whenever the Model Comparison page or the print-all builder
 > changes — `npm run capture:screenshots` (or the gallery workflow's
-> review-sheet step) re-captures them. There is no push-time byte guard on
-> this pair (gate 0.6c only byte-compares the two docs PNGs above), so commit
-> the re-captured PNGs with the edit that changes the page or builder.
+> review-sheet step) re-captures them. The pre-push hook's gate 0.6d
+> (`verify-review-sheet.mjs --check`) re-runs the capture in deterministic
+> mode — REVIEW_SHEET_DETERMINISTIC pins the AI note and winner, so the pair
+> is byte-stable — and fails until the re-captured PNGs are committed with
+> the edit, the same byte-gate contract the docs PNGs get from gate 0.6c.
 
 ## Screenshots
 

@@ -22,8 +22,21 @@
 // review-sheet-entries / review-sheet-model-label) so verify:all renders the
 // sub-checks as rows under the gate. Exits nonzero when any assertion fails.
 //
+// Deterministic capture mode: REVIEW_SHEET_DETERMINISTIC=1 makes the two
+// captured PNGs byte-stable across runs by intercepting every
+// /api/ai/recommend-winner response in the browser and pinning BOTH variable
+// fields — the note (a fixed fixture string) and the winner (the candidate
+// with the highest overallScore, the same fallback the page uses when the AI
+// is unavailable). --check implies deterministic mode and adds a byte
+// comparison of the captured pair against the committed screenshots/ PNGs,
+// the same gate contract capture-docs.mjs --check gives the docs PNGs: a
+// deployed-app change that alters the review-sheet visuals fails with
+// re-capture-and-commit guidance instead of shipping a stale pair.
+//
 // Usage:
 //   node scripts/verify-review-sheet.mjs [--app https://...] [--out /tmp/review-sheet]
+//   node scripts/verify-review-sheet.mjs --check        # + byte-compare vs committed pair
+//   REVIEW_SHEET_DETERMINISTIC=1 node scripts/verify-review-sheet.mjs  # stable notes, no gate
 // ============================================================================
 
 import { spawn } from 'node:child_process';
@@ -38,6 +51,11 @@ const flag = (name, fallback) => {
 };
 const APP = (flag('--app', process.env.VERIFY_BASE_URL) ?? 'https://portfolio-app-freebuff.vercel.app').replace(/\/$/, '');
 const OUT = flag('--out', '/tmp/review-sheet');
+// --check is the byte-gate mode (implies deterministic); REVIEW_SHEET_DETERMINISTIC
+// alone makes the renders stable without comparing to the committed pair.
+const isCheck = args.includes('--check');
+const DETERMINISTIC = isCheck || process.env.REVIEW_SHEET_DETERMINISTIC === '1';
+const FIXTURE_NOTE = 'Deterministic capture note — winner by highest overall score in the seeded evaluation fixture.';
 const CHROME = process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const PORT = 9350;
 const USER_DATA_DIR = `/tmp/review-sheet-chrome-${process.pid}-${Date.now()}`;
@@ -152,6 +170,7 @@ const attach = (url) => new Promise((res, rej) => {
   const ws = new WebSocket(url);
   let msgId = 0;
   const pending = new Map();
+  let onEvent = null;
   ws.onopen = () => {
     const send = (method, params = {}) => new Promise((r, j) => {
       const id = ++msgId; pending.set(id, { resolve: r, reject: j });
@@ -166,7 +185,7 @@ const attach = (url) => new Promise((res, rej) => {
       return Buffer.from(data, 'base64');
     };
     const text = () => evaluate(`document.body?.innerText?.replace(/\\s+/g, ' ').slice(0, 1200) || ''`);
-    res({ ws, send, evaluate, screenshot, text });
+    res({ ws, send, evaluate, screenshot, text, on: (fn) => { onEvent = fn; } });
   };
   ws.onerror = rej;
   ws.onmessage = (e) => {
@@ -175,12 +194,65 @@ const attach = (url) => new Promise((res, rej) => {
       const { resolve: r, reject: j } = pending.get(m.id);
       pending.delete(m.id);
       m.error ? j(new Error(JSON.stringify(m.error))) : r(m.result);
+    } else if (m.method && onEvent) {
+      void onEvent(m);
     }
   };
 });
 
 const main = await attach(wsUrl);
 const sleepMs = (ms) => sleep(ms);
+
+// ── Deterministic capture mode (REVIEW_SHEET_DETERMINISTIC / --check) ───────
+// CDP Fetch interception rewrites each recommend-winner response before the
+// page's JS sees it: the note becomes a fixed fixture string and the winner is
+// pinned to the highest-overallScore candidate (the page's own fallback), so
+// the captured pair is byte-stable across runs. Fulfilling at Response stage
+// keeps the request/response cycle intact — the AI round-trip still happens
+// server-side; only the browser-visible payload is normalized.
+const handleFetchPaused = async (m) => {
+  const { requestId } = m.params;
+  try {
+    const { body, base64Encoded } = await main.send('Fetch.getResponseBody', { requestId });
+    let text = base64Encoded ? Buffer.from(body, 'base64').toString('utf8') : body;
+    let json;
+    try { json = JSON.parse(text); } catch { json = null; }
+    if (!json || !json.recommendation || typeof json.recommendation.note !== 'string') {
+      await main.send('Fetch.continueRequest', { requestId });
+      return;
+    }
+    // Pin the winner deterministically from the request's own candidates (the
+    // same top-overallScore choice the page falls back to when the AI is off).
+    try {
+      const { postData } = await main.send('Fetch.getRequestPostData', { requestId });
+      const req = JSON.parse(postData ?? '');
+      const candidates = req.candidates ?? [];
+      if (candidates.length > 0) {
+        const top = candidates.reduce((best, c) => (c.overallScore > best.overallScore ? c : best), candidates[0]);
+        json.recommendation.recommendedVersionId = top.versionId;
+      }
+    } catch { /* keep the AI winner — the note pin still stabilizes most of the render */ }
+    json.recommendation.note = FIXTURE_NOTE;
+    const newBody = Buffer.from(JSON.stringify(json), 'utf8').toString('base64');
+    await main.send('Fetch.fulfillRequest', {
+      requestId,
+      responseCode: 200,
+      responseHeaders: [{ name: 'content-type', value: 'application/json' }],
+      body: newBody,
+    });
+    console.log('  ↳ deterministic capture note injected (winner by top score)');
+  } catch (err) {
+    // Never hang the run: if interception fails, let the request through.
+    try { await main.send('Fetch.continueRequest', { requestId }); } catch { /* noop */ }
+  }
+};
+if (DETERMINISTIC) {
+  main.on(handleFetchPaused);
+  await main.send('Fetch.enable', {
+    patterns: [{ urlPattern: '*://*/*api/ai/recommend-winner*', requestStage: 'Response' }],
+  });
+  console.log('[3b] deterministic capture mode enabled — AI notes pinned to the fixture');
+}
 
 // ── 4. Sign in ──────────────────────────────────────────────────────────────
 console.log(`\n[4] Loading ${APP} and signing in`);
@@ -223,6 +295,7 @@ await main.evaluate(`(() => {
   return 'no-submit';
 })()`);
 let shell = false;
+let signInRetried = false;
 for (let i = 0; i < 60; i++) {
   await sleepMs(1000);
   shell = await main.evaluate(`(() => {
@@ -230,6 +303,31 @@ for (let i = 0; i < 60; i++) {
     return !text.includes('Sign in to sync') && [...document.querySelectorAll('h1,h2')].some((h) => h.textContent?.trim() === 'Command Center');
   })()`);
   if (shell) break;
+  // Firebase sign-in can transiently fail with auth/network-request-failed on
+  // the first request after idle (observed repeatedly). Retry the submit ONCE
+  // mid-poll — re-filling the fields first, since the failed attempt may have
+  // cleared them — instead of failing the whole run (and the 0.6d byte gate)
+  // on a network blip.
+  if (!signInRetried && i === 20) {
+    signInRetried = true;
+    console.log('  ↳ sign-in appears stuck — retrying the submit once (transient network)');
+    await main.evaluate(`(() => {
+      const setVal = (sel, value) => {
+        const el = document.querySelector(sel);
+        if (!el) return false;
+        Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(el, value);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      };
+      setVal('input[type="email"]', ${JSON.stringify(signUp.email)});
+      setVal('input[type="password"]', 'ProbePass-123!');
+      const btn = [...document.querySelectorAll('button[type="submit"]')].find((b) => b.textContent?.includes('Sign in'));
+      if (btn) { btn.click(); return 'clicked'; }
+      const form = document.querySelector('form'); if (form) { form.requestSubmit(); return 'submitted'; }
+      return 'no-submit';
+    })()`);
+  }
 }
 if (!shell) {
   const t = await main.text();
@@ -409,6 +507,42 @@ if (!reviewSheetText) {
 console.log(`VERIFY-SUBRESULT|review-sheet-preview|${(sectionFails['review-sheet-preview'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
 console.log(`VERIFY-SUBRESULT|review-sheet-entries|${(sectionFails['review-sheet-entries'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
 console.log(`VERIFY-SUBRESULT|review-sheet-model-label|${(sectionFails['review-sheet-model-label'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
+
+// ── 6c. --check: byte-compare the captured pair against the committed PNGs ──
+// The byte gate the docs PNGs get from capture-docs.mjs --check, applied to
+// the review-sheet pair. Deterministic mode (implied by --check) makes the
+// renders stable across runs, so a committed pair that differs from today's
+// capture means the deployed app changed and the PNGs were not re-captured.
+// Missing committed baseline → skip-not-fail (first capture), matching the
+// docs gate's contract; exit 1 carries the re-capture-and-commit guidance.
+if (isCheck) {
+  const CHECK_FILES = [
+    { name: 'review-sheet-panels.png', fresh: `${OUT}/01-model-comparison-panels.png`, committed: 'screenshots/review-sheet-panels.png' },
+    { name: 'review-sheet-preview.png', fresh: `${OUT}/02-review-sheet-preview.png`, committed: 'screenshots/review-sheet-preview.png' },
+  ];
+  const changed = [];
+  const skipped = [];
+  for (const f of CHECK_FILES) {
+    let baseline;
+    try { baseline = readFileSync(resolve(process.cwd(), f.committed)); }
+    catch { skipped.push(f.name); console.log(`— ${f.name} has no committed baseline in screenshots/ (skip)`); continue; }
+    const fresh = readFileSync(f.fresh);
+    if (baseline.equals(fresh)) console.log(`✓ ${f.name} matches the committed render`);
+    else { changed.push(f.name); console.log(`✗ ${f.name} WOULD CHANGE (the deployed app altered the review-sheet visuals)`); }
+  }
+  if (changed.length > 0) {
+    console.error(`\n✗ review-sheet byte gate FAILED: ${changed.length} PNG(s) would change — run 'npm run capture:screenshots' (or the gallery review-sheet step) and commit the updated PNGs.`);
+    await cleanup();
+    process.exit(1);
+  }
+  if (skipped.length === CHECK_FILES.length) {
+    console.log(`\n— review-sheet byte gate skipped: no committed baseline PNGs in screenshots/ (run the capture once and commit them).`);
+    await cleanup();
+    process.exit(0);
+  }
+  const skipNote = skipped.length > 0 ? ` (${skipped.length} baseline(s) missing, skipped)` : '';
+  console.log(`\n✓ review-sheet byte gate PASS — committed review-sheet PNGs match today's live capture${skipNote}.`);
+}
 
 main.ws.close();
 chrome.kill();

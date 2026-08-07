@@ -17,6 +17,9 @@
 #   0.6b scripts/lint-dead-words.mjs      (dead-feature phrasing — no secrets, pure static)
 #   0.6c scripts/capture-docs.mjs --check (needs Chrome — renders README Handoff +
 #      launch.md §4 and FAILS if the committed onboarding PNGs would change)
+#   0.6d scripts/verify-review-sheet.mjs --check (needs KEY + Chrome — re-runs the
+#      review-sheet capture deterministically and FAILS if the committed pair
+#      would change)
 #   0.7 scripts/verify-vercel-env.mjs    (needs VERCEL_TOKEN + vercel CLI — pulls prod
 #                                          env and asserts it matches .env.local)
 #   1. scripts/verify-auth-domains.mjs   (needs FIREBASE_WEB_API_KEY)
@@ -251,6 +254,40 @@ if [ -f scripts/capture-docs.mjs ]; then
   fi
 else
   echo "pre-push: capture-docs.mjs not present — skipping onboarding-docs render diff"
+fi
+
+# ── 0.6d Review-sheet byte gate (needs KEY + Chrome) ───────────────────────
+# Re-runs the review-sheet driver in deterministic capture mode (--check pins
+# the AI note and winner so the renders are byte-stable across runs) and
+# byte-compares the pair against the committed screenshots/review-sheet-*.png.
+# A deployed-app change that alters the review-sheet visuals makes the
+# committed pair stale; this gate fails the push with re-capture-and-commit
+# guidance instead of shipping a gallery whose print-all pictures no longer
+# match. Skips with a notice when Chrome or the web API key is missing.
+# Timeboxed separately (420s) because the driver drives the LIVE app with two
+# AI round-trips — far beyond run_verify's 90s budget (same treatment as the
+# 1200s ship:ready capstone).
+if [ -n "$KEY" ] && [ -f scripts/verify-review-sheet.mjs ]; then
+  CHROME="${CHROME_PATH:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
+  if [ -x "$CHROME" ]; then
+    echo "pre-push: verifying review-sheet byte gate (deterministic capture)…"
+    if perl -e 'alarm shift; exec @ARGV' 420 node scripts/verify-review-sheet.mjs --check --out /tmp/review-sheet-bytecheck; then
+      echo "pre-push: review-sheet byte gate passed ✓"
+    else
+      rs_rc=$?
+      if [ "$rs_rc" -eq 142 ]; then
+        echo "pre-push: review-sheet byte gate exceeded 420s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+      else
+        echo "pre-push: review-sheet byte gate FAILED — re-capture and commit the PNGs (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+      fi
+      exit 1
+    fi
+  else
+    echo "pre-push: Chrome not found — skipping review-sheet byte gate"
+  fi
+else
+  [ -f scripts/verify-review-sheet.mjs ] || echo "pre-push: verify suite not present — skipping review-sheet byte gate"
+  [ -n "$KEY" ] || echo "pre-push: FIREBASE_WEB_API_KEY not set — skipping review-sheet byte gate"
 fi
 
 # ── 0.7 Vercel-env drift gate (needs VERCEL_TOKEN + vercel CLI) ───────────
