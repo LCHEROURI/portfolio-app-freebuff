@@ -261,6 +261,62 @@ describe('ReportsPage — Preview body toggle', () => {
   });
 });
 
+// ─── Print report ───────────────────────────────────────────────────────────
+
+// The page opens the browser print dialog with ONLY the report visible (the
+// @media print recipe in globals.css hides the rest of the page). window.print
+// is stubbed; the test asserts the print-only area rendered the exact body.
+describe('ReportsPage — print report', () => {
+  it('prints the previewed report body from the modal Print report button', async () => {
+    const printMock = vi.fn();
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(printMock);
+    queue = [{ ok: true, configured: false, summary: null, model: null }];
+    render(<ReportsPage />);
+
+    await generateDaily();
+
+    // The modal offers Print report alongside Save.
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Print report' }));
+
+    // The print-only area mirrors the exact report body (title + freshness
+    // section), and the dialog is invoked once.
+    const printArea = screen.getByTestId('print-report');
+    expect(within(printArea).getByText(/Daily Command Center Report/)).toBeInTheDocument();
+    expect(within(printArea).getByText(/## Local scan freshness/)).toBeInTheDocument();
+    await waitFor(() => expect(printSpy).toHaveBeenCalledTimes(1));
+
+    // The area is released after the dialog opens — nothing lingers on screen.
+    await waitFor(() => expect(screen.queryByTestId('print-report')).toBeNull());
+  });
+
+  it('prints a saved report from its row, including the AI summary', async () => {
+    const printMock = vi.fn();
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(printMock);
+    savedReports.push({
+      id: 'r-print',
+      userId: 'e2e-user',
+      kind: 'weekly',
+      title: 'Weekly Report 8/7/2026',
+      body: '# Weekly Command Center Report\n\n## Model performance\n- DeepSeek Chat 9.2\n',
+      attentionCount: 4,
+      createdAt: new Date().toISOString(),
+      aiSummary: 'Deploy the winner.',
+      aiModel: 'deepseek/deepseek-chat',
+    });
+    render(<ReportsPage />);
+
+    // Row-level Print on a saved report (does not toggle the <details>).
+    fireEvent.click(screen.getByRole('button', { name: 'Print Weekly Report 8/7/2026' }));
+
+    const printArea = screen.getByTestId('print-report');
+    expect(within(printArea).getByText(/Weekly Command Center Report/)).toBeInTheDocument();
+    expect(within(printArea).getByText('AI executive summary')).toBeInTheDocument();
+    expect(within(printArea).getByText('Deploy the winner.')).toBeInTheDocument();
+    await waitFor(() => expect(printSpy).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByTestId('print-report')).toBeNull());
+  });
+});
+
 // ─── Local scan freshness preview ───────────────────────────────────────────
 
 describe('ReportsPage — local scan freshness preview', () => {

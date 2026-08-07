@@ -98,3 +98,68 @@
     opacity: 1;
   }
 }
+
+/* ─── Print a single report ─────────────────────────────────────────────
+   The .print-report area (rendered only while a report is being printed) is
+   the ONLY visible content in the print dialog: everything else on the page
+   is hidden via the visibility recipe, which — unlike display:none — keeps
+   the app's layout intact so the print area anchors cleanly to the top of
+   the paper. Light colors are forced so dark-mode users get a readable
+   paper copy.
+
+   Known tradeoff: visibility keeps layout space, so tall pages (sidebar,
+   header) may add trailing blank pages after the absolutely-positioned
+   report. Do NOT "fix" this with display:none on body * — that would hide
+   the print area's own ancestors and break the absolute anchor. */
+@media print {
+  html,
+  body {
+    background: #fff !important;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  .print-report,
+  .print-report * {
+    visibility: visible;
+  }
+
+  .print-report {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    padding: 1.5rem;
+    background: #fff;
+    color: #1f2937;
+  }
+
+  .print-report .print-report-title {
+    margin: 0 0 0.25rem;
+    font-size: 1.4rem;
+  }
+
+  .print-report .print-report-meta {
+    margin: 0 0 1rem;
+    font-size: 0.75rem;
+    color: #4b5563;
+    text-transform: capitalize;
+  }
+
+  .print-report .print-report-summary {
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    border: 1px solid #ddd6fe;
+    border-radius: 0.5rem;
+  }
+
+  .print-report pre {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.72rem;
+    line-height: 1.5;
+  }
+}

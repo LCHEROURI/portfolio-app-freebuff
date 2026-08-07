@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { FileText, RefreshCw, Clock4, Sparkles, CalendarClock, Trash2 } from 'lucide-react';
+import { FileText, RefreshCw, Clock4, Sparkles, CalendarClock, Trash2, Printer } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
@@ -14,6 +14,7 @@ import { useStore } from '@/lib/store';
 import { fetchAiSummary } from '@/lib/liveData';
 import { buildDailyReportBody, buildWeeklyReportBody, timeAgo } from '@/lib/engine';
 import type { ReportPreviewPayload } from '@/lib/reportPreview';
+import type { Report } from '@/types';
 
 // A report preview is the shared payload the cron's ?previewBody=1 also emits
 // (kind/title/body/attentionCount/aiModel/narration) plus the client-only
@@ -25,11 +26,22 @@ type ReportPreview = ReportPreviewPayload & {
   pendingSave: boolean;
 };
 
+// The minimal payload the print-only area needs to reproduce a report on
+// paper. Both the preview modal and the saved-report rows hand this over —
+// print never touches the data layer, it just snapshots what is on screen.
+// Derived from the Report type so the print payload can never drift from a
+// report field rename; aiModel is widened to accept the preview's null.
+type PrintReport = Pick<Report, 'kind' | 'title' | 'body' | 'attentionCount' | 'aiSummary'> & {
+  aiModel?: string | null;
+  createdAt?: string;
+};
+
 export default function ReportsPage() {
   const store = useStore();
   const [generating, setGenerating] = useState<'daily' | 'weekly' | null>(null);
   const [preview, setPreview] = useState<ReportPreview | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [printTarget, setPrintTarget] = useState<PrintReport | null>(null);
 
   // Build the report and open a preview modal instead of saving immediately, so
   // the user sees the exact report body (freshness section + AI summary)
@@ -101,6 +113,19 @@ export default function ReportsPage() {
     }
     setConfirmDiscard(false);
     setPreview(null);
+  };
+
+  // Open the browser print dialog with ONLY the report visible — the rest of
+  // the page is hidden by the @media print visibility recipe in globals.css.
+  // The print-only area renders from printTarget for one frame (long enough
+  // for the dialog to snapshot it), then is released, so no hidden duplicate
+  // text lingers in the DOM after printing.
+  const printReport = (r: PrintReport) => {
+    setPrintTarget(r);
+    requestAnimationFrame(() => {
+      window.print();
+      setPrintTarget(null);
+    });
   };
 
   const recent = store.reports.slice(0, 8);
@@ -182,6 +207,28 @@ export default function ReportsPage() {
                 >
                   <FileText size={12} aria-hidden="true" /> Preview body
                 </button>
+                <button
+                  type="button"
+                  aria-label={`Print ${r.title}`}
+                  className="btn-ghost rounded-md px-2 py-1 text-xs"
+                  title="Print this report"
+                  onClick={(e) => {
+                    // Don't toggle the <details> — just print.
+                    e.preventDefault();
+                    e.stopPropagation();
+                    printReport({
+                      kind: r.kind,
+                      title: r.title,
+                      body: r.body,
+                      attentionCount: r.attentionCount,
+                      aiSummary: r.aiSummary,
+                      aiModel: r.aiModel ?? null,
+                      createdAt: r.createdAt,
+                    });
+                  }}
+                >
+                  <Printer size={12} aria-hidden="true" /> Print
+                </button>
               </summary>
               {r.aiSummary && (
                 <div className="mt-4 rounded-xl2 border border-eggplant-200 bg-eggplant-50 p-4 dark:border-eggplant-800 dark:bg-eggplant-950/60">
@@ -242,6 +289,20 @@ export default function ReportsPage() {
               </div>
             )}
             <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => printReport({
+                  kind: preview.kind,
+                  title: preview.title,
+                  body: preview.body,
+                  attentionCount: preview.attentionCount,
+                  aiSummary: preview.aiSummary,
+                  aiModel: preview.aiModel,
+                })}
+              >
+                <Printer size={15} aria-hidden="true" /> Print report
+              </button>
               {preview.pendingSave ? (
                 <>
                   <button type="button" className="btn-ghost" onClick={requestClose}>
@@ -259,6 +320,28 @@ export default function ReportsPage() {
             </div>
           </div>
         </Modal>
+      )}
+
+      {/* Print-only area — visible ONLY in the print dialog (@media print in
+          globals.css hides everything else and anchors this to the top of the
+          page). Rendered only while a report is being printed, so it never
+          lingers in the on-screen DOM. */}
+      {printTarget && (
+        <div className="print-report" data-testid="print-report" aria-hidden="true">
+          <h2 className="print-report-title">{printTarget.title}</h2>
+          <p className="print-report-meta">
+            {printTarget.kind} report · {printTarget.attentionCount} attention items
+            {printTarget.createdAt ? ` · ${timeAgo(printTarget.createdAt)}` : ''}
+          </p>
+          {printTarget.aiSummary && (
+            <div className="print-report-summary">
+              <strong>AI executive summary</strong>
+              {printTarget.aiModel && <span> ({printTarget.aiModel})</span>}
+              <p>{printTarget.aiSummary}</p>
+            </div>
+          )}
+          <pre>{printTarget.body}</pre>
+        </div>
       )}
     </div>
   );
