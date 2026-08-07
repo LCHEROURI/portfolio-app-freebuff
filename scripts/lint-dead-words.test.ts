@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
-import { auditSource, main, scanDir, scanRoots } from './lint-dead-words.mjs';
+import {
+  auditSource,
+  envIdentifierPhrases,
+  extractRemovedEnvVars,
+  main,
+  removedVarsArraySpan,
+  scanDir,
+  scanRoots,
+} from './lint-dead-words.mjs';
 
 // ── auditSource: banned phrase detection ─────────────────────────────────────
 describe('auditSource · banned report-email phrasing', () => {
@@ -142,6 +150,82 @@ describe('auditSource · banned dead-integration phrasing', () => {
       { line: 1, phrase: 'supabase' },
       { line: 1, phrase: 'SUPABASE_URL' },
     ]);
+  });
+});
+
+// ── Source of truth: REMOVED_ENV_VARS in lib/integrationVarLinks.ts ──────────
+describe('env-identifier phrases derived from the source of truth', () => {
+  it('extracts every REMOVED_ENV_VARS entry from the live lib/integrationVarLinks.ts', () => {
+    const src = readFileSync(join(process.cwd(), 'lib', 'integrationVarLinks.ts'), 'utf8');
+    const names = extractRemovedEnvVars(src);
+    expect(names.length).toBeGreaterThanOrEqual(5);
+    expect(names).toContain('SUPABASE_URL');
+    expect(names).toContain('SUPABASE_SERVICE_ROLE_KEY');
+    expect(names).toContain('RESEND_API_KEY');
+    expect(names).toContain('REPORT_EMAIL');
+    expect(names).toContain('REPORT_FROM');
+  });
+
+  it('auto-bans a NEW identifier added to the source of truth (drift lock)', () => {
+    // The whole point of the derivation: adding an identifier to the
+    // REMOVED_ENV_VARS array must immediately extend the sweep, with no
+    // separate linter edit. envIdentifierPhrases is the exact builder the
+    // module uses to derive BANNED_ENV_PHRASES from the live file, so a new
+    // name becomes a live banned phrase on the next module load.
+    const phrases = envIdentifierPhrases(['BRAND_NEW_DEAD_VAR']);
+    expect(phrases).toEqual([{ phrase: 'BRAND_NEW_DEAD_VAR', re: /BRAND_NEW_DEAD_VAR/i }]);
+    expect(phrases[0].re.test('BRAND_NEW_DEAD_VAR must never return')).toBe(true);
+  });
+
+  it('every identifier in the live source of truth is a live banned phrase', () => {
+    // The real drift lock: auditSource uses the module-level BANNED_PHRASES,
+    // which is derived from the live REMOVED_ENV_VARS at load. If the array
+    // and the sweep ever drift (a name added to the source but not banned),
+    // this test fails — so the two can never diverge.
+    const src = readFileSync(join(process.cwd(), 'lib', 'integrationVarLinks.ts'), 'utf8');
+    for (const name of extractRemovedEnvVars(src)) {
+      expect(auditSource(`# ${name} must never return\n`)).toContainEqual({ line: 1, phrase: name });
+    }
+  });
+
+  it('fails loudly when REMOVED_ENV_VARS is missing from the truth file', () => {
+    expect(() => extractRemovedEnvVars('export const OTHER = 1;\n')).toThrow(
+      /REMOVED_ENV_VARS not found/,
+    );
+  });
+
+  it('fails loudly when REMOVED_ENV_VARS is empty', () => {
+    expect(() => extractRemovedEnvVars('export const REMOVED_ENV_VARS = [];\n')).toThrow(
+      /REMOVED_ENV_VARS in lib\/integrationVarLinks\.ts is empty/,
+    );
+  });
+
+  it('computes the array-literal line span for the truth-file exemption', () => {
+    const src = 'const a = 1;\nexport const REMOVED_ENV_VARS = [\n  \'A_VAR\',\n  \'B_VAR\',\n];\n';
+    expect(removedVarsArraySpan(src)).toEqual([2, 5]);
+  });
+
+  it('exempts only the REMOVED_ENV_VARS array lines inside the truth file', () => {
+    const src = [
+      '// header',
+      'export const REMOVED_ENV_VARS = [',
+      "  'SUPABASE_URL',",
+      "  'RESEND_API_KEY',",
+      '];',
+      '// SUPABASE_URL outside the array is still banned',
+    ].join('\n');
+    // Array lines 2-5 are exempt (they must quote the dead names to define
+    // them); the trailing comment on line 6 is still flagged.
+    expect(auditSource(src, 'lib/integrationVarLinks.ts')).toEqual([
+      { line: 6, phrase: 'supabase' },
+      { line: 6, phrase: 'SUPABASE_URL' },
+    ]);
+  });
+
+  it('finds no dead-feature phrasing in the live truth file itself', () => {
+    const findings = scanDir(join(process.cwd(), 'lib'));
+    const truthHits = findings.filter((f) => f.file.endsWith('integrationVarLinks.ts'));
+    expect(truthHits).toEqual([]);
   });
 });
 

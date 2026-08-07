@@ -49,6 +49,13 @@
 //     helpers (varSourceUrl / varEnvLine / firstVarSource) are exempt, so the
 //     lock stays meaningful while no OTHER mention of the names survives.
 //     Locked by a dedicated test.
+//   - the SOURCE OF TRUTH — lib/integrationVarLinks.ts exports the
+//     REMOVED_ENV_VARS array, and BOTH this sweep's env-identifier phrases
+//     and the lock test loop above derive from it. The array-literal lines in
+//     that file MUST quote the dead names to define them, so exactly those
+//     lines are exempt; every other line in the file is still swept. If the
+//     array is missing or empty, the sweep fails loudly instead of silently
+//     dropping coverage — the banned list can never drift from the source.
 //
 // Scans scripts/, lib/, app/, docs/ (minus docs/reviews/), .github/, and
 // .githooks/ recursively for .mjs / .ts / .tsx / .md / .sh / .yml / .yaml /
@@ -61,7 +68,7 @@
 // Usage:
 //   node scripts/lint-dead-words.mjs
 //   npm run lint                     # next lint, then this after import-surface
-//   npm run verify:dead-words       # standalone
+//   npm run verify:dead-words        # standalone
 //
 // Exports (for the unit test): auditSource, scanDir, scanRoots, main.
 // Read-only against the working tree.
@@ -98,12 +105,26 @@ const LOCK_FILE = 'lib/integrationVarLinks.test.ts';
 const LOCK_HELPER_CALL = /varSourceUrl\(|varEnvLine\(|firstVarSource\(/;
 const LOCK_STATEMENT = /^\s*(?:expect\(|return\s)/;
 
-// The REMOVED_ENV_VARS array in lib/integrationVarLinks.ts is the single
-// source of truth for removed env identifiers. Its array-literal lines must
-// quote the dead names to define them, so exactly those lines are exempt from
-// this sweep; every other line in the truth file is still scanned.
+// The single source of truth for removed env identifiers: lib/integrationVarLinks.ts
+// exports REMOVED_ENV_VARS, and the sweep derives its env-identifier banned
+// phrases from exactly that array — so the banned list and the lock test
+// (which loops the same array) can never drift. The array-literal lines in
+// the truth file are exempt (they must quote the dead names to define them).
 const TRUTH_FILE = 'lib/integrationVarLinks.ts';
 const REMOVED_VARS_RE = /export\s+const\s+REMOVED_ENV_VARS\s*=\s*\[([\s\S]*?)\]\s*(?:as\s+const\s*)?;/;
+
+/** Parse the REMOVED_ENV_VARS array literal out of the truth file's source. */
+export function extractRemovedEnvVars(source) {
+  const m = source.match(REMOVED_VARS_RE);
+  if (!m) {
+    throw new Error(`lint-dead-words: REMOVED_ENV_VARS not found in ${TRUTH_FILE} — the sweep derives its env-identifier phrases from it`);
+  }
+  const names = [...m[1].matchAll(/'([^']+)'|"([^"]+)"/g)].map((x) => x[1] ?? x[2]);
+  if (names.length === 0) {
+    throw new Error(`lint-dead-words: REMOVED_ENV_VARS in ${TRUTH_FILE} is empty — the source of truth must list the removed identifiers`);
+  }
+  return names;
+}
 
 /** [startLine, endLine] (1-based, inclusive) of the array literal, for exemption. */
 export function removedVarsArraySpan(source) {
@@ -113,10 +134,18 @@ export function removedVarsArraySpan(source) {
   return [startLine, startLine + m[0].split('\n').length - 1];
 }
 
+/** Turn the truth-file identifiers into case-insensitive banned phrases. */
+export const envIdentifierPhrases = (names) =>
+  names.map((name) => ({ phrase: name, re: new RegExp(name, 'i') }));
+
 // Case-insensitive prose phrases that describe removed features (report email
 // + dead integrations). Each entry names the human wording it catches; the
 // regex is applied per line.
-const BANNED_PHRASES = [
+// Hardcoded prose phrases: the removed report-email wording plus the generic
+// removed-feature names. The env-identifier phrases below are DERIVED from
+// lib/integrationVarLinks.ts's REMOVED_ENV_VARS at module load, so adding an
+// identifier to the source of truth automatically extends the sweep.
+const PROSE_PHRASES = [
   // 1. The removed report-email flow.
   { phrase: 'cron-email', re: /cron-email/i },
   { phrase: 'emailed report(s)', re: /emailed\s+reports?/i },
@@ -124,16 +153,23 @@ const BANNED_PHRASES = [
   { phrase: 'email preview', re: /email\s+preview/i },
   { phrase: 'emails (you|daily|weekly)', re: /emails\s+(you|daily|weekly)/i },
   { phrase: 'emailed (daily|weekly)', re: /emailed\s+(daily|weekly)/i },
-  // 2. The dead integrations (Supabase data store + Resend sender) and their
-  //    env identifiers.
+  // 2. The generic removed-feature names (the old data store + the sender).
   { phrase: 'supabase', re: /supabase/i },
-  { phrase: 'SUPABASE_URL', re: /SUPABASE_URL/i },
-  { phrase: 'SUPABASE_SERVICE_ROLE_KEY', re: /SUPABASE_SERVICE_ROLE_KEY/i },
   { phrase: 'resend', re: /resend/i },
-  { phrase: 'RESEND_API_KEY', re: /RESEND_API_KEY/i },
-  { phrase: 'REPORT_EMAIL', re: /REPORT_EMAIL/i },
-  { phrase: 'REPORT_FROM', re: /REPORT_FROM/i },
 ];
+
+// Derived from the source of truth at module load. A missing or empty array
+// is a loud failure (TRUTH_ERROR) surfaced by scanRoots — never a silent
+// drop in coverage.
+let TRUTH_ERROR = null;
+let BANNED_ENV_PHRASES = [];
+try {
+  const truthSource = readFileSync(resolve(REPO_ROOT, TRUTH_FILE), 'utf8');
+  BANNED_ENV_PHRASES = envIdentifierPhrases(extractRemovedEnvVars(truthSource));
+} catch (err) {
+  TRUTH_ERROR = err.message;
+}
+const BANNED_PHRASES = [...PROSE_PHRASES, ...BANNED_ENV_PHRASES];
 
 /**
  * Audit one file's text for banned dead-feature phrasing.
@@ -224,6 +260,12 @@ export function scanDir(root) {
  * silently produce a clean (false) scan.
  */
 export function scanRoots(roots = DEFAULT_ROOTS) {
+  // Loud failure: a missing or empty REMOVED_ENV_VARS source of truth must
+  // never silently shrink the sweep. scanRoots is also what the live-clean
+  // test calls, so a broken truth file fails the suite instead of passing.
+  if (TRUTH_ERROR) {
+    throw new Error(`lint-dead-words: ${TRUTH_ERROR}`);
+  }
   const findings = [];
   for (const root of roots) {
     const resolved = resolve(REPO_ROOT, root);
