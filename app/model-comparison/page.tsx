@@ -151,15 +151,26 @@ export default function ModelComparisonPage() {
         description="Side-by-side weighted scores (1–10) across every evaluated build. Pick a winner per project."
         action={
           recommendedProjects.length > 0 ? (
-            <button
-              type="button"
-              className="btn-secondary"
-              aria-label="Print all winner recommendations"
-              title="One review sheet across every project's AI winner recommendation"
-              onClick={() => printAllRecommendations(buildAllRecommendationsPayload())}
-            >
-              <Printer size={15} aria-hidden="true" /> Print all recommendations
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="btn-secondary"
+                aria-label="Print all winner recommendations"
+                title="One review sheet across every project's AI winner recommendation"
+                onClick={() => printAllRecommendations(buildAllRecommendationsPayload())}
+              >
+                <Printer size={15} aria-hidden="true" /> Print all recommendations
+              </button>
+              <button
+                type="button"
+                className="btn-secondary"
+                aria-label="Save all winner recommendations as HTML"
+                title="Save the standalone review sheet as a shareable HTML file"
+                onClick={() => downloadPrintHtml(buildAllRecommendationsPrintDoc(buildAllRecommendationsPayload()))}
+              >
+                <FileCode size={15} aria-hidden="true" /> Save all as HTML
+              </button>
+            </div>
           ) : undefined
         }
       />

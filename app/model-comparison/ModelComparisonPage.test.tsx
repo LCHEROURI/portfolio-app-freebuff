@@ -349,12 +349,13 @@ describe('ModelComparisonPage — print all recommendations', () => {
     vi.restoreAllMocks();
   });
 
-  it('hides the Print all button when no project has a recommendation', () => {
+  it('hides the Print all and Save all buttons when no project has a recommendation', () => {
     render(<ModelComparisonPage />);
     expect(screen.queryByRole('button', { name: 'Print all winner recommendations' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Save all winner recommendations as HTML' })).toBeNull();
   });
 
-  it('shows the Print all button once a recommendation exists', async () => {
+  it('shows the Print all and Save all buttons once a recommendation exists', async () => {
     queue = [{
       ok: true, configured: true,
       recommendation: { recommendedVersionId: 'v-gemini', note: 'Gemini wins.', model: 'deepseek/deepseek-chat' },
@@ -365,6 +366,7 @@ describe('ModelComparisonPage — print all recommendations', () => {
     expect(await screen.findByText('AI winner recommendation')).toBeInTheDocument();
 
     expect(screen.getByRole('button', { name: 'Print all winner recommendations' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save all winner recommendations as HTML' })).toBeInTheDocument();
   });
 
   it('prints one review sheet listing every project recommendation via the in-page recipe', async () => {
@@ -446,5 +448,33 @@ describe('ModelComparisonPage — print all recommendations', () => {
     expect(within(printArea).getByText(/DeepSeek Chat/)).toBeInTheDocument();
     await waitFor(() => expect(printSpy).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.queryByTestId('print-report-all')).toBeNull());
+  });
+
+  it('saves the whole review sheet as a standalone HTML file sharing the print payload', async () => {
+    const { createObjectURL, clickSpy } = stubDownloadWindow();
+    queue = [{
+      ok: true, configured: true,
+      recommendation: { recommendedVersionId: 'v-gemini', note: 'Gemini wins on features and overall score.', model: 'deepseek/deepseek-chat' },
+    }];
+    render(<ModelComparisonPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Recommend winner for Weeknight Meal Planner' }));
+    expect(await screen.findByText('AI winner recommendation')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save all winner recommendations as HTML' }));
+
+    await waitFor(() => expect(clickSpy).toHaveBeenCalledTimes(1));
+    const blob = createObjectURL.mock.calls[0][0] as Blob;
+    const html = await blob.text();
+    // The exact standalone document the review-sheet preview renders: title,
+    // meta with the recommendation count, the numbered project entry, the
+    // note, and the friendly model label.
+    expect(blob.type).toBe('text/html;charset=utf-8');
+    expect(html).toContain('AI winner recommendations — all projects');
+    expect(html).toContain('Weeknight Meal Planner');
+    expect(html).toContain('Gemini wins on features and overall score.');
+    expect(html).toContain('DeepSeek Chat');
+    const anchor = clickSpy.mock.instances[0] as HTMLAnchorElement;
+    expect(anchor.getAttribute('download')).toBe('ai-winner-recommendations-all-projects.html');
   });
 });
