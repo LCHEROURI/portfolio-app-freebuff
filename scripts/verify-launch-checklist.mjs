@@ -25,7 +25,7 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { crossCheckVerifyAllGates } from './launch-checklist-gates.mjs';
+import { crossCheckCiGates, crossCheckVerifyAllGates, crossCheckVerifyAllSecrets, parseLaunchChecklistTable } from './launch-checklist-gates.mjs';
 
 const ROOT = process.cwd();
 
@@ -33,6 +33,7 @@ const read = (path) => readFileSync(resolve(ROOT, path), 'utf8');
 
 const DOC = 'docs/launch.md';
 const VERIFY_ALL = 'scripts/verify-all.mjs';
+const CI = '.github/workflows/ci.yml';
 const GATE_SECTION_HEADING = /^## \d+\. The verification gates/;
 const EXPECTED_GATE_COUNT = 11;
 // The exact canonical commands §4 must document. Hardcoding the set (not just
@@ -191,6 +192,37 @@ const crossFailures = crossCheckVerifyAllGates({
 for (const msg of crossFailures) fail(msg);
 if (crossFailures.length === 0) {
   ok(`§4 gate names exactly match verify-all.mjs GATE_NAMES (${EXPECTED_GATE_COUNT})`);
+}
+
+// Every §4 row must also carry its secrets requirement (the Requires column
+// verify-all.mjs's summary table prints). The cross-check asserts the doc's
+// Requires cells exactly match each gate's `secrets` array in the runner, so
+// a secret added to the runner without a doc update fails here.
+console.log('\n[3b/4] Cross-referencing §4 Requires column against verify-all.mjs secrets');
+// Note: the drift guard already declares `tableRows` for its own §4 parsing;
+// the secrets parser's rows get a distinct name to avoid shadowing.
+const { header: requiresHeader, rows: requiresRows } = parseLaunchChecklistTable(doc);
+const secretsFailures = crossCheckVerifyAllSecrets({
+  rows: requiresRows,
+  header: requiresHeader,
+  verifyAllSrc,
+  npmScripts,
+});
+for (const msg of secretsFailures) fail(msg);
+if (secretsFailures.length === 0) {
+  ok('every §4 gate row carries the exact secrets verify-all.mjs declares (Requires column)');
+}
+
+// CI's post-deploy jobs must gate each verify step on secrets the runner
+// actually declares for that gate — so the doc, the runner, and CI can never
+// disagree about what a gate needs: a step gated on a secret the runner never
+// declared, or run ungated while its gate declares secrets, fails here.
+console.log('\n[3c/4] Cross-referencing ci.yml gating against verify-all.mjs secrets');
+const ciSrc = read(CI);
+const ciFailures = crossCheckCiGates({ ciSrc, verifyAllSrc, npmScripts });
+for (const msg of ciFailures) fail(msg);
+if (ciFailures.length === 0) {
+  ok('every ci.yml verify step is gated on secrets verify-all.mjs declares for its gate');
 }
 
 console.log('\n[4/4] Summary');
