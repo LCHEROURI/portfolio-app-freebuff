@@ -29,6 +29,83 @@ it is a **ProjectVersion**. Repositories, deployments, tasks, model
 evaluations, automated alerts, and daily/weekly reports all live in one
 desktop-first view.
 
+## Handoff — read this first
+
+Everything a new maintainer needs to pick this repo up cold, in one place.
+The sections below and **docs/launch.md** (the go-live checklist) hold the
+deep detail; when they disagree, the deeper prose wins.
+
+### Architecture in one paragraph
+
+Next.js 14 (App Router) + React 18 + TypeScript, styled with Tailwind. The
+single data store is **Firestore** on Firebase project `portfolio-app-freebuff2`
+(the trailing **2 matters** — the old `portfolio-app-freebuff` project is
+deleted): the client persists projects, versions, evaluations, tasks, and
+activity through the Firebase SDK (`lib/firestore.ts`), and the automation
+cron reads the same documents server-side via a service account
+(`lib/server/firestoreAdmin.ts`). Sign-in is Firebase Auth (email/password +
+Google) with per-user isolation enforced by `firestore.rules`. Without the
+Firebase env vars the app falls back to **local demo mode** (localStorage
+seed) — the no-config path for forks and local dev. Each live integration is
+toggled by a `NEXT_PUBLIC_LIVE_*` build-time flag plus a matching server
+credential (GitHub → Repositories, Vercel → Deployments, OpenRouter → AI
+briefings). The automation engine (`lib/engine.ts`) runs 14 rules and the
+priority queue, and a Vercel Cron (`/api/cron/reports`) composes daily/weekly
+report bodies into the in-app Reports page — nothing is sent anywhere. Entry
+points: `app/` (routes + API), `lib/` (client store + live facade),
+`lib/server/` (server data + rules), `scripts/` (verify suite + local tools),
+`.github/workflows/` (CI + deploy gates).
+
+### The 11 verification gates
+
+`npm run verify:all` runs all eleven against the production URL (or
+`--app <url>` for a preview) and exits nonzero on any failure. Each gate
+reads its secrets from env, then `.env.local`:
+
+| Gate | Requires | Proves |
+| --- | --- | --- |
+| token-health | `VERCEL_TOKEN` | the stored Vercel token is alive (name + expiry) |
+| vercel-env | `VERCEL_TOKEN` (+ Vercel CLI) | Vercel prod env matches `.env.local` |
+| cron-reports | `CRON_SECRET` | deployed cron 401s without auth; daily/weekly report bodies carry the friendly model heading + raw-id footer; no report send envelope |
+| firestore-rules | `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `FIREBASE_WEB_API_KEY` | user-isolated rules: own-uid write/read, cross-user denied |
+| auth-domains | `FIREBASE_WEB_API_KEY` | shipping domain is in the Firebase authorized list |
+| prod-signin | `FIREBASE_WEB_API_KEY`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` (+ Chrome) | real sign-in releases into the app and Firestore syncs |
+| google-idp | `FIREBASE_WEB_API_KEY`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | Google IdP record enabled with a classic web client |
+| auth-domains-direct | `FIREBASE_WEB_API_KEY` | same as auth-domains via the direct script (reported as covered) |
+| deployed-hash | `VERCEL_TOKEN` | production actually serves the expected commit |
+| import-surface | — | no unused or re-exported imports across scripts/ + lib/ + app/ |
+| dead-words | — | removed-feature phrasing never returns to code or docs |
+
+`verify:all` also preflights three static drift guards
+(`verify-launch-checklist.mjs` + `launch-checklist-gates.mjs`): the §4
+checklist matches the runner's gate names and secrets, and the ci.yml +
+deployment_status workflows gate on exactly the secrets each gate declares —
+a gate renamed, dropped, or mis-gated fails before anything runs. The
+`.githooks/pre-push` hook runs the whole suite (timeboxed) on every push, and
+`npm run ship:go` commits, pushes, waits for the Vercel deploy, then re-runs
+`ship:ready` against the live build.
+
+### The three-secret-store reality
+
+The same secrets live in **three places** and must stay in sync — a value
+rotated in only one store breaks a push or a CI gate with a confusing
+failure:
+
+1. **`.env.local`** — local dev, the verify scripts, and the pre-push hook.
+2. **Vercel Production env** — what the deployed app actually runs with.
+3. **GitHub repo secrets** (Settings → Secrets → Actions) — what CI runs with.
+
+The verify scripts read shared values (`CRON_SECRET`, `VERCEL_TOKEN`,
+`FIREBASE_WEB_API_KEY`, …) in that precedence; the `vercel-env` gate exists
+specifically to prove store 2 matches store 1. Rotation is documented for the
+two that rot (`CRON_SECRET` and `VERCEL_TOKEN`, see the rotation sections
+above) — update every store together, and refresh the Vercel CLI token store
+for `VERCEL_TOKEN`. GitHub-only secrets (`VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`,
+`VERCEL_PROTECTION_BYPASS`) are classified by `vercel-env` as CI-only, not
+drift. The Firebase project id is pinned to `portfolio-app-freebuff2` by a CI
+guard that fails on any bare `portfolio-app-freebuff` used as a project id —
+keep the **2**.
+
 ## Screenshots
 
 The same screens in light and dark — the sidebar's connection-status widget
