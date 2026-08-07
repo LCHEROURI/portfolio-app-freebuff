@@ -3,19 +3,22 @@ import { describe, expect, it } from 'vitest';
 
 // ============================================================================
 // scripts/readme-pipeline.test.ts — lock the README pipeline diagram to the
-// workflows it depicts.
+// workflows it depicts, and to the twin diagram in docs/launch.md.
 //
 // The README handoff section carries a "When each gate runs:" ASCII diagram
 // showing the verification pipeline: the local pre-push hook, ship:go, the
-// five ci.yml push jobs, and the three deployment_status gates. The diagram
-// is documentation — if a job is renamed in ci.yml or a workflow is renamed
-// and the picture is not updated, the onboarding doc drifts from reality
-// silently. This test reads the REAL workflow files from disk, extracts the
-// authoritative display names, and asserts each one still appears in the
-// diagram, so a renamed or dropped entry fails the suite.
+// five ci.yml push jobs, and the three deployment_status gates. docs/launch.md
+// §4 carries the same picture so the two onboarding surfaces share one visual.
+// The diagrams are documentation — if a job is renamed in ci.yml or a workflow
+// is renamed and the picture is not updated, the onboarding docs drift from
+// reality silently. This test reads the REAL workflow files from disk,
+// extracts the authoritative display names, and asserts each one still appears
+// in the README diagram; it also asserts the launch.md diagram is byte-
+// identical to the README one, so the two docs can never drift apart.
 // ============================================================================
 
 const README = readFileSync('README.md', 'utf8');
+const LAUNCH = readFileSync('docs/launch.md', 'utf8');
 const CI = readFileSync('.github/workflows/ci.yml', 'utf8');
 const PREVIEW_GATE = readFileSync('.github/workflows/preview-gate.yml', 'utf8');
 const DEPLOYED_HASH = readFileSync('.github/workflows/verify-deployed-hash.yml', 'utf8');
@@ -42,16 +45,22 @@ const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
 /**
  * The body of the "When each gate runs:" ASCII diagram (between the opening
  * and closing code fences), or '' when the section or fence is missing.
+ *
+ * The marker is matched without the trailing colon so both variants resolve:
+ * README's "When each gate runs:" and launch.md's "When each gate runs (same
+ * picture as the README handoff section):".
  */
-export function parsePipelineDiagram(readmeText: string): string {
-  const marker = readmeText.indexOf('When each gate runs:');
+export function parsePipelineDiagram(docText: string): string {
+  // Line-anchored so a future prose mention of the phrase (e.g. in a
+  // paragraph before the diagram) can't be mistaken for the lead-in.
+  const marker = docText.search(/^When each gate runs/m);
   if (marker === -1) return '';
-  const fenceStart = readmeText.indexOf('```', marker);
+  const fenceStart = docText.indexOf('```', marker);
   if (fenceStart === -1) return '';
   const bodyStart = fenceStart + 3;
-  const fenceEnd = readmeText.indexOf('```', bodyStart);
+  const fenceEnd = docText.indexOf('```', bodyStart);
   if (fenceEnd === -1) return '';
-  return readmeText.slice(bodyStart, fenceEnd);
+  return docText.slice(bodyStart, fenceEnd);
 }
 
 /**
@@ -84,6 +93,19 @@ describe('parsePipelineDiagram (pure helper)', () => {
     ].join('\n');
     expect(parsePipelineDiagram(readme)).toContain('GITHUB');
     expect(parsePipelineDiagram(readme)).not.toContain('Next section');
+  });
+
+  it('matches the marker with a parenthetical suffix (launch.md variant)', () => {
+    const launch = [
+      'When each gate runs (same picture as the README handoff section):',
+      '',
+      '```text',
+      '   ┌───────────┐',
+      '   │  LAUNCH   │',
+      '   └───────────┘',
+      '```',
+    ].join('\n');
+    expect(parsePipelineDiagram(launch)).toContain('LAUNCH');
   });
 
   it("returns '' when the section marker is missing", () => {
@@ -165,5 +187,24 @@ describe('README pipeline diagram contract', () => {
       .map((line) => line.replace(/[│┌┐└┘─┬▼]/g, '').trim())
       .filter((line) => line.startsWith('·'));
     expect(bulletedLines).toHaveLength(8);
+  });
+});
+
+describe('README and launch.md diagrams stay byte-identical', () => {
+  const readmeDiagram = parsePipelineDiagram(README);
+  const launchDiagram = parsePipelineDiagram(LAUNCH);
+
+  it('launch.md carries the same "When each gate runs:" diagram', () => {
+    expect(launchDiagram).not.toBe('');
+    expect(LAUNCH).toContain('When each gate runs');
+    expect(launchDiagram).toContain('DEPLOYMENT_STATUS GATES');
+  });
+
+  it('both docs render the identical diagram byte for byte', () => {
+    // Self-contained: assert both non-empty here so the equality can't pass
+    // vacuously if the sibling README block were ever removed.
+    expect(readmeDiagram).not.toBe('');
+    expect(launchDiagram).not.toBe('');
+    expect(launchDiagram).toBe(readmeDiagram);
   });
 });
