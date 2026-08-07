@@ -10,6 +10,9 @@
 //      (model label, not raw id) AND the raw-id footer line.
 //   3. The daily report body carries the top-three narration heading with the
 //      friendly label, the raw-id footer, and the structured narration field.
+//   4. No report in either response carries an `email` envelope (the
+//      emailed-report feature is gone — a silent re-introduction fails CI just
+//      like the unit tests in app/api/cron/reports/route.test.ts).
 //
 // Usage:
 //   node scripts/verify-cron-reports.mjs [--base https://...] [--secret <CRON_SECRET>] [--owner <uid>]
@@ -73,7 +76,7 @@ const getJson = async (path, headers = {}) => {
 };
 
 // 1. Auth gate.
-console.log(`\n[1/4] Auth gate at ${BASE}`);
+console.log(`\n[1/5] Auth gate at ${BASE}`);
 const anon = await getJson('/api/cron/reports?kind=daily');
 if (anon.status !== 401) fail(`expected 401 without auth, got ${anon.status}`);
 else ok('unauthenticated request rejected with 401');
@@ -89,7 +92,7 @@ const auth = { authorization: `Bearer ${SECRET}` };
 //     deployed CRON_SECRET no longer matches the value we resolved (from
 //     --secret / env / .env.local). Surface that as a clear, actionable failure
 //     instead of the confusing cascade of missing-body failures that follows.
-console.log('\n[2/4] Secret drift guard (authenticated probe)');
+console.log('\n[2/5] Secret drift guard (authenticated probe)');
 const probe = await getJson('/api/cron/reports?kind=weekly', auth);
 if (probe.status === 401) {
   fail('deployed CRON_SECRET differs from the value provided (401 on an authenticated call). '
@@ -101,7 +104,7 @@ if (probe.status === 401) {
 }
 
 // 3. Weekly report body: friendly heading + raw footer + winner recommendation.
-console.log('\n[3/4] Weekly report body (?kind=weekly&previewBody=1)');
+console.log('\n[3/5] Weekly report body (?kind=weekly&previewBody=1)');
 const weekly = await getJson('/api/cron/reports?kind=weekly&previewBody=1', auth);
 const weeklyReport = weekly.json?.reports?.find((r) => r.kind === 'weekly');
 const weeklyBody = weeklyReport?.body ?? '';
@@ -159,7 +162,7 @@ if (!failures) {
 //    graceful fallback must omit the narration cleanly while the executive
 //    summary and raw footer still ship. This keeps the check green on quiet
 //    days without letting regressions sneak through.
-console.log('\n[4/4] Daily report body (?kind=daily&previewBody=1)');
+console.log('\n[4/5] Daily report body (?kind=daily&previewBody=1)');
 const daily = await getJson('/api/cron/reports?kind=daily&previewBody=1', auth);
 const dailyReport = daily.json?.reports?.find((r) => r.kind === 'daily');
 const dailyBody = dailyReport?.body ?? '';
@@ -184,6 +187,31 @@ if (!failures && narration) {
   ok(`daily body carries narration heading + label + raw footer (${dailyBody.length} chars)`);
   ok(`daily narration.model=${narration.model}, projectIds=${JSON.stringify(narration.projectIds ?? [])}`);
 }
+
+// 5. Email-envelope sweep: the emailed-report feature was removed, so NO
+//    report may carry an `email` envelope ({ sent, emailId, reason }) and the
+//    responses themselves must not have a top-level email field either. This
+//    mirrors the unit tests (route.test.ts asserts not.toHaveProperty('email'))
+//    against the deployed build, so a future re-introduction fails CI before
+//    it can ship.
+console.log('\n[5/5] Email-envelope sweep (no report may carry an email envelope)');
+let envelopeHits = 0;
+const sweepReports = (reports, label) => {
+  for (const r of reports ?? []) {
+    if (r && typeof r === 'object' && 'email' in r) {
+      envelopeHits += 1;
+      fail(`${label} report "${r.kind ?? '?'}" still carries an email envelope: ${JSON.stringify(r.email)}`);
+    }
+  }
+};
+for (const [label, resp] of [['weekly', weekly.json], ['daily', daily.json]]) {
+  sweepReports(resp?.reports, label);
+  if (resp && 'email' in resp) {
+    envelopeHits += 1;
+    fail(`${label} response carries a top-level email envelope: ${JSON.stringify(resp.email)}`);
+  }
+}
+if (envelopeHits === 0) ok('no report in the weekly or daily response carries an email envelope');
 
 console.error(`\nRESULT: ${failures === 0 ? 'PASS' : `FAIL (${failures})`}`);
 process.exit(failures === 0 ? 0 : 1);
