@@ -89,7 +89,12 @@ Run **all eleven in one command** with `npm run verify:all` — it preflights th
 drift guard above, runs every gate sequentially against the production URL
 (or `--app <url>` to target a preview/local server), dedupes the two
 auth-domains rows (they share one script), and prints a summary table,
-exiting nonzero on any failure. `--only a,b` / `--skip a,b` narrow a run;
+exiting nonzero on any failure. The table also shows an `Onboarding-doc
+pipeline diagram presence` row — a static companion check (not a 12th gate:
+it stays out of the §4 gate list) that re-runs the same `When each gate
+runs:` picture check the drift guard's `[3e/4]` step performs, so the
+picture's presence is visible in the one-command checklist, not just in the
+preflight scrollback. `--only a,b` / `--skip a,b` narrow a run;
 `--expect <sha>` forwards a deployed-hash assertion into the runner.
 
 **One-command go-live answer:** `npm run ship:ready` answers "are we ready to

@@ -18,6 +18,13 @@
 //     the repo can't run, nothing is executed.
 //   - Runs each gate as a child process with inherited stdio (live output),
 //     capturing exit code + wall time per gate.
+//   - Reports the onboarding-doc pipeline-diagram presence as its own static
+//     summary row: an inline run of the SAME pure check the drift guard runs
+//     as [3e/4] (no child process, no secrets, no network — it reads
+//     README.md + docs/launch.md from the tree), surfaced beside the 11 gates
+//     so the one-command checklist shows the picture's presence at a glance.
+//     It is deliberately NOT a GATES/GATE_NAMES entry — adding it there would
+//     break the 11-gate §4 contract the drift guard enforces.
 //   - Dedupes the §4 table's double auth-domains entry: the table lists both
 //     `npm run verify:auth-domains` and `node scripts/verify-auth-domains.mjs`,
 //     which resolve to the SAME file — only the canonical npm script runs, and
@@ -32,6 +39,7 @@ import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
+import { crossCheckPipelineDiagrams } from './launch-checklist-gates.mjs';
 import { parseSubResultMarkers } from './verify-all-subresults.mjs';
 
 const args = process.argv.slice(2);
@@ -269,6 +277,30 @@ if (preflightCode !== 0) {
   process.exit(1);
 }
 
+// ── Static companion row: onboarding-doc pipeline-diagram presence ──────────
+// The drift guard's [3e/4] step already fails the preflight when either
+// onboarding doc loses the "When each gate runs:" picture. This inline run of
+// the SAME pure check — no child process, no secrets, no network — surfaces
+// the picture's presence as its own summary row beside the 11 gates, so the
+// one-command checklist reports it at a glance instead of only in the
+// preflight's scrollback. Failures flow through the shared failures array, so
+// a missing picture fails the whole run even if [3e/4] were ever weakened.
+const pipelineDiagramStart = Date.now();
+const pictureFailures = crossCheckPipelineDiagrams({
+  readmeSrc: readFileSync(resolve(process.cwd(), 'README.md'), 'utf8'),
+  launchSrc: readFileSync(resolve(process.cwd(), 'docs/launch.md'), 'utf8'),
+});
+console.log('\n── ▶ Onboarding-doc pipeline diagram presence (static)');
+for (const msg of pictureFailures) console.error(`  ✗ ${msg}`);
+const picturePass = pictureFailures.length === 0;
+if (!picturePass) failures.push('pipeline-diagram');
+results.push({
+  gate: { name: 'pipeline-diagram', label: 'Onboarding-doc pipeline diagram presence', secrets: [], static: true },
+  pass: picturePass,
+  timedOut: false,
+  ms: Date.now() - pipelineDiagramStart,
+});
+
 // ── Run the gates ───────────────────────────────────────────────────────────
 let idx = 0;
 for (const gate of GATES) {
@@ -314,7 +346,10 @@ for (const r of results) {
 console.log('══════════════════════════════════════════════════════════');  console.log('  ✓ = secret present (env or .env.local) · ✗ = missing — most gates');
   console.log('  skip-not-fail internally, so check the REQUIRES column first.');
 
-const ranCount = results.filter((r) => r.pass !== null && r.pass !== 'covered').length;
+// The always-present static picture row is a companion check, not a gate: it
+// must not satisfy the no-gates-ran guard, so --skip of every gate still
+// exits 2 instead of reporting PASS off the picture row alone.
+const ranCount = results.filter((r) => r.pass !== null && r.pass !== 'covered' && !r.gate.static).length;
 if (ranCount === 0) {
   console.error('\nRESULT: FAIL — no gates ran (--only/--skip filtered everything out).');
   process.exit(2);
@@ -324,8 +359,14 @@ const failedCount = failures.length;
 if (failedCount > 0) {
   console.error(`\nRESULT: FAIL (${failedCount} gate(s) failed: ${failures.join(', ')})`);
   console.error('Re-run the failing gate alone for its full output, e.g.:');
-  const first = GATES.find((g) => g.name === failures[0]);
-  console.error(`  ${first?.file ? `node ${first.file}` : `npm run ${first?.script ?? 'verify:…'}`}`);
+  if (failures[0] === 'pipeline-diagram') {
+    // The picture row is a static companion, not a GATES entry — the failing
+    // "gate" is the drift guard itself (its [3e/4] step runs the same check).
+    console.error('  node scripts/verify-launch-checklist.mjs   (drift guard [3e/4])');
+  } else {
+    const first = GATES.find((g) => g.name === failures[0]);
+    console.error(`  ${first?.file ? `node ${first.file}` : `npm run ${first?.script ?? 'verify:…'}`}`);
+  }
   process.exit(failedCount);
 }
 console.log('\nRESULT: PASS — every gate is green.');

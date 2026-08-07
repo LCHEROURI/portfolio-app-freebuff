@@ -101,7 +101,57 @@ describe('parseSubResultMarkers · malformed lines are rejected', () => {
   });
 });
 
-// ── Drift guard: gate emissions vs the label map ────────────────────────────
+// ── Static companion row: onboarding-doc pipeline-diagram presence ──────────
+// verify-all.mjs reports the pipeline diagram's presence as its own summary
+// row (an inline run of crossCheckPipelineDiagrams, the same pure check the
+// drift guard's [3e/4] step runs). These tests lock that row's contract: the
+// import exists, the invocation reads BOTH onboarding docs, failures reach the
+// shared failures array, and — critically — the row stays OUT of
+// GATE_NAMES/GATES so the 11-gate §4 contract the drift guard enforces is
+// never silently widened.
+
+describe('verify-all.mjs · onboarding-doc pipeline-diagram presence row', () => {
+  const src = readFileSync(join(process.cwd(), 'scripts', 'verify-all.mjs'), 'utf8');
+
+  it('imports crossCheckPipelineDiagrams from the shared gates module', () => {
+    expect(src).toMatch(/import \{[^}]*crossCheckPipelineDiagrams[^}]*\} from '\.\/launch-checklist-gates\.mjs';/);
+  });
+
+  it('runs the presence check inline against BOTH onboarding docs', () => {
+    expect(src).toContain('readmeSrc: readFileSync(resolve(process.cwd(), \'README.md\'), \'utf8\')');
+    expect(src).toContain('launchSrc: readFileSync(resolve(process.cwd(), \'docs/launch.md\'), \'utf8\')');
+  });
+
+  it('pushes the picture as its own summary row with a friendly label', () => {
+    expect(src).toContain("label: 'Onboarding-doc pipeline diagram presence'");
+    expect(src).toContain('results.push({');
+    expect(src).toContain('static: true');
+  });
+
+  it('routes failures through the shared failures array so a missing picture fails the run', () => {
+    expect(src).toContain("failures.push('pipeline-diagram')");
+    expect(src).toContain('for (const msg of pictureFailures) console.error');
+  });
+
+  it('stays OUT of GATE_NAMES so the 11-gate §4 contract is intact', () => {
+    // The row is a companion check, not a 12th gate. If it ever joins
+    // GATE_NAMES, the launch-checklist drift guard cross-check would fail
+    // (the runner's gate names must exactly match §4's eleven), so this
+    // assertion pins the deliberate exclusion.
+    const gateNamesLine = src.match(/const GATE_NAMES = \[[^\]]*\]/)?.[0] ?? '';
+    expect(gateNamesLine).not.toContain('pipeline-diagram');
+    // And the static row must not be a runnable GATES entry either.
+    expect(src.match(/name: 'pipeline-diagram'/g) ?? []).toHaveLength(1);
+  });
+
+  it('excludes the static row from the no-gates-ran guard', () => {
+    // The companion row always runs; if it counted toward ranCount, --skip of
+    // every gate would report PASS off the picture row alone instead of
+    // exiting 2 with "no gates ran".
+    expect(src).toContain("r.pass !== 'covered' && !r.gate.static");
+  });
+});
+
 // The real lock: scan every gate's source for the markers it actually emits
 // and assert the bidirectional contract — every emitted marker has a friendly
 // label, and every label is still emitted by a gate. A hand-written "known
