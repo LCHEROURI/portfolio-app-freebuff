@@ -60,9 +60,34 @@ jobs:
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
 
+      # Verify the deployed domain is authorized. The verify script already
+      # sends &refresh=1, but Firebase's own getProjectConfig propagation can
+      # lag the admin-API add by tens of seconds — right after a deploy the
+      # check can briefly FAIL even though the auto-authorize succeeded (the
+      # documented known-transient). So, mirroring the pre-push deployed-hash
+      # retry, the gate retries ONCE after a 30s backoff: the propagation
+      # clears on the retry and the gate passes, a genuinely unauthorized
+      # domain fails both attempts and blocks shipping.
       - name: Verify deployed domain is authorized
         if: ${{ env.FIREBASE_WEB_API_KEY != '' }}
-        run: node scripts/verify-auth-domains.mjs --app "${{ github.event.deployment_status.target_url }}"
+        run: |
+          run_verify() {
+            node scripts/verify-auth-domains.mjs --app "${{ github.event.deployment_status.target_url }}"
+          }
+          if run_verify; then
+            echo "preview-gate: deployed domain authorized ✓"
+          else
+            first_rc=$?
+            echo "preview-gate: domain check failed (rc=$first_rc) — waiting 30s and retrying once (Firebase getProjectConfig propagation?)…" >&2
+            sleep 30
+            if run_verify; then
+              echo "preview-gate: deployed domain authorized ✓ (on retry)"
+            else
+              retry_rc=$?
+              echo "preview-gate: deployed domain NOT authorized on retry (rc=$retry_rc) — add it to the Firebase authorized list and redeploy." >&2
+              exit 1
+            fi
+          fi
         env:
           FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
           VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}

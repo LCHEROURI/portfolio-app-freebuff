@@ -111,7 +111,9 @@ describe('.github/workflows/preview-gate.yml · deployment_status preview gate',
   });
 
   it('still verifies the deployed domain is authorized against the live target_url', () => {
-    expect(PREVIEW_GATE).toMatch(/run: node scripts\/verify-auth-domains\.mjs --app/);
+    // The verify runs inside a `run: |` block (wrapped in the retry function
+    // below), so the invocation is an indented line, not `run: node scripts/…`.
+    expect(PREVIEW_GATE).toMatch(/node scripts\/verify-auth-domains\.mjs --app/);
     expect(PREVIEW_GATE).toContain('github.event.deployment_status.target_url');
     expect(PREVIEW_GATE).toContain("if: ${{ env.FIREBASE_WEB_API_KEY != '' }}");
   });
@@ -119,6 +121,19 @@ describe('.github/workflows/preview-gate.yml · deployment_status preview gate',
   it('still auto-authorizes the fresh deployment URL first (SA-gated)', () => {
     expect(PREVIEW_GATE).toMatch(/run: node scripts\/authorize-domain\.mjs --domain/);
     expect(PREVIEW_GATE).toContain('github.event.deployment_status.target_url');
+  });
+
+  it('retries the verify once after a 30s backoff (Firebase getProjectConfig propagation)', () => {
+    // The verify script already sends &refresh=1, but Firebase's own config
+    // propagation can lag the admin-API auto-authorize by tens of seconds —
+    // the documented transient that used to force manual re-runs. The gate
+    // must retry ONCE after 30s (mirroring the pre-push deployed-hash retry)
+    // so a transient clears on the retry, and a genuine miss still fails.
+    expect(PREVIEW_GATE).toMatch(/run_verify\(\) \{/);
+    expect(PREVIEW_GATE).toContain('sleep 30');
+    expect(PREVIEW_GATE).toMatch(/retrying once/);
+    expect(PREVIEW_GATE).toMatch(/on retry\)/);
+    expect(PREVIEW_GATE).toContain('exit 1');
   });
 });
 
