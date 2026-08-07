@@ -38,8 +38,8 @@ import {
 //
 // Emailed reports are DISABLED: the route composes the report bodies (exposed
 // via ?previewBody=1 / format=text for the in-app Reports page and the
-// verification suite) but never sends email — the per-report email object
-// always reports { sent: false, reason: 'emailed reports disabled' }.
+// verification suite) but never sends email — no email envelope rides on the
+// response.
 //
 // Each run still logs a `report_generated` activity doc to the Firestore
 // activity collection when the service account is configured, so the Activity
@@ -54,7 +54,7 @@ import {
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
-/** Append the fired 14-rule alerts to a report body so they surface in the email. */
+/** Append the fired 14-rule alerts to a report body so they surface in it. */
 const withAlertsSection = (body: string, alerts: AutomationAlert[]): string => {
   if (alerts.length === 0) return body;
   const lines = [
@@ -80,7 +80,7 @@ export async function GET(req: NextRequest) {
   const rawKind = req.nextUrl.searchParams.get('kind') ?? 'auto';
   const kind: 'auto' | 'daily' | 'weekly' =
     rawKind === 'daily' || rawKind === 'weekly' ? rawKind : 'auto';
-  // Dev-only verification aid: include the composed email body in the response.
+  // Dev-only verification aid: include the composed report body in the response.
   const previewBody = req.nextUrl.searchParams.get('previewBody') === '1';
   // Dev-only plain-text preview: when set, the composed body is returned as
   // text/plain.
@@ -117,13 +117,12 @@ export async function GET(req: NextRequest) {
   // attentionCount/aiModel/narration) so the ?previewBody=1 response and the
   // Reports page preview modal agree on structure by construction.
   const reports: Array<ReportPreviewPayload & {
-    email: { sent: boolean; emailId?: string; reason?: string };
     narrationModel: string | null;
   }> = [];
 
   // AI executive summary is an enhancement: when OpenRouter is unconfigured or
-  // the call fails, summarizeReport / narrateTopThree return null and the email
-  // body is sent unchanged (deterministic text + alerts). Both AI calls for a
+  // the call fails, summarizeReport / narrateTopThree return null and the report
+  // body is returned unchanged (deterministic text + alerts). Both AI calls for a
   // report run in parallel so two slow calls can't eat the whole cron maxDuration
   // budget.
   const pending: Array<{
@@ -139,13 +138,13 @@ export async function GET(req: NextRequest) {
   const winnerCandidates = wantWeekly ? buildWinnerCandidates(state) : [];
 
   // Deterministic top three, computed once — the same actions the dashboard
-  // shows — so the AI narration in the email matches the UI briefing. The
+  // shows — so the AI narration in the report matches the UI briefing. The
   // narration, like the executive summary, uses the OPENROUTER_MODEL env default
   // (the per-user Settings picker applies to the UI only), keeping the two AI
-  // sections of the emailed report consistent with each other.
+  // sections of the report consistent with each other.
   const topThree = wantDaily ? buildTopThree(state) : [];
   // Pass the same project identity the dashboard briefing uses (cite-backs),
-  // resolving names from the snapshot so the emailed narration can be as
+  // resolving names from the snapshot so the narration can be as
   // specific as the UI one.
   const projectNameOf = (id: string | undefined) =>
     id ? state.projects.find((p) => p.id === id)?.name : undefined;
@@ -207,11 +206,10 @@ export async function GET(req: NextRequest) {
   }));
 
   for (const s of summarized) {
-    // Emailed reports are disabled: every report reports not-sent with a clear
-    // reason (the body rides in the response only when ?previewBody=1 asks).
-    const email = { sent: false, reason: 'emailed reports disabled' };
+    // Emailed reports are disabled — no email envelope rides on the response
+    // (the body rides along only when ?previewBody=1 asks).
     reports.push({
-      kind: s.kind, title: s.title, attentionCount: s.attentionCount, email,
+      kind: s.kind, title: s.title, attentionCount: s.attentionCount,
       aiModel: s.model, narrationModel: s.narration?.model ?? null,
       // The full preview payload (body + structured narration) rides along so
       // the shared ReportPreviewPayload type is always satisfied; the response
@@ -230,7 +228,7 @@ export async function GET(req: NextRequest) {
           id: `a-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
           userId: ownerId,
           kind: 'report_generated',
-          message: `${s.kind} report "${s.title}" generated (emailing disabled)`,
+          message: `${s.kind} report "${s.title}" generated`,
           createdAt: new Date().toISOString(),
         });
       } catch (e) {
@@ -239,9 +237,9 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Dev-only plain-text email preview: serve the composed body as text/plain
-  // instead of JSON, and never send it — the exact emailed text is now
-  // curl-able / pipe-able without waiting for the schedule.
+  // Dev-only plain-text preview: serve the composed body as text/plain
+  // instead of JSON — the exact report text is now curl-able / pipe-able
+  // without waiting for the schedule.
   if (textPreview) {
     const target =
       reports.find((r) => r.kind === (kind === 'weekly' ? 'weekly' : 'daily')) ?? reports[0];
@@ -263,7 +261,7 @@ export async function GET(req: NextRequest) {
     ? reports
     : reports.map((r) => ({
         kind: r.kind, title: r.title, attentionCount: r.attentionCount,
-        aiModel: r.aiModel, narrationModel: r.narrationModel, email: r.email,
+        aiModel: r.aiModel, narrationModel: r.narrationModel,
       }));
 
   return NextResponse.json({

@@ -32,7 +32,7 @@ export default function ReportsPage() {
   const [confirmDiscard, setConfirmDiscard] = useState(false);
 
   // Build the report and open a preview modal instead of saving immediately, so
-  // the user sees the exact emailed body (freshness section + AI summary)
+  // the user sees the exact report body (freshness section + AI summary)
   // before it is saved.
   const buildPreview = async (kind: 'daily' | 'weekly') => {
     setGenerating(kind);
@@ -139,7 +139,7 @@ export default function ReportsPage() {
 
       {/* Local scan freshness — newest/oldest lastScannedAt across repos, so
           the newest/oldest/stale picture is visible before generating a report
-          (the same block the emailed body renders in its header). The schedule
+          (the same block the report body renders in its header). The schedule
           link jumps to the Settings scan-schedule card. */}
       <LastScanStrip
         headerAction={
@@ -201,7 +201,7 @@ export default function ReportsPage() {
         </div>
       )}
 
-      {/* Preview modal — the exact emailed body (freshness section included)
+      {/* Preview modal — the exact report body (freshness section included)
           plus the AI summary, shown BEFORE saving a freshly generated report
           or when re-opening a saved one via its 'Preview body' button. */}
       {preview && (

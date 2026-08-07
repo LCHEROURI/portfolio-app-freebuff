@@ -55,15 +55,13 @@ describe('toReportDoc (seed-in-app-reports)', () => {
     expect(doc).not.toHaveProperty('aiModel');
   });
 
-  it('never leaks the email envelope or structured narration into the saved doc', () => {
+  it('never leaks the structured narration or winner fields into the saved doc', () => {
     const doc = toReportDoc('demo-user', {
       ...composed,
-      email: { sent: false, reason: 'emailed reports disabled' },
       narration: { paragraph: 'x', model: 'deepseek/deepseek-chat' },
       winnerRecommendations: [],
       narrationModel: 'deepseek/deepseek-chat',
     }, NOW);
-    expect(doc).not.toHaveProperty('email');
     expect(doc).not.toHaveProperty('narration');
     expect(doc).not.toHaveProperty('winnerRecommendations');
     expect(doc).not.toHaveProperty('narrationModel');

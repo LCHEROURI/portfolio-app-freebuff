@@ -186,7 +186,6 @@ describe('GET /api/cron/reports — daily top-three narration', () => {
     const json = (await res.json()) as {
       reports: Array<{
         body: string; kind: string; aiModel: string | null; narrationModel: string | null;
-        email: { sent: boolean; reason?: string };
       }>;
     };
     const body = json.reports[0].body;
@@ -205,8 +204,8 @@ describe('GET /api/cron/reports — daily top-three narration', () => {
     expect(json.reports[0].kind).toBe('daily');
     expect(json.reports[0].aiModel).toBe('deepseek/deepseek-chat');
     expect(json.reports[0].narrationModel).toBe('deepseek/deepseek-chat');
-    // Emailed reports are disabled — the email object always reports not-sent.
-    expect(json.reports[0].email).toEqual({ sent: false, reason: 'emailed reports disabled' });
+    // Emailed reports are disabled — no email envelope rides on the response.
+    expect(json.reports[0]).not.toHaveProperty('email');
   });
 
   it('skips the narration (keeps the report unchanged) when narrateTopThree returns null', async () => {
@@ -356,14 +355,15 @@ describe('GET /api/cron/reports — previewBody=1', () => {
   it('returns the composed weekly report body with the friendly heading and raw footer', async () => {
     const res = await GET(makePreviewReq('weekly'));
     expect(res.status).toBe(200);
-    const json = (await res.json()) as { reports: Array<{ body?: string; email: { sent: boolean } }> };
+    const json = (await res.json()) as { reports: Array<{ body?: string }> };
     const body = json.reports[0].body ?? '';
     // Friendly label in the heading (matches the in-app badges)…
     expect(body).toContain('## ✨ AI executive summary (DeepSeek Chat)');
     // …and the exact raw id in the footer line.
     expect(body).toContain('Model: `deepseek/deepseek-chat`');
     expect(body).toContain('# Weekly Command Center Report');
-    expect(json.reports[0].email.sent).toBe(false);
+    // No email envelope — nothing can ever send.
+    expect(json.reports[0]).not.toHaveProperty('email');
   });
 
   it('returns the composed daily report body including the narration heading and footer', async () => {
@@ -401,16 +401,14 @@ describe('GET /api/cron/reports — previewBody=1', () => {
   });
 });
 
-// ─── Emailed reports disabled ───────────────────────────────────────────────
+// ─── Emailed reports disabled (no envelope) ─────────────────────────────────
 
 describe('GET /api/cron/reports — emailed reports disabled', () => {
-  it('reports every email object as not-sent with the disabled reason', async () => {
+  it('carries no email envelope on any report', async () => {
     const res = await GET(makeReq('daily'));
     expect(res.status).toBe(200);
-    const json = (await res.json()) as {
-      reports: Array<{ email: { sent: boolean; reason?: string } }>;
-    };
-    expect(json.reports[0].email).toEqual({ sent: false, reason: 'emailed reports disabled' });
+    const json = (await res.json()) as { reports: Array<Record<string, unknown>> };
+    expect(json.reports[0]).not.toHaveProperty('email');
   });
 
   it('ignores the legacy ?sendTest=1 param (never sends)', async () => {
@@ -420,10 +418,8 @@ describe('GET /api/cron/reports — emailed reports disabled', () => {
       }),
     );
     expect(res.status).toBe(200);
-    const json = (await res.json()) as {
-      reports: Array<{ email: { sent: boolean; reason?: string } }>;
-    };
-    expect(json.reports[0].email).toEqual({ sent: false, reason: 'emailed reports disabled' });
+    const json = (await res.json()) as { reports: Array<Record<string, unknown>> };
+    expect(json.reports[0]).not.toHaveProperty('email');
   });
 });
 
@@ -439,10 +435,10 @@ describe('GET /api/cron/reports — activity logging', () => {
     expect(collection).toBe('activity');
     expect(row.kind).toBe('report_generated');
     expect(row.userId).toBe('demo-user');
-    // The disabled-email message carries no emailId and names the disabled state.
+    // The activity message is a plain generate notice — no email concept rides on it.
     expect(String(row.message)).toContain('daily report');
-    expect(String(row.message)).toContain('generated (emailing disabled)');
-    expect(String(row.message)).not.toContain('email-1');
+    expect(String(row.message)).toContain('generated');
+    expect(String(row.message)).not.toContain('email');
   });
 
   it('does not touch Firestore when the service account is unconfigured', async () => {

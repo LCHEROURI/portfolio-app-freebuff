@@ -88,7 +88,7 @@ describe('buildDailyReportBody — Local scan freshness section', () => {
 });
 
 describe('buildWeeklyReportBody — Local scan freshness section', () => {
-  it('carries the same newest/oldest/stale header as the daily email', () => {
+  it('carries the same newest/oldest/stale header as the daily report', () => {
     const { body } = buildWeeklyReportBody(stateWithRepos([
       repo({ id: 'r-old', repositoryName: 'old-repo', lastScannedAt: new Date(now - 5 * 86_400_000).toISOString() }),
       repo({ id: 'r-new', repositoryName: 'new-repo', lastScannedAt: new Date(now - 60 * 60_000).toISOString() }),
