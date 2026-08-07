@@ -200,6 +200,25 @@ visible right here in the repo:
 > commit the two PNGs with the edit. The pre-push hook's docs-render gate
 > (gate 0.6c) fails until the committed PNGs match the current docs.
 
+### Print-all review sheet
+
+The Model Comparison page prints every project's AI winner recommendation onto
+a single review sheet (`Print all recommendations`). The two captures below are
+tracked in the repo (not just the CI artifact) so the print-all contract is
+visible at a glance — the same pair `verify:review-sheet` asserts and the
+gallery workflow re-renders on every run:
+
+| Capture | Render |
+| :--- | :---: |
+| **Model Comparison panels** | ![Model Comparison review-sheet panels](screenshots/review-sheet-panels.png) |
+| **Print-all preview window** | ![Print-all review-sheet preview](screenshots/review-sheet-preview.png) |
+
+> Regenerate both whenever the Model Comparison page or the print-all builder
+> changes — `npm run capture:screenshots` (or the gallery workflow's
+> review-sheet step) re-captures them. There is no push-time byte guard on
+> this pair (gate 0.6c only byte-compares the two docs PNGs above), so commit
+> the re-captured PNGs with the edit that changes the page or builder.
+
 ## Screenshots
 
 The same screens in light and dark — the sidebar's connection-status widget
