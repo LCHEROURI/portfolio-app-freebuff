@@ -90,6 +90,20 @@ describe('crossCheckCiGates (live repo)', () => {
     expect(failures.join('\n')).toContain('VERCEL_TOKEN');
     expect(failures.join('\n')).toContain('token-health');
   });
+
+  it('catches a gate that declares a secret no ci.yml step gates on (reverse contract)', () => {
+    // Give cron-reports a SECOND declared secret (FAKE_SECRET) that no ci.yml
+    // step gates on. The forward contract passes (every gated secret is still
+    // declared); only the reverse contract can see the declared-but-ungated
+    // FAKE_SECRET.
+    const drifted = verifyAllSrc.replace(
+      "secrets: ['CRON_SECRET'], capture: true",
+      "secrets: ['CRON_SECRET', 'FAKE_SECRET'], capture: true",
+    );
+    const failures = crossCheckCiGates({ ciSrc, verifyAllSrc: drifted, npmScripts });
+    expect(failures.join('\n')).toContain('FAKE_SECRET');
+    expect(failures.join('\n')).toContain('cron-reports');
+  });
 });
 
 // ── crossCheckCiGates: synthetic fixture (deterministic) ────────────────────
@@ -154,6 +168,45 @@ jobs:
     expect(failures).toEqual([
       'verify-all.mjs has no GATES array — a rename or restructure broke the runner.',
     ]);
+  });
+
+  it('flags a gate declaring a secret its ci.yml step never gates on (reverse contract)', () => {
+    // alpha declares TWO secrets but its ci.yml step gates only A_SECRET.
+    // Forward is satisfied (gated ⊆ declared); the reverse contract catches
+    // the declared-but-ungated B_SECRET.
+    const src = FIXTURE_SRC.replace(
+      "{ name: 'alpha', label: 'Alpha', script: 'verify:alpha', secrets: ['A_SECRET'] }",
+      "{ name: 'alpha', label: 'Alpha', script: 'verify:alpha', secrets: ['A_SECRET', 'B_SECRET'] }",
+    );
+    const failures = crossCheckCiGates({ ciSrc: FIXTURE_CI, verifyAllSrc: src, npmScripts: SCRIPTS });
+    expect(failures.join('\n')).toContain('B_SECRET');
+    expect(failures.join('\n')).toContain('alpha');
+  });
+
+  it('exempts NEXT_PUBLIC_* build vars from the reverse contract (fixture)', () => {
+    // alpha declares NEXT_PUBLIC_APP_ID (a public build var) that no ci.yml
+    // step gates on — the reverse contract must skip it, so the fixture stays
+    // consistent.
+    const src = FIXTURE_SRC.replace(
+      "{ name: 'alpha', label: 'Alpha', script: 'verify:alpha', secrets: ['A_SECRET'] }",
+      "{ name: 'alpha', label: 'Alpha', script: 'verify:alpha', secrets: ['A_SECRET', 'NEXT_PUBLIC_APP_ID'] }",
+    );
+    const failures = crossCheckCiGates({ ciSrc: FIXTURE_CI, verifyAllSrc: src, npmScripts: SCRIPTS });
+    expect(failures).toEqual([]);
+  });
+
+  it('does not check gates ci.yml never exercises (no step for that gate)', () => {
+    // gamma declares G_SECRET but ci.yml has no verify-gamma step — the
+    // reverse contract only applies to gates ci.yml actually runs.
+    const src = FIXTURE_SRC.replace(
+      "const GATE_NAMES = ['alpha', 'beta'];",
+      "const GATE_NAMES = ['alpha', 'beta', 'gamma'];",
+    ).replace(
+      "  { name: 'beta', label: 'Beta', script: 'verify:beta', secrets: [] },",
+      "  { name: 'beta', label: 'Beta', script: 'verify:beta', secrets: [] },\n  { name: 'gamma', label: 'Gamma', script: 'verify:gamma', secrets: ['G_SECRET'] },",
+    );
+    const failures = crossCheckCiGates({ ciSrc: FIXTURE_CI, verifyAllSrc: src, npmScripts: SCRIPTS });
+    expect(failures).toEqual([]);
   });
 });
 

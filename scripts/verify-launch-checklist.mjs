@@ -222,7 +222,7 @@ const ciSrc = read(CI);
 const ciFailures = crossCheckCiGates({ ciSrc, verifyAllSrc, npmScripts });
 for (const msg of ciFailures) fail(msg);
 if (ciFailures.length === 0) {
-  ok('every ci.yml verify step is gated on secrets verify-all.mjs declares for its gate');
+  ok('every ci.yml verify step is gated on secrets verify-all.mjs declares for its gate (both directions)');
 }
 
 // The deployment_status workflows (gallery / preview-gate / deployed-hash)

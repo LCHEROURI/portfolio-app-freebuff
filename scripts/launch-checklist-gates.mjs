@@ -26,9 +26,11 @@
 //   crossCheckCiGates            — asserts the CI side (ci.yml's
 //     verify-deployed / verify-auth-domains / verify-prod-signin jobs) gates
 //     each verify step on secrets the runner actually declares for that gate:
-//     a step gated on a secret the runner never declared fails, and a step
-//     that runs UNGATED while its gate declares secrets fails too — so the
-//     doc, the runner, and CI can never disagree about what a gate needs.
+//     a step gated on a secret the runner never declared fails, a step that
+//     runs UNGATED while its gate declares secrets fails, and (the reverse
+//     contract, mirroring the deployment-status workflows) a gate that
+//     declares a secret no ci.yml step of that gate gates on fails too — so
+//     the doc, the runner, and CI can never disagree about what a gate needs.
 //   crossCheckDeploymentStatusGates — the same credential contract for the
 //     deployment_status workflows (gallery / preview-gate / deployed-hash):
 //     each workflow is mapped to the gate whose credentials it consumes, and
@@ -497,8 +499,9 @@ export function crossCheckDeploymentStatusGates({ workflows, verifyAllSrc, npmSc
  * workflows against verify-all.mjs's `secrets` arrays. Returns an array of
  * failure strings — empty means every CI verify step is gated on secrets the
  * runner declares for its gate (no gate with declared secrets runs ungated),
- * and every deployment_status workflow gates on the secrets its mapped gate
- * declares.
+ * every secret a gate ci.yml exercises declares is gated by at least one
+ * step of that gate (the reverse contract), and every deployment_status
+ * workflow gates on the secrets its mapped gate declares.
  *
  * @param {{ ciSrc: string, verifyAllSrc: string, npmScripts: Record<string, string>, deploymentStatusWorkflows?: Array<{ name: string, gate: string, src: string }> }} args
  */
@@ -539,6 +542,40 @@ export function crossCheckCiGates({ ciSrc, verifyAllSrc, npmScripts, deploymentS
         failures.push(
           `CI step "${step.name}" (${step.job}) gates on ${s}, `
           + `but verify-all.mjs declares secrets [${runnerSecrets.join(', ')}] for gate ${gate}.`,
+        );
+      }
+    }
+  }
+
+  // Reverse contract (ci.yml): every secret a gate ci.yml EXERCISES declares
+  // must actually be gated in at least one ci.yml step that resolves to that
+  // gate. The forward loop above proves each step's gating is declared by its
+  // own gate; this proves the other direction — a gate that declares secrets
+  // must not run them ungated in CI, and a secret gated only by a DIFFERENT
+  // gate's step counts as ungated for its own gate (mirroring
+  // crossCheckDeploymentStatusGates's reverse contract). Public NEXT_PUBLIC_*
+  // build vars are exempt: they are public constants set as literals in step
+  // env (never GitHub secrets), so gating on them is meaningless. Note the
+  // exemption asymmetry by design: ci.yml's reverse exempts NEXT_PUBLIC_*
+  // (public build vars), while the deployment-status forward exempts
+  // INFRA_SECRETS (workflow plumbing) — no gate declares an INFRA secret
+  // today, so the two exemption sets never overlap. Gates ci.yml never
+  // exercises (e.g. deployed-hash, which fires on deployment_status, or
+  // local-only gates) are not checked — ci.yml has no step for them to gate.
+  const gatedByGate = new Map();
+  for (let i = 0; i < steps.length; i += 1) {
+    const gate = results[i]?.gate;
+    if (!gate) continue; // resolution already reported above
+    const set = gatedByGate.get(gate) ?? new Set();
+    for (const g of steps[i].gatingSecrets) set.add(g);
+    gatedByGate.set(gate, set);
+  }
+  for (const [gate, gated] of gatedByGate) {
+    for (const s of secretsByGate.get(gate) ?? []) {
+      if (s.startsWith('NEXT_PUBLIC_')) continue; // public build var, not a secret
+      if (!gated.has(s)) {
+        failures.push(
+          `gate ${gate} declares ${s} but NO ci.yml step of that gate gates on it — add it to a step's if-condition.`,
         );
       }
     }
