@@ -136,7 +136,7 @@ class FirestoreService implements DataService {
   private defaultProfile(userId: string): UserProfile {
     const now = new Date().toISOString();
     return {
-      id: userId, name: 'Command Center User', email: '', timezone: 'America/Los_Angeles',
+      id: userId, name: 'Command Center User', timezone: 'America/Los_Angeles',
       dailyReportEnabled: true, dailyReportTime: '08:00',
       weeklyReportEnabled: true, weeklyReportDay: 1, weeklyReportTime: '09:00',
       defaultStaleDays: 7, createdAt: now, updatedAt: now,

@@ -17,7 +17,7 @@ vi.mock('@/lib/store', () => ({
     mode: 'demo',
     userId: 'e2e-user',
     profile: {
-      id: 'e2e-user', name: 'E2E', email: 'e2e@local', timezone: 'UTC',
+      id: 'e2e-user', name: 'E2E', timezone: 'UTC',
       dailyReportEnabled: true, dailyReportTime: '07:00',
       weeklyReportEnabled: true, weeklyReportDay: 1, weeklyReportTime: '07:00',
       defaultStaleDays: 7, ...profileSeed,

@@ -18,7 +18,6 @@ const hoursAgo = (h: number) => iso(now - h * 3_600_000);
 const minutesAgo = (m: number) => iso(now - m * 60_000);
 
 export const DEMO_USER_ID = 'demo-user';
-export const DEMO_USER_EMAIL = 'demo@command-center.local';
 
 const uid = DEMO_USER_ID;
 
@@ -505,7 +504,6 @@ export const buildSeed = (): SeedBundle => ({
   profile: {
     id: uid,
     name: 'Demo Cook',
-    email: DEMO_USER_EMAIL,
     timezone: 'America/Los_Angeles',
     dailyReportEnabled: true,
     dailyReportTime: '08:00',

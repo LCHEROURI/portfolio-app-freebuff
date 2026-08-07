@@ -17,7 +17,7 @@ const baseRepo = (overrides: Record<string, unknown> = {}) => ({
 
 const state = (repo: ReturnType<typeof baseRepo>): AppState => ({
   profile: {
-    id: 'demo-user', name: 'Command Center', email: 'owner@local', timezone: 'UTC',
+    id: 'demo-user', name: 'Command Center', timezone: 'UTC',
     dailyReportEnabled: true, dailyReportTime: '07:00',
     weeklyReportEnabled: true, weeklyReportDay: 1, weeklyReportTime: '07:00',
     defaultStaleDays: 7, createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(),

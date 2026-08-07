@@ -39,7 +39,6 @@ const safe = async <T>(fn: () => Promise<T>): Promise<T | null> => {
 export const serverProfile = (ownerId: string): UserProfile => ({
   id: ownerId,
   name: process.env.REPORT_NAME ?? 'Command Center',
-  email: process.env.REPORT_EMAIL ?? 'owner@local',
   timezone: process.env.REPORT_TIMEZONE ?? 'UTC',
   dailyReportEnabled: true,
   dailyReportTime: process.env.REPORT_TIME ?? '07:00',

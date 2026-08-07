@@ -27,7 +27,7 @@ const repo = (overrides: Partial<Repository> & { id: string; repositoryName: str
 
 const stateWithRepos = (repositories: Repository[]): AppState => ({
   profile: {
-    id: 'demo-user', name: 'Demo', email: 'demo@local', timezone: 'UTC',
+    id: 'demo-user', name: 'Demo', timezone: 'UTC',
     dailyReportEnabled: true, dailyReportTime: '07:00',
     weeklyReportEnabled: true, weeklyReportDay: 1, weeklyReportTime: '07:00',
     defaultStaleDays: 7,

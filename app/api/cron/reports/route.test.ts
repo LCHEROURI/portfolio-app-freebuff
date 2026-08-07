@@ -10,7 +10,6 @@ vi.mock('@/lib/server/reporting/data', () => ({
   serverProfile: vi.fn(() => ({
     id: 'demo-user',
     name: 'Command Center',
-    email: 'owner@local',
     timezone: 'UTC',
     dailyReportEnabled: true,
     dailyReportTime: '07:00',

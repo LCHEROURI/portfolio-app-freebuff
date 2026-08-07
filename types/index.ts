@@ -60,7 +60,6 @@ export const DEPLOYMENT_PROVIDERS: DeploymentProvider[] = [
 export interface UserProfile {
   id: string;
   name: string;
-  email: string;
   timezone: string;
   dailyReportEnabled: boolean;
   dailyReportTime: string; // HH:mm
@@ -308,7 +307,6 @@ const timestamp = z.string().datetime({ offset: true }).or(z.string().min(10));
 export const UserProfileSchema = z.object({
   id: idString,
   name: z.string().min(1),
-  email: z.string().email(),
   timezone: z.string().default('America/Los_Angeles'),
   dailyReportEnabled: z.boolean(),
   dailyReportTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),

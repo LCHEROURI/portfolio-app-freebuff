@@ -26,7 +26,6 @@ export default function SettingsPage() {
   }, []);
   const [form, setForm] = useState(() => ({
     name: store.profile.name,
-    email: store.profile.email,
     timezone: store.profile.timezone,
     dailyReportEnabled: store.profile.dailyReportEnabled,
     dailyReportTime: store.profile.dailyReportTime,
@@ -99,9 +98,6 @@ export default function SettingsPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Name">
               <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-            </Field>
-            <Field label="Email">
-              <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
             </Field>
             <Field label="Timezone">
               <Input value={form.timezone} onChange={(e) => setForm({ ...form, timezone: e.target.value })} placeholder="America/Los_Angeles" />

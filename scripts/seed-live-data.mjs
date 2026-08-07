@@ -55,7 +55,7 @@ export const readEnv = (name) => {
 // Shapes mirror lib/seed.ts exactly: a signed-in account with a couple of
 // parallel-build projects, tracked repos, a failed prod deploy, overdue + due
 // soon tasks, evaluations, a rule-10 winner candidate, and recent activity.
-export const buildLiveFixture = (owner, { profileEmail = '' } = {}) => {
+export const buildLiveFixture = (owner) => {
   const now = Date.now();
   const hoursAgo = (h) => new Date(now - h * 3_600_000).toISOString();
   const daysAgo = (d, h = 0) => new Date(now - d * 86_400_000 - h * 3_600_000).toISOString();
@@ -233,7 +233,7 @@ export const buildLiveFixture = (owner, { profileEmail = '' } = {}) => {
 
     // ── Profile ──
     { collection: 'profiles', id: owner, doc: {
-      userId: owner, name: 'Command Center User', email: profileEmail,
+      userId: owner, name: 'Command Center User',
       timezone: 'America/Los_Angeles', dailyReportEnabled: true, dailyReportTime: '08:00',
       weeklyReportEnabled: true, weeklyReportDay: 1, weeklyReportTime: '09:00',
       defaultStaleDays: 7, createdAt: daysAgo(60), updatedAt: hoursAgo(1),
@@ -389,7 +389,7 @@ if (isMain) {
   bearer = bearerToken;
 
   BASE = `https://firestore.googleapis.com/v1/projects/${PROJECT}/databases/(default)/documents`;
-  const FIXTURE = buildLiveFixture(OWNER, { profileEmail: readEnv('REPORT_EMAIL') ?? '' });
+  const FIXTURE = buildLiveFixture(OWNER);
 
   // --list mode: read-only per-collection counts for the owner.
   if (LIST) {
