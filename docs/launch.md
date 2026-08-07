@@ -87,6 +87,14 @@ auth-domains rows (they share one script), and prints a summary table,
 exiting nonzero on any failure. `--only a,b` / `--skip a,b` narrow a run;
 `--expect <sha>` forwards a deployed-hash assertion into the runner.
 
+**One-command go-live answer:** `npm run ship:ready` answers "are we ready to
+ship?" in a single command — it asserts the working tree is clean (nothing
+staged, unstaged, or untracked), runs the full `verify:all` suite above
+against production, and prints a single `SHIP READY` / `SHIP BLOCKED`
+verdict with a nonzero exit when blocked. It is deliberately NOT a §4 gate
+row (the drift guard requires §4 to match verify-all's gate list exactly); it
+is the wrapper that runs them all.
+
 **Sub-rows in the summary table:** capture gates emit
 `VERIFY-SUBRESULT|<name>|<PASS|FAIL>` markers that `verify:all` renders as
 indented rows directly under the parent gate. A sub-row is **visibility only**
