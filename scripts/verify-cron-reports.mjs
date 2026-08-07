@@ -212,6 +212,11 @@ for (const [label, resp] of [['weekly', weekly.json], ['daily', daily.json]]) {
   }
 }
 if (envelopeHits === 0) ok('no report in the weekly or daily response carries an email envelope');
+// Machine-readable marker for verify:all: the envelope sweep result becomes
+// its own row in the runner's summary table, so the no-email contract is
+// visible at a glance without reading the full stdout. verify-all.mjs scans
+// for `VERIFY-SUBRESULT|<name>|<PASS|FAIL>` on its piped stdout.
+console.log(`VERIFY-SUBRESULT|email-envelope-sweep|${envelopeHits === 0 ? 'PASS' : 'FAIL'}`);
 
 console.error(`\nRESULT: ${failures === 0 ? 'PASS' : `FAIL (${failures})`}`);
 process.exit(failures === 0 ? 0 : 1);

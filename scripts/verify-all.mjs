@@ -101,7 +101,12 @@ const GATES = [
   // first. Requires the Vercel CLI (falls back to npx) + gh for the GitHub
   // classification (which degrades to skip-not-fail when gh is absent).
   { name: 'vercel-env', label: 'Vercel prod env matches .env.local', script: 'verify:vercel-env', secrets: ['VERCEL_TOKEN'], note: 'vercel CLI' },
-  { name: 'cron-reports', label: 'Cron report bodies', script: 'verify:cron-reports', baseFlag: '--base', secrets: ['CRON_SECRET'] },
+  // capture: the gate emits VERIFY-SUBRESULT markers (e.g. the email-envelope
+  // sweep inside verify-cron-reports.mjs); the runner parses them off the
+  // piped stdout and renders each as its own indented row in the summary
+  // table, so a sub-contract like the no-email envelope sweep is visible at a
+  // glance instead of being buried in the gate's full output.
+  { name: 'cron-reports', label: 'Cron report bodies', script: 'verify:cron-reports', baseFlag: '--base', secrets: ['CRON_SECRET'], capture: true },
   { name: 'firestore-rules', label: 'Firestore rules isolation', script: 'verify:firestore-rules', secrets: ['NEXT_PUBLIC_FIREBASE_PROJECT_ID', 'FIREBASE_WEB_API_KEY'] },
   { name: 'auth-domains', label: 'Authorized domains', script: 'verify:auth-domains', appFlag: '--app', secrets: ['FIREBASE_WEB_API_KEY'] },
   { name: 'prod-signin', label: 'Production sign-in + Firestore sync', script: 'verify:prod-signin', appFlag: '--app', secrets: ['FIREBASE_WEB_API_KEY', 'NEXT_PUBLIC_FIREBASE_PROJECT_ID'], note: 'Chrome' },
@@ -121,6 +126,12 @@ const GATES = [
   // lint step.
   { name: 'email-words', label: 'Dead-feature lint (report-email + removed integrations)', script: 'verify:email-words' },
 ];
+
+// Sub-result labels: the marker name a gate emits → the friendly row label
+// shown in the summary table. Unknown names fall back to the raw marker name.
+const SUBRESULT_LABELS = {
+  'email-envelope-sweep': 'Email-envelope sweep',
+};
 
 const failures = [];
 const results = [];
@@ -159,7 +170,18 @@ const runOne = async (gate) => {
   }
 
   console.log(`\n── ▶ ${gate.label} (${cmd} ${cmdArgs.join(' ')})`);
-  const child = spawn(cmd, cmdArgs, { stdio: 'inherit', env: process.env });
+  // capture gates pipe stdout so the runner can scan for VERIFY-SUBRESULT
+  // markers while still forwarding it live; everything else inherits stdio.
+  const capture = Boolean(gate.capture);
+  const child = spawn(cmd, cmdArgs, {
+    stdio: capture ? ['ignore', 'pipe', 'pipe'] : 'inherit',
+    env: process.env,
+  });
+  let captured = '';
+  if (capture) {
+    child.stdout.on('data', (d) => { process.stdout.write(d); captured += d; });
+    child.stderr.on('data', (d) => process.stderr.write(d));
+  }
   let timedOut = false;
   let settled = false;
   let timer;
@@ -205,11 +227,31 @@ const runOne = async (gate) => {
       : `    ✗ exited with code ${code}`);
   }
   results.push({ gate, pass, timedOut, ms });
+
+  // Sub-result rows: parse any VERIFY-SUBRESULT|<name>|<PASS|FAIL> markers
+  // the gate emitted and surface each as its own row directly under the
+  // parent gate's row. Only rows with a real marker are added — a gate that
+  // fails before reaching the sweep contributes nothing extra (its own FAIL
+  // row already tells the story). The parent gate's exit code still governs
+  // pass/fail for the whole run; the sub-row is visibility, not a second gate.
+  if (capture) {
+    for (const line of captured.split('\n')) {
+      const m = line.match(/^VERIFY-SUBRESULT\|([^|]+)\|(PASS|FAIL)\s*$/);
+      if (!m) continue;
+      const subGate = {
+        name: `${gate.name}/${m[1]}`,
+        label: `  ↳ ${SUBRESULT_LABELS[m[1]] ?? m[1]} (deployed)`,
+        secrets: [],
+        sub: true,
+      };
+      results.push({ gate: subGate, pass: m[2] === 'PASS', timedOut: false, ms: 0, sub: true });
+    }
+  }
 };
 
 // ── Preflight: the doc's gates must be runnable before we run any ───────────
 console.log(`\nLaunch checklist runner — ${APP || 'production URL (default)'}\n`);
-console.log('[0/10] Preflight: launch-checklist drift guard');
+console.log('[0/11] Preflight: launch-checklist drift guard');
 const preflight = spawn('node', ['scripts/verify-launch-checklist.mjs'], { stdio: 'inherit', env: process.env });
 const preflightCode = await new Promise((resolvePromise) => {
   preflight.on('exit', (c) => resolvePromise(c ?? 1));
@@ -263,7 +305,7 @@ const rw = Math.max(...results.map((r) => requiresOf(r.gate).length), 'REQUIRES'
 console.log(`  ${pad('GATE', w)}  ${pad('STATUS', 7)}  ${pad('REQUIRES', rw)}  TIME`);
 console.log(`  ${'-'.repeat(w)}  -------  ${'-'.repeat(rw)}  -----`);
 for (const r of results) {
-  const time = r.pass === null || r.pass === 'covered' ? '—' : `${(r.ms / 1000).toFixed(1)}s`;
+  const time = r.pass === null || r.pass === 'covered' || r.sub ? '—' : `${(r.ms / 1000).toFixed(1)}s`;
   console.log(`  ${pad(r.gate.label, w)}  ${pad(statusOf(r), 7)}  ${pad(requiresOf(r.gate), rw)}  ${time}`);
 }
 console.log('══════════════════════════════════════════════════════════');  console.log('  ✓ = secret present (env or .env.local) · ✗ = missing — most gates');
