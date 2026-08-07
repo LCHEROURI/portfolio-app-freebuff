@@ -119,7 +119,7 @@ jobs:
   # for adjacent commits that is identical; re-verifying an old commit after
   # script drift tests the live app with that commit's assertions.
   verify-deployed:
-    name: Verify deployed email + rules
+    name: Verify deployed cron reports + rules
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: validate
@@ -145,6 +145,25 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      # Loud guard: on a main push to the canonical repo, a missing secret
+      # fails the run instead of silently skipping the gated steps below — a
+      # skipped gate would masquerade as a green run. Forks and manual
+      # re-verifies stay exempt: forks never carry these secrets, and a
+      # workflow_dispatch re-verify shows its skipped steps to the operator.
+      - name: Fail loudly if a verify secret is missing (main push)
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'LCHEROURI/portfolio-app-freebuff' && (env.CRON_SECRET == '' || env.FIREBASE_WEB_API_KEY == '' || env.VERCEL_TOKEN == '') }}
+        run: |
+          echo "::error::Required GitHub Actions secret(s) missing on main push:"
+          [ -z "$CRON_SECRET" ] && echo "  - CRON_SECRET (gates 'Verify deployed cron report bodies')"
+          [ -z "$FIREBASE_WEB_API_KEY" ] && echo "  - FIREBASE_WEB_API_KEY (gates 'Verify deployed Firestore rules' and 'Verify Google sign-in IdP config')"
+          [ -z "$VERCEL_TOKEN" ] && echo "  - VERCEL_TOKEN (gates 'Verify Vercel token health')"
+          echo "Add them under GitHub -> Settings -> Secrets and variables -> Actions, then re-run this job."
+          exit 1
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
       # Vercel token health: proves the CI VERCEL_TOKEN (the same secret the
       # deployed-hash + gallery workflows consume) is still alive, reporting
@@ -223,6 +242,21 @@ jobs:
         with:
           node-version: 22
 
+      # Loud guard: same rule as verify-deployed — on a main push to the
+      # canonical repo, a missing secret fails instead of silently skipping
+      # the authorized-domains + service-account steps below.
+      - name: Fail loudly if a verify secret is missing (main push)
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'LCHEROURI/portfolio-app-freebuff' && (env.FIREBASE_WEB_API_KEY == '' || env.FIREBASE_SERVICE_ACCOUNT == '') }}
+        run: |
+          echo "::error::Required GitHub Actions secret(s) missing on main push:"
+          [ -z "$FIREBASE_WEB_API_KEY" ] && echo "  - FIREBASE_WEB_API_KEY (gates 'Verify deployed authorized domains')"
+          [ -z "$FIREBASE_SERVICE_ACCOUNT" ] && echo "  - FIREBASE_SERVICE_ACCOUNT (gates 'Verify auto-authorize service account key')"
+          echo "Add them under GitHub -> Settings -> Secrets and variables -> Actions, then re-run this job."
+          exit 1
+        env:
+          FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
       - name: Verify deployed authorized domains
         if: ${{ env.FIREBASE_WEB_API_KEY != '' }}
         run: node scripts/verify-auth-domains.mjs
@@ -275,6 +309,21 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      # Loud guard: same rule as verify-deployed — on a main push to the
+      # canonical repo, a missing secret fails instead of silently skipping
+      # the sign-in + Firestore sync probe below.
+      - name: Fail loudly if a verify secret is missing (main push)
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'LCHEROURI/portfolio-app-freebuff' && (env.FIREBASE_WEB_API_KEY == '' || env.FIREBASE_SERVICE_ACCOUNT == '') }}
+        run: |
+          echo "::error::Required GitHub Actions secret(s) missing on main push:"
+          [ -z "$FIREBASE_WEB_API_KEY" ] && echo "  - FIREBASE_WEB_API_KEY (gates 'Verify production sign-in and Firestore sync')"
+          [ -z "$FIREBASE_SERVICE_ACCOUNT" ] && echo "  - FIREBASE_SERVICE_ACCOUNT (gates the Google IdP admin check inside the sign-in probe)"
+          echo "Add them under GitHub -> Settings -> Secrets and variables -> Actions, then re-run this job."
+          exit 1
+        env:
+          FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
 
       - name: Install Chrome for headless CDP
         id: chrome
