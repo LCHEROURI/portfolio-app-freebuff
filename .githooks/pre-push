@@ -20,6 +20,7 @@
 #   1. scripts/verify-auth-domains.mjs   (needs FIREBASE_WEB_API_KEY)
 #   2. scripts/verify-cron-reports.mjs  (needs CRON_SECRET)
 #   3. scripts/verify-prod-signin.mjs    (needs FIREBASE_WEB_API_KEY + Chrome)
+#   3b. scripts/verify-profile-no-email.mjs (needs FIREBASE_WEB_API_KEY + Chrome)
 # A check that cannot run (missing key / secret / Chrome / script file) is
 # skipped with a notice, not a failure — so machines without the deployment
 # secrets, and repos without the verify suite, are never blocked. Any check
@@ -273,6 +274,24 @@ if [ -n "$KEY" ] && [ -f scripts/verify-prod-signin.mjs ]; then
 else
   [ -f scripts/verify-prod-signin.mjs ] || echo "pre-push: verify suite not present — skipping sign-in proof"
   [ -n "$KEY" ] || echo "pre-push: FIREBASE_WEB_API_KEY not set — skipping sign-in proof"
+fi
+
+# ── 3b. Profile no-email gate (needs Chrome) ───────────────────────────────
+# Walks the deployed /reports + /settings pages as a signed-in throwaway user
+# and asserts the removed UserProfile.email field never renders: no Email
+# input/label in the Settings profile form, no stray Email label on /reports,
+# no email-related console errors. Same Chrome + key requirements as gate 3;
+# skips with a notice when either is missing.
+if [ -n "$KEY" ] && [ -f scripts/verify-profile-no-email.mjs ]; then
+  CHROME="${CHROME_PATH:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
+  if [ -x "$CHROME" ]; then
+    run_verify "profile no-email walkthrough" scripts/verify-profile-no-email.mjs
+  else
+    echo "pre-push: Chrome not found — skipping profile no-email proof"
+  fi
+else
+  [ -f scripts/verify-profile-no-email.mjs ] || echo "pre-push: verify suite not present — skipping profile no-email proof"
+  [ -n "$KEY" ] || echo "pre-push: FIREBASE_WEB_API_KEY not set — skipping profile no-email proof"
 fi
 
 echo "pre-push: all applicable checks passed ✓"

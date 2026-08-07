@@ -20,6 +20,7 @@
     "verify:firestore-rules": "node scripts/verify-firestore-rules.mjs",
     "verify:auth-domains": "node scripts/verify-auth-domains.mjs",
     "verify:prod-signin": "node scripts/verify-prod-signin.mjs",
+    "verify:profile-no-email": "node scripts/verify-profile-no-email.mjs",
     "verify:google-idp": "node scripts/verify-google-idp.mjs",
     "verify:token-health": "node scripts/verify-token-health.mjs",
     "verify:vercel-env": "node scripts/verify-vercel-env.mjs",
