@@ -6,7 +6,7 @@
 // against production (or an --app override), so the go-live checklist is
 // executable in a single command:
 //
-//   npm run verify:all                       # all ten gates, production URL
+//   npm run verify:all                       # all eleven gates, production URL
 //   node scripts/verify-all.mjs --app http://localhost:3000
 //   node scripts/verify-all.mjs --only prod-signin,google-idp
 //   node scripts/verify-all.mjs --skip prod-signin --timeout 900
@@ -50,7 +50,7 @@ const PRODUCTION_URL = 'https://portfolio-app-freebuff.vercel.app';
 const ONLY = onlyArg ? onlyArg.split(',').map((s) => s.trim()).filter(Boolean) : [];
 const SKIP = skipArg ? skipArg.split(',').map((s) => s.trim()).filter(Boolean) : [];
 
-const GATE_NAMES = ['token-health', 'vercel-env', 'cron-reports', 'firestore-rules', 'auth-domains', 'prod-signin', 'google-idp', 'auth-domains-direct', 'deployed-hash', 'import-surface'];
+const GATE_NAMES = ['token-health', 'vercel-env', 'cron-reports', 'firestore-rules', 'auth-domains', 'prod-signin', 'google-idp', 'auth-domains-direct', 'deployed-hash', 'import-surface', 'email-words'];
 const unknownOnly = ONLY.filter((n) => !GATE_NAMES.includes(n));
 const unknownSkip = SKIP.filter((n) => !GATE_NAMES.includes(n));
 if (unknownOnly.length > 0 || unknownSkip.length > 0) {
@@ -113,6 +113,12 @@ const GATES = [
   // runs (the REQUIRES column shows —). Also wired into the pre-push hook
   // (gate 0.6), npm run lint, and CI's lint step.
   { name: 'import-surface', label: 'Import-surface lint (scripts + lib + app)', script: 'verify:import-surface' },
+  // Static guard that the removed report-email phrasing stays gone: any
+  // source file, doc, or config comment that reintroduces the old wording
+  // fails the run (the exact banned phrases live in the linter). No secrets,
+  // no network — always runs. Wired into the pre-push hook (gate 0.6b), npm
+  // run lint, and CI's lint step.
+  { name: 'email-words', label: 'Email-word lint (no report-email phrasing)', script: 'verify:email-words' },
 ];
 
 const failures = [];

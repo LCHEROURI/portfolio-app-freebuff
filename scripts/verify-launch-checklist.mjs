@@ -28,7 +28,7 @@ const read = (path) => readFileSync(resolve(ROOT, path), 'utf8');
 
 const DOC = 'docs/launch.md';
 const GATE_SECTION_HEADING = /^## \d+\. The verification gates/;
-const EXPECTED_GATE_COUNT = 10;
+const EXPECTED_GATE_COUNT = 11;
 // The exact canonical commands §4 must document. Hardcoding the set (not just
 // the count) closes the silent-drift hole: deleting a real gate while adding
 // a different row would keep the count at 8 but fail here. The deployed-hash
@@ -45,6 +45,7 @@ const EXPECTED_GATES = [
   'node scripts/verify-auth-domains.mjs',
   'npm run verify:deployed-hash -- --expect <sha>',
   'npm run verify:import-surface',
+  'npm run verify:email-words',
   // NOTE: the deployed-hash row above keeps the literal "<sha>" placeholder
   // ON PURPOSE — the exact-set check matches this string verbatim against the
   // doc row, so the doc must stay in this documented form (a real sha or

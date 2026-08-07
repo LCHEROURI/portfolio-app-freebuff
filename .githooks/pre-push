@@ -14,6 +14,7 @@
 #      serves the last PUSHED commit; a bare fallback needs no team scope)
 #   0.5 scripts/verify-token-health.mjs  (needs VERCEL_TOKEN — cheap, no Chrome)
 #   0.6 scripts/lint-import-surface.mjs  (no secrets, pure static, near-instant)
+#   0.6b scripts/lint-email-words.mjs     (no secrets, pure static, near-instant)
 #   0.7 scripts/verify-vercel-env.mjs    (needs VERCEL_TOKEN + vercel CLI — pulls prod
 #                                          env and asserts it matches .env.local)
 #   1. scripts/verify-auth-domains.mjs   (needs FIREBASE_WEB_API_KEY)
@@ -211,6 +212,18 @@ if [ -f scripts/lint-import-surface.mjs ]; then
   run_verify "import-surface lint" scripts/lint-import-surface.mjs
 else
   echo "pre-push: lint-import-surface.mjs not present — skipping import-surface lint"
+fi
+
+# ── 0.6b Email-word lint gate (no secrets, pure static, near-instant) ────────
+# Fails the push if any source file, doc, or config comment reintroduces the
+# report-email phrasing the emailed-report removal swept away (cron-email,
+# emailed reports, email body, email preview, emails you/daily/weekly). The
+# composed reports feed the in-app Reports page; nothing is emailed. Same
+# always-run contract as the import-surface gate.
+if [ -f scripts/lint-email-words.mjs ]; then
+  run_verify "email-word lint" scripts/lint-email-words.mjs
+else
+  echo "pre-push: lint-email-words.mjs not present — skipping email-word lint"
 fi
 
 # ── 0.7 Vercel-env drift gate (needs VERCEL_TOKEN + vercel CLI) ───────────

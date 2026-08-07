@@ -14,7 +14,7 @@ describe('varSourceUrl', () => {
 
   it('maps removed vars (Supabase + Resend email) to null and Firebase client vars to the console', () => {
     // SUPABASE vars were removed with the Supabase migration, and Resend vars
-    // were removed when emailed report delivery was cut — none of them may
+    // were removed when report delivery was cut — none of them may
     // resolve to a source page anymore.
     expect(varSourceUrl('SUPABASE_URL')).toBeNull();
     expect(varSourceUrl('SUPABASE_SERVICE_ROLE_KEY')).toBeNull();
