@@ -109,3 +109,36 @@ describe('.githooks/pre-push · ship:ready capstone gate (gate 4)', () => {
     expect(success).toBeGreaterThan(gate4);
   });
 });
+
+describe('.githooks/pre-push · onboarding-docs render diff gate (gate 0.6c)', () => {
+  it('lists the docs-render gate in the header gate inventory', () => {
+    expect(hook).toContain('0.6c scripts/capture-docs.mjs --check');
+    expect(hook).toContain('committed onboarding PNGs would change');
+  });
+
+  it('defines the gate block that runs capture-docs.mjs --check through run_verify', () => {
+    expect(hook).toContain('# ── 0.6c Onboarding-docs render diff gate');
+    expect(hook).toContain('run_verify "onboarding-docs render diff" scripts/capture-docs.mjs --check');
+  });
+
+  it('forwards extra args through run_verify so --check reaches the script', () => {
+    // Line-anchored on purpose: the forward must be the real exec line, not a
+    // comment mention. Without it, the gate would run capture-docs.mjs in
+    // WRITE mode and rewrite the committed PNGs on every push instead of
+    // comparing them.
+    expect(hook).toMatch(/^\s*if perl -e 'alarm shift; exec @ARGV' 90 node "\$script" "\$@"; then$/m);
+  });
+
+  it('skips with a notice when Chrome is missing, matching gates 3/3b', () => {
+    expect(hook).toContain('Chrome not found — skipping onboarding-docs render diff');
+  });
+
+  it('sits after the dead-word lint gate (0.6b) and before the vercel-env gate (0.7)', () => {
+    const gate06c = hook.indexOf('# ── 0.6c Onboarding-docs render diff gate');
+    const gate06b = hook.indexOf('# ── 0.6b Dead-feature lint gate');
+    const gate07 = hook.indexOf('# ── 0.7 Vercel-env drift gate');
+    expect(gate06c).toBeGreaterThan(gate06b);
+    expect(gate06c).toBeGreaterThan(-1);
+    expect(gate07).toBeGreaterThan(gate06c);
+  });
+});

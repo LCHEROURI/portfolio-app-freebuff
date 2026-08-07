@@ -39,7 +39,8 @@
     "hooks:install": "git config core.hooksPath .githooks && echo \"pre-push hook installed (git config core.hooksPath .githooks)\"",
     "hooks:install:all": "node scripts/install-push-hook.mjs --all",
     "capture:screenshots": "bash scripts/capture-screenshots.sh",
-    "capture:docs": "node scripts/capture-docs.mjs"
+    "capture:docs": "node scripts/capture-docs.mjs",
+    "verify:docs-render": "node scripts/capture-docs.mjs --check"
   },
   "dependencies": {
     "firebase": "^11.1.0",

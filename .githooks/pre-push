@@ -15,6 +15,8 @@
 #   0.5 scripts/verify-token-health.mjs  (needs VERCEL_TOKEN — cheap, no Chrome)
 #   0.6 scripts/lint-import-surface.mjs  (no secrets, pure static, near-instant)
 #   0.6b scripts/lint-dead-words.mjs      (dead-feature phrasing — no secrets, pure static)
+#   0.6c scripts/capture-docs.mjs --check (needs Chrome — renders README Handoff +
+#      launch.md §4 and FAILS if the committed onboarding PNGs would change)
 #   0.7 scripts/verify-vercel-env.mjs    (needs VERCEL_TOKEN + vercel CLI — pulls prod
 #                                          env and asserts it matches .env.local)
 #   1. scripts/verify-auth-domains.mjs   (needs FIREBASE_WEB_API_KEY)
@@ -95,8 +97,9 @@ read_env() { # $1=var name -> echoes value or empty
 # push on failure OR on timeout (perl alarm delivers SIGALRM -> exit 142).
 run_verify() {
   local label="$1" script="$2"
+  shift 2  # remaining args (if any) are forwarded to the script
   echo "pre-push: verifying $label…"
-  if perl -e 'alarm shift; exec @ARGV' 90 node "$script"; then
+  if perl -e 'alarm shift; exec @ARGV' 90 node "$script" "$@"; then
     echo "pre-push: $label passed ✓"
   else
     local rc=$?
@@ -229,6 +232,25 @@ if [ -f scripts/lint-dead-words.mjs ]; then
   run_verify "dead-word lint" scripts/lint-dead-words.mjs
 else
   echo "pre-push: lint-dead-words.mjs not present — skipping dead-word lint"
+fi
+
+# ── 0.6c Onboarding-docs render diff gate (needs Chrome, no secrets) ────────
+# Renders the README Handoff section and launch.md §4 to fresh PNGs in a temp
+# dir and byte-compares them with the committed screenshots/docs-*.png. A doc
+# edit that alters the onboarding visuals makes the committed PNGs stale; this
+# gate fails the push with 'run npm run capture:docs and commit' guidance
+# instead of shipping a gallery whose onboarding pictures no longer match the
+# docs. Skips with a notice when Chrome is missing (same contract as gates
+# 3/3b).
+if [ -f scripts/capture-docs.mjs ]; then
+  CHROME="${CHROME_PATH:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
+  if [ -x "$CHROME" ]; then
+    run_verify "onboarding-docs render diff" scripts/capture-docs.mjs --check
+  else
+    echo "pre-push: Chrome not found — skipping onboarding-docs render diff"
+  fi
+else
+  echo "pre-push: capture-docs.mjs not present — skipping onboarding-docs render diff"
 fi
 
 # ── 0.7 Vercel-env drift gate (needs VERCEL_TOKEN + vercel CLI) ───────────

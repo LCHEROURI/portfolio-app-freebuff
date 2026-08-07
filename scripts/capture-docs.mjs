@@ -13,6 +13,15 @@
  * Usage:
  *   node scripts/capture-docs.mjs                  # → screenshots/
  *   node scripts/capture-docs.mjs --out /tmp/docs  # different output dir
+ *   node scripts/capture-docs.mjs --check          # fail if committed PNGs would change
+ *
+ * --check is the pre-push gate mode: it renders the same sections into a
+ * throwaway temp dir and byte-compares them with the committed PNGs, so a
+ * doc edit that would alter the onboarding visuals FAILS with guidance to
+ * re-capture and commit, instead of shipping a gallery whose onboarding
+ * pictures silently drift from the docs. Exits 0 when every committed PNG
+ * matches (or when there is no committed baseline to compare — skip, never
+ * fail, matching the hook's contract), 1 when any would change.
  *
  * Env: CHROME_PATH overrides the Chrome binary (CI wires setup-chrome's
  * output; the gallery capture uses the same convention). Exit 1 when a
@@ -20,8 +29,10 @@
  * loudly, not render an empty page.
  */
 import { spawn } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { readFileSync, rmSync } from 'node:fs';
+import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 import { extractSection, renderMarkdown } from './markdown-html.mjs';
@@ -41,6 +52,9 @@ const valOf = (flag) => {
   return i >= 0 && args[i + 1] ? args[i + 1] : undefined;
 };
 const outArg = valOf('--out') ?? 'screenshots';
+// --check (the pre-push gate): render into a temp dir and compare against the
+// committed PNGs in outArg, failing when any would change.
+const isCheck = args.includes('--check');
 
 // ── Sections to render ──────────────────────────────────────────────────────
 // Each is extracted from the live file by its heading, so a renamed section
@@ -91,6 +105,12 @@ const pageHtml = (title, body) => `<!doctype html>
   th { background: #f6f8fa; font-weight: 600; }
   blockquote { border-left: 4px solid #d0d7de; margin: 12px 0; padding: 4px 16px; color: #57606a; }
   a { color: #0969da; text-decoration: none; }
+  /* Image references render as the alt text (the renderer deliberately does
+     not inline the PNG bytes — a data: URL page cannot load a relative src,
+     and inlining would compound across regenerations). Style it so the
+     reference reads as an intentional caption in the captured PNG. */
+  .doc-img { font-style: italic; color: #57606a; background: #f6f8fa;
+             border: 1px dashed #d0d7de; border-radius: 6px; padding: 1px 8px; }
 </style></head>
 <body>
 <h1>${title}</h1>
@@ -122,8 +142,20 @@ const chrome = spawn(CHROME, [
   'about:blank',
 ], { stdio: 'ignore' });
 
-const killChrome = () => { try { chrome.kill('SIGKILL'); } catch { /* already gone */ } };
-process.on('exit', killChrome);
+// The --check temp dir is created later in the script; a `let` here lets the
+// exit handler reach it. Cleaning up on EVERY exit path (normal completion,
+// process.exit, uncaught render-loop errors, signal) means a crashed run never
+// leaves a docs-capture-check-* dir behind — same self-cleanup contract as the
+// gallery capture's trap. rmSync keeps the handler synchronous, as exit
+// handlers must be.
+let tempRenderDir = null;
+const cleanup = () => {
+  try { chrome.kill('SIGKILL'); } catch { /* already gone */ }
+  if (tempRenderDir) {
+    try { rmSync(tempRenderDir, { recursive: true, force: true }); } catch { /* best-effort */ }
+  }
+};
+process.on('exit', cleanup);
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   process.on(sig, () => process.exit(130));
 }
@@ -172,7 +204,12 @@ await send('Emulation.setDeviceMetricsOverride', {
   width: VIEWPORT_W, height: MIN_H, deviceScaleFactor: 1, mobile: false,
 });
 
-await mkdir(outArg, { recursive: true });
+// In --check mode render into a throwaway temp dir so the committed PNGs are
+// never touched; the compare step below then diffs fresh vs committed. The
+// exit handler above removes it on any exit path.
+const renderDir = isCheck ? await mkdtemp(join(tmpdir(), 'docs-capture-check-')) : outArg;
+tempRenderDir = isCheck ? renderDir : null;
+await mkdir(renderDir, { recursive: true });
 
 for (const page of pages) {
   // data: URL so the page never touches the network (no server, no secrets).
@@ -193,10 +230,61 @@ for (const page of pages) {
   await sleep(200);
 
   const shot = await send('Page.captureScreenshot', { format: 'png', fromSurface: true });
-  await writeFile(`${outArg}/${page.name}`, Buffer.from(shot.data, 'base64'));
-  console.log(`captured ${outArg}/${page.name} (${VIEWPORT_W}×${height})`);
+  await writeFile(`${renderDir}/${page.name}`, Buffer.from(shot.data, 'base64'));
+  console.log(`captured ${renderDir}/${page.name} (${VIEWPORT_W}×${height})`);
 }
 
 ws.close();
 chrome.kill();
+
+// ── --check: diff the fresh renders against the committed PNGs ─────────────
+// The gate's contract: a doc edit that would change the rendered onboarding
+// visuals must FAIL the push (with guidance to re-capture and commit), so the
+// committed PNGs never silently drift from the docs they picture. Byte
+// comparison, matching capture-screenshots.sh's --diff semantics.
+if (isCheck) {
+  const changed = [];
+  const skipped = [];
+  for (const page of pages) {
+    // Baseline read is its OWN try: only a genuinely absent committed PNG is
+    // a 'skip' — a missing FRESH render (capture failed) must be a hard error,
+    // never silently conflated with a missing baseline.
+    let baseline;
+    try {
+      baseline = await readFile(`${outArg}/${page.name}`);
+    } catch {
+      skipped.push(page.name);
+      console.log(`— ${page.name} has no committed baseline in ${outArg}/ (skip)`);
+      continue;
+    }
+    let fresh;
+    try {
+      fresh = await readFile(`${renderDir}/${page.name}`);
+    } catch (err) {
+      console.error(`✗ ${page.name}: fresh render missing after capture — ${err.message}`);
+      process.exit(1);
+    }
+    if (baseline.equals(fresh)) {
+      console.log(`✓ ${page.name} matches the committed render`);
+    } else {
+      changed.push(page.name);
+      console.log(`✗ ${page.name} WOULD CHANGE (a doc edit altered the onboarding visuals)`);
+    }
+  }
+
+  if (changed.length > 0) {
+    console.error(`\n✗ docs-render gate FAILED: ${changed.length} PNG(s) would change — run 'npm run capture:docs' and commit the updated PNGs.`);
+    process.exit(1);
+  }
+  if (skipped.length === pages.length) {
+    console.log(`\n— docs-render gate skipped: no committed baseline PNGs in ${outArg}/ (run 'npm run capture:docs' once and commit them).`);
+    process.exit(0);
+  }
+  // Mixed case (some baselines missing, none changed) still passes, but the
+  // message names the skips so PASS is never read as 'all baselines existed'.
+  const skipNote = skipped.length > 0 ? ` (${skipped.length} baseline(s) missing, skipped)` : '';
+  console.log(`\n✓ docs-render gate PASS — committed onboarding PNGs match the current docs${skipNote}.`);
+  process.exit(0);
+}
+
 console.log(`\n${pages.length}/${pages.length} onboarding-doc PNGs captured into ${outArg}/`);
