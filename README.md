@@ -119,6 +119,41 @@ a gate renamed, dropped, or mis-gated fails before anything runs. The
 `npm run ship:go` commits, pushes, waits for the Vercel deploy, then re-runs
 `ship:ready` against the live build.
 
+When each gate runs:
+
+```text
+   ┌───────────────────────────────────────────────────────────────┐
+   │  LOCAL — every git push (.githooks/pre-push)                  │
+   │  runs the 11 verify:all gates + drift guards (timeboxed); a   │
+   │  dirty tree or any failure ABORTS the push                    │
+   └──────────────────────────────┬────────────────────────────────┘
+                                  │  push lands only when green
+                                  ▼
+   ┌───────────────────────────────────────────────────────────────┐
+   │  npm run ship:go — the one-command path                       │
+   │  commit → push → wait for the Vercel deploy → re-run          │
+   │  ship:ready against the LIVE build                            │
+   └──────────────────────────────┬────────────────────────────────┘
+                                  │  the push fires, in parallel
+                                  ▼
+   ┌───────────────────────────────────────────────────────────────┐
+   │  GITHUB ACTIONS — ci.yml (push event)                         │
+   │  · Typecheck · Lint · Test · Build                            │
+   │  · Verify launch checklist matches scripts                    │
+   │  · Verify authorized domains                                  │
+   │  · Verify production sign-in + Firestore sync                 │
+   │  · Verify deployed cron reports + rules (secret-gated)        │
+   └──────────────────────────────┬────────────────────────────────┘
+                                  │  after Vercel finishes building
+                                  ▼
+   ┌───────────────────────────────────────────────────────────────┐
+   │  DEPLOYMENT_STATUS GATES (per preview/production deploy)      │
+   │  · Preview gate — auto-authorize + verify the deployed domain │
+   │  · Deployed-hash gate — live build serves the pushed commit   │
+   │  · Gallery — screenshots the deployed preview                 │
+   └───────────────────────────────────────────────────────────────┘
+```
+
 ### The three-secret-store reality
 
 The same secrets live in **three places** and must stay in sync — a value
