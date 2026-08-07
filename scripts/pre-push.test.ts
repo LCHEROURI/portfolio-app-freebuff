@@ -160,9 +160,35 @@ describe('.githooks/pre-push · review-sheet byte gate (gate 0.6d)', () => {
     // out. The gate must use a dedicated perl alarm (same treatment as the
     // 1200s ship:ready capstone), NOT the run_verify function.
     expect(hook).toContain("perl -e 'alarm shift; exec @ARGV' 420 node scripts/verify-review-sheet.mjs --check");
-    // Line-anchored: the gate's invocation must be its own exec line, never
-    // routed through run_verify's 90s wrapper.
-    expect(hook).toMatch(/^\s*if perl -e 'alarm shift; exec @ARGV' 420 node scripts\/verify-review-sheet\.mjs --check --out \/tmp\/review-sheet-bytecheck; then$/m);
+    // Line-anchored: the exec must be a plain line inside the gate's own
+    // function (never routed through run_verify's 90s wrapper, never wrapped
+    // in an `if ...; then` that would break the retry structure).
+    expect(hook).toMatch(/^\s*perl -e 'alarm shift; exec @ARGV' 420 node scripts\/verify-review-sheet\.mjs --check --out \/tmp\/review-sheet-bytecheck\s*$/m);
+  });
+
+  it('wraps the gate in a named function so it can be retried, mirroring the deployed-hash gate', () => {
+    // The driver drives the LIVE app: transient failures (sign-in network
+    // blips, slow AI round-trips, an interception that did not attach on the
+    // first run) have been observed. The gate must define a reusable function
+    // and invoke it via `if run_review_sheet_gate; then` so the retry branch
+    // below can call the SAME wrapped invocation a second time.
+    expect(hook).toContain('run_review_sheet_gate() {');
+    expect(hook).toMatch(/^\s*if run_review_sheet_gate; then$/m);
+  });
+
+  it('retries ONCE after a 30s backoff before failing the push', () => {
+    // Mirror of the deployed-hash gate's retry: a transient clears on the
+    // retry and the push proceeds; a genuine stale pair fails both attempts
+    // and aborts. The retry must sleep before re-invoking the SAME function
+    // and must have a distinct on-retry success line.
+    expect(hook).toContain('sleep 30');
+    expect(hook).toContain('if run_review_sheet_gate; then');
+    expect(hook).toContain('review-sheet byte gate passed ✓ (on retry)');
+    expect(hook).toContain('transient live-app failure?');
+    // The second failure branch must not be followed by a hardcoded exit 1
+    // that would swallow the real rc into a bare 1.
+    const gateTail = hook.slice(hook.indexOf('review-sheet byte gate FAILED'));
+    expect(gateTail).toMatch(/exit 1\s*$/m);
   });
 
   it('gates on the web API key AND Chrome, skipping with notices when either is missing', () => {

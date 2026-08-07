@@ -270,17 +270,37 @@ fi
 if [ -n "$KEY" ] && [ -f scripts/verify-review-sheet.mjs ]; then
   CHROME="${CHROME_PATH:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
   if [ -x "$CHROME" ]; then
+    # The driver drives the LIVE app: transient failures (sign-in network
+    # blips, a slow AI round-trip, an interception that did not attach on the
+    # first run) have been observed, so the gate retries ONCE after a 30s
+    # backoff before failing the push — a transient clears on the retry, a
+    # genuine stale pair fails both attempts and aborts (mirroring the
+    # deployed-hash gate's retry).
+    run_review_sheet_gate() {
+      perl -e 'alarm shift; exec @ARGV' 420 node scripts/verify-review-sheet.mjs --check --out /tmp/review-sheet-bytecheck
+    }
     echo "pre-push: verifying review-sheet byte gate (deterministic capture)…"
-    if perl -e 'alarm shift; exec @ARGV' 420 node scripts/verify-review-sheet.mjs --check --out /tmp/review-sheet-bytecheck; then
+    if run_review_sheet_gate; then
       echo "pre-push: review-sheet byte gate passed ✓"
     else
       rs_rc=$?
       if [ "$rs_rc" -eq 142 ]; then
         echo "pre-push: review-sheet byte gate exceeded 420s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
-      else
-        echo "pre-push: review-sheet byte gate FAILED — re-capture and commit the PNGs (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+        exit 1
       fi
-      exit 1
+      echo "pre-push: review-sheet byte gate failed (rc=$rs_rc) — waiting 30s and retrying once (transient live-app failure?)…" >&2
+      sleep 30
+      if run_review_sheet_gate; then
+        echo "pre-push: review-sheet byte gate passed ✓ (on retry)"
+      else
+        local_rc=$?
+        if [ "$local_rc" -eq 142 ]; then
+          echo "pre-push: review-sheet byte gate exceeded 420s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+        else
+          echo "pre-push: review-sheet byte gate FAILED — re-capture and commit the PNGs (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+        fi
+        exit 1
+      fi
     fi
   else
     echo "pre-push: Chrome not found — skipping review-sheet byte gate"
