@@ -80,12 +80,13 @@ Each exits nonzero on failure. Read secrets from env, then `.env.local`.
 | `npm run verify:auth-domains` | `FIREBASE_WEB_API_KEY` | `/api/status?project=<domain>` reports `authDomains.ok` for the shipping domain |
 | `node scripts/verify-prod-signin.mjs` | `FIREBASE_WEB_API_KEY`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` (+ Chrome) | AuthGate renders, email/password + Google buttons present, both IdPs enabled (admin API), sign-in releases into the Command Center, Firestore write/read sync proven; `[3b]` asserts the classic OAuth client |
 | `node scripts/verify-google-idp.mjs` | `FIREBASE_WEB_API_KEY`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | `createAuthUri` resolves `google.com` with a classic web client id; admin API confirms the IdP record is enabled |
+| `npm run verify:review-sheet` | `FIREBASE_WEB_API_KEY`, `FIREBASE_SERVICE_ACCOUNT`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` (+ Chrome) | Drives the deployed Model Comparison page end to end: seeds a live fixture under a throwaway user, generates two AI winner recommendations, opens the Print-all review sheet in the preview window, and asserts BOTH numbered entries render with the friendly model label (DeepSeek Chat). Same credential family as prod-signin plus the service account for seeding. Emits sub-rows in `verify:all`'s summary (preview / entries / model label) |
 | `node scripts/verify-auth-domains.mjs` | `FIREBASE_WEB_API_KEY` | same as `verify:auth-domains` with throwaway-user token |
 | `npm run verify:deployed-hash -- --expect <sha>` | `VERCEL_TOKEN` | Production is actually serving the expected commit — the exact gate the `deployed-hash` CI workflow and pre-push hook run. Pass the commit you expect to be live (`git rev-parse origin/main` for the last pushed commit; `--check-local` compares against local HEAD instead) |
 | `npm run verify:import-surface` | — | Static import-surface lint over `scripts/` + `lib/` + `app/` (TS-compiler-AST scan): no re-exported imports and no unused imports. No secrets, no network — also wired into `npm run lint`, the pre-push hook (gate 0.6), and CI's lint step |
 | `npm run verify:dead-words` | — | Repo-wide sweep for dead-feature phrasing in code comments and docs: the removed report-email wording plus the removed integrations (the old data store, the delivery sender) can never silently return. The env-identifier phrases are **derived from `REMOVED_ENV_VARS` in `lib/integrationVarLinks.ts`** — the same source of truth the Integrations lock test loops over — so the banned list and the lock can never drift: add a removed identifier to the array and both extend automatically. Fails loudly if the array is missing or empty. Skips `docs/reviews/` (historical records), the linter's own files (which must quote the phrases), the source-of-truth array lines, and the removed-var lock lines in `lib/integrationVarLinks.test.ts` (which must quote the dead names to prove they resolve to null). No secrets, no network — also wired into `npm run lint`, the pre-push hook (gate 0.6b), and CI's lint step |
 
-Run **all eleven in one command** with `npm run verify:all` — it preflights the
+Run **all twelve in one command** with `npm run verify:all` — it preflights the
 drift guard above, runs every gate sequentially against the production URL
 (or `--app <url>` to target a preview/local server), dedupes the two
 auth-domains rows (they share one script), and prints a summary table,
@@ -128,7 +129,7 @@ When each gate runs (same picture as the README handoff section):
 ```text
    ┌───────────────────────────────────────────────────────────────┐
    │  LOCAL — every git push (.githooks/pre-push)                  │
-   │  runs the 11 verify:all gates + drift guards (timeboxed); a   │
+   │  runs the 12 verify:all gates + drift guards (timeboxed); a  │
    │  hook gates 0.6/0.6b/0.6c (lints + docs-render diff);         │
    │  dirty tree or any failure ABORTS the push                    │
    └──────────────────────────────┬────────────────────────────────┘

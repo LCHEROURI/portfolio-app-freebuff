@@ -29,7 +29,7 @@ describe('crossCheckVerifyAllGates (live repo)', () => {
       docCommands: gates,
       verifyAllSrc,
       npmScripts,
-      expectedCount: 11,
+      expectedCount: 12,
     });
     expect(failures).toEqual([]);
   });
@@ -44,7 +44,7 @@ describe('crossCheckVerifyAllGates (live repo)', () => {
       docCommands: gates,
       verifyAllSrc: renamed,
       npmScripts,
-      expectedCount: 11,
+      expectedCount: 12,
     });
     expect(failures.join('\n')).toContain('zombie-words');
     expect(failures.join('\n')).toContain('dead-words');
@@ -61,9 +61,9 @@ describe('crossCheckVerifyAllGates (live repo)', () => {
       docCommands: gates,
       verifyAllSrc: dropped,
       npmScripts,
-      expectedCount: 11,
+      expectedCount: 12,
     });
-    expect(failures.join('\n')).toContain('declares 10 gate names');
+    expect(failures.join('\n')).toContain('declares 11 gate names');
     expect(failures.join('\n')).toContain('dead-words');
   });
 });

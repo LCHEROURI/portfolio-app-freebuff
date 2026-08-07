@@ -60,7 +60,7 @@ const PRODUCTION_URL = 'https://portfolio-app-freebuff.vercel.app';
 const ONLY = onlyArg ? onlyArg.split(',').map((s) => s.trim()).filter(Boolean) : [];
 const SKIP = skipArg ? skipArg.split(',').map((s) => s.trim()).filter(Boolean) : [];
 
-const GATE_NAMES = ['token-health', 'vercel-env', 'cron-reports', 'firestore-rules', 'auth-domains', 'prod-signin', 'google-idp', 'auth-domains-direct', 'deployed-hash', 'import-surface', 'dead-words'];
+const GATE_NAMES = ['token-health', 'vercel-env', 'cron-reports', 'firestore-rules', 'auth-domains', 'prod-signin', 'google-idp', 'review-sheet', 'auth-domains-direct', 'deployed-hash', 'import-surface', 'dead-words'];
 const unknownOnly = ONLY.filter((n) => !GATE_NAMES.includes(n));
 const unknownSkip = SKIP.filter((n) => !GATE_NAMES.includes(n));
 if (unknownOnly.length > 0 || unknownSkip.length > 0) {
@@ -126,6 +126,13 @@ const GATES = [
   { name: 'auth-domains', label: 'Authorized domains', script: 'verify:auth-domains', appFlag: '--app', secrets: ['FIREBASE_WEB_API_KEY'] },
   { name: 'prod-signin', label: 'Production sign-in + Firestore sync', script: 'verify:prod-signin', appFlag: '--app', secrets: ['FIREBASE_WEB_API_KEY', 'NEXT_PUBLIC_FIREBASE_PROJECT_ID'], note: 'Chrome', capture: true },
   { name: 'google-idp', label: 'Google IdP record', script: 'verify:google-idp', secrets: ['FIREBASE_WEB_API_KEY', 'NEXT_PUBLIC_FIREBASE_PROJECT_ID'], capture: true },
+  // The review-sheet gate drives the DEPLOYED Model Comparison page end to
+  // end: seeds a live fixture under a throwaway user, generates two AI winner
+  // recommendations, opens the Print-all review sheet in the preview window,
+  // and asserts BOTH numbered entries render with the friendly model label.
+  // Same credential family as prod-signin (web API key to mint the throwaway
+  // user + service account to seed the fixture) plus Chrome.
+  { name: 'review-sheet', label: 'Review-sheet print-all (deployed)', script: 'verify:review-sheet', appFlag: '--app', secrets: ['FIREBASE_WEB_API_KEY', 'FIREBASE_SERVICE_ACCOUNT', 'NEXT_PUBLIC_FIREBASE_PROJECT_ID'], note: 'Chrome', capture: true },
   { name: 'auth-domains-direct', label: 'Authorized domains (direct script)', file: 'scripts/verify-auth-domains.mjs', appFlag: '--app', duplicateOf: 'auth-domains', secrets: ['FIREBASE_WEB_API_KEY'] },
   { name: 'deployed-hash', label: 'Deployed commit matches expected', script: 'verify:deployed-hash', expectFlag: '--expect', url: PRODUCTION_URL, secrets: ['VERCEL_TOKEN'], capture: true },
   // Pure static lint over scripts/ + lib/ + app/: re-exported or unused
@@ -262,7 +269,7 @@ const runOne = async (gate) => {
 
 // ── Preflight: the doc's gates must be runnable before we run any ───────────
 console.log(`\nLaunch checklist runner — ${APP || 'production URL (default)'}\n`);
-console.log('[0/11] Preflight: launch-checklist drift guard');
+console.log('[0/12] Preflight: launch-checklist drift guard');
 const preflight = spawn('node', ['scripts/verify-launch-checklist.mjs'], { stdio: 'inherit', env: process.env });
 const preflightCode = await new Promise((resolvePromise) => {
   preflight.on('exit', (c) => resolvePromise(c ?? 1));

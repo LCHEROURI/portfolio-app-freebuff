@@ -1,21 +1,29 @@
 #!/usr/bin/env node
 // ============================================================================
-// scripts/drive-review-sheet.mjs — drive the LIVE app's Model Comparison
-// review sheet (Print all recommendations) end to end.
+// scripts/verify-review-sheet.mjs — review-sheet (Print all) gate for the
+// LIVE app's Model Comparison page.
+//
+// Drives the DEPLOYED app in a real headless Chrome (same CDP pattern as
+// tour-live.mjs) and proves the print-all contract end to end:
 //
 //  1. Mints a throwaway Identity Toolkit user (deleted on the way out).
 //  2. Seeds the live-data fixture under that uid via seed-live-data.mjs, so
 //     Model Comparison has multiple evaluated projects.
-//  3. Drives the deployed app in headless Chrome (same CDP pattern as
-//     tour-live.mjs): signs in, navigates to /model-comparison, clicks AI
-//     Recommend on two project cards, then clicks 'Print all recommendations'.
-//  4. Captures the styled preview window (the review sheet) as a PNG; falls
+//  3. Signs in, navigates to /model-comparison, clicks AI Recommend on two
+//     project cards, then clicks 'Print all recommendations'.
+//  4. Captures the styled preview window (the review sheet) and ASSERTS it
+//     renders the review-sheet title, BOTH numbered recommendations, and the
+//     friendly model label (DeepSeek Chat) — the print-all contract. Falls
 //     back to the in-page .print-report-all area only if the popup is blocked.
 //  5. Deletes the throwaway user AND clears the seeded docs (seed-live-data
 //     --clear), so the walkthrough never pollutes the real account.
 //
+// Emits VERIFY-SUBRESULT|<name>|<PASS|FAIL> markers (review-sheet-preview /
+// review-sheet-entries / review-sheet-model-label) so verify:all renders the
+// sub-checks as rows under the gate. Exits nonzero when any assertion fails.
+//
 // Usage:
-//   node scripts/drive-review-sheet.mjs [--app https://...] [--out /tmp/review-sheet]
+//   node scripts/verify-review-sheet.mjs [--app https://...] [--out /tmp/review-sheet]
 // ============================================================================
 
 import { spawn } from 'node:child_process';
@@ -72,7 +80,15 @@ if (!token) {
 }
 ok(`user minted (${uid})`);
 
+// Run-once flag: the success path AWAITS cleanup before exiting, and the exit
+// handler stays as a crash backstop — without the flag the two would run the
+// (idempotent but slow) --clear twice. The exit handler itself cannot await
+// async work, so only the explicit success-path await guarantees the throwaway
+// user and seeded docs are really gone before the process exits.
+let cleaned = false;
 const cleanup = async () => {
+  if (cleaned) return;
+  cleaned = true;
   // Delete the throwaway auth account (best-effort).
   try {
     await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:delete?key=${API_KEY}`, {
@@ -244,30 +260,45 @@ if (recommendButtons < 2) {
   ok(`Model Comparison rendered with ${recommendButtons} evaluated projects`);
 }
 
-// Click AI Recommend on the first two project cards. The OpenRouter round-trip
-// can take 30-60s per project, so poll generously (90s) for the panel heading.
-const clickRecommend = async (index) => {
-  await main.evaluate(`(() => {
-    const btns = [...document.querySelectorAll('button')].filter((b) => (b.textContent ?? '').includes('AI Recommend'));
-    if (!btns[${index}]) return 'missing';
-    btns[${index}].click();
+// Click AI Recommend on project cards one at a time. IMPORTANT: once a card
+// starts thinking, its button text becomes 'Thinking…', so an index-based
+// button list shifts and btns[1] can vanish — always click the FIRST remaining
+// 'AI Recommend' button. The OpenRouter round-trip can take 30-60s per project,
+// so poll generously (90s) for the panel COUNT to increment (the heading is
+// CSS-uppercased to 'AI WINNER RECOMMENDATION', so count case-insensitively;
+// a global text check would let the first panel satisfy every later click).
+const panelCount = () => main.evaluate(
+  `(document.body.innerText.match(/ai winner recommendation/gi) || []).length`,
+);
+const clickNextRecommend = async (expectedPanels) => {
+  const clicked = await main.evaluate(`(() => {
+    // Click the AI Recommend button whose CARD has no recommendation panel yet.
+    // Once a card completes, its button text returns to 'AI Recommend', so a
+    // plain first-match would re-trigger the already-done project. Each project
+    // card is a div.card-base, so locate the button via closest('.card-base')
+    // and skip cards already showing the panel heading.
+    const btn = [...document.querySelectorAll('button')].find((b) => {
+      if (!(b.textContent ?? '').includes('AI Recommend')) return false;
+      const card = b.closest('.card-base');
+      return !((card?.innerText ?? '').toLowerCase().includes('ai winner recommendation'));
+    });
+    if (!btn) return 'missing';
+    btn.click();
     return 'clicked';
   })()`);
-  let panel = false;
-  for (let i = 0; i < 90; i++) {
+  if (clicked !== 'clicked') return clicked;
+  let count = await panelCount();
+  for (let i = 0; i < 90 && count < expectedPanels; i++) {
     await sleepMs(1000);
-    // The heading is CSS-uppercased (uppercase tracking-wide), so innerText
-    // renders it as 'AI WINNER RECOMMENDATION' — compare case-insensitively.
-    panel = await main.evaluate(`document.body.innerText.toLowerCase().includes('ai winner recommendation')`);
-    if (panel) break;
+    count = await panelCount();
   }
-  return panel;
+  return count >= expectedPanels ? 'panels' : `stuck-at-${count}`;
 };
 
-const first = await clickRecommend(0);
-ok(first ? 'recommendation #1 generated (panel rendered)' : 'recommendation #1 panel did not render within 90s');
-const second = await clickRecommend(1);
-ok(second ? 'recommendation #2 generated (panel rendered)' : 'recommendation #2 panel did not render within 90s');
+const first = await clickNextRecommend(1);
+ok(first === 'panels' ? 'recommendation #1 generated (panel rendered)' : `recommendation #1 panel did not render within 90s (${first})`);
+const second = await clickNextRecommend(2);
+ok(second === 'panels' ? 'recommendation #2 generated (panel rendered)' : `recommendation #2 panel did not render within 90s (${second})`);
 
 await sleepMs(1500);
 const beforeText = await main.text();
@@ -308,6 +339,11 @@ for (let i = 0; i < 10 && !preview; i++) {
   }
 }
 
+// Capture the review sheet text: the preview window when it opened, else the
+// in-page .print-report-all fallback (both render the SAME shared-builder
+// document — the assertions below accept either surface, but need at least
+// one).
+let reviewSheetText = null;
 if (preview) {
   await sleepMs(2000);
   const previewText = await preview.text();
@@ -316,6 +352,7 @@ if (preview) {
   writeFileSync(`${OUT}/02-review-sheet-preview.png`, shot);
   ok(`screenshot: ${OUT}/02-review-sheet-preview.png`);
   preview.ws.close();
+  reviewSheetText = previewText;
 } else {
   // Popup blocked: the in-page .print-report-all area renders briefly during
   // window.print(). Grab it immediately if still present.
@@ -326,13 +363,59 @@ if (preview) {
   if (fallback) {
     ok('popup blocked — captured in-page review sheet instead');
     console.log(`  ↳ in-page review sheet: ${fallback.slice(0, 400)}`);
+    reviewSheetText = fallback;
   } else {
     fail('no preview window opened and the in-page fallback was already cleared');
   }
 }
 
+// ── 6b. Assert the print-all contract on the captured review sheet ──────────
+// The gate's core proof: the review sheet must render BOTH numbered
+// recommendations with the friendly model label. The preview window and the
+// in-page fallback render the SAME document (shared builder), so either
+// surface satisfies the assertions — but at least one must be captured.
+const sectionFails = {};
+const subFail = (section, msg) => {
+  sectionFails[section] = (sectionFails[section] ?? 0) + 1;
+  fail(msg);
+};
+
+if (!reviewSheetText) {
+  subFail('review-sheet-preview', 'no review sheet captured (popup blocked AND in-page fallback already cleared)');
+} else {
+  const title = /AI winner recommendations — all projects/.test(reviewSheetText);
+  title
+    ? ok('review sheet title renders in the preview')
+    : subFail('review-sheet-preview', 'review sheet title missing from the captured document');
+  // Both numbered entries: the meta line carries the count and the list is
+  // numbered 1. … 2. — the print-all contract the user drives in the UI.
+  const meta = /2 AI winner recommendations across all projects/.test(reviewSheetText);
+  meta
+    ? ok('meta line proves BOTH recommendations are listed (2 across all projects)')
+    : subFail('review-sheet-entries', 'meta line missing or count is not 2 — expected both recommendations');
+  const numbered = /1\. /.test(reviewSheetText) && /2\. /.test(reviewSheetText);
+  numbered
+    ? ok('numbered entries 1. and 2. render')
+    : subFail('review-sheet-entries', 'numbered entries 1./2. missing from the review sheet');
+  const label = /DeepSeek Chat/.test(reviewSheetText);
+  label
+    ? ok('friendly model label (DeepSeek Chat) renders')
+    : subFail('review-sheet-model-label', 'friendly model label missing from the review sheet');
+}
+
+// Machine-readable sub-check markers for verify:all (same contract as the
+// other capture gates). Emitted ALWAYS so the summary shows the sub-rows even
+// when an early failure short-circuited the content assertions.
+console.log(`VERIFY-SUBRESULT|review-sheet-preview|${(sectionFails['review-sheet-preview'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
+console.log(`VERIFY-SUBRESULT|review-sheet-entries|${(sectionFails['review-sheet-entries'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
+console.log(`VERIFY-SUBRESULT|review-sheet-model-label|${(sectionFails['review-sheet-model-label'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
+
 main.ws.close();
 chrome.kill();
 try { rmSync(USER_DATA_DIR, { recursive: true, force: true }); } catch { /* best-effort */ }
 console.error(`\nDRIVE: ${failures === 0 ? 'PASS' : `FAIL (${failures})`}`);
+// Await the async cleanup explicitly — the exit handler fires `void cleanup()`
+// which Node never awaits, so without this the throwaway account and seeded
+// docs could silently survive the run.
+await cleanup();
 process.exit(failures === 0 ? 0 : 1);
