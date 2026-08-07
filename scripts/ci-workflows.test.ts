@@ -39,6 +39,44 @@ const PREVIEW_URL_WIRING = 'PREVIEW_URL: ${{ steps.deploy.outputs.url }}';
 // assertion honest — a script name can only match inside this job.
 const verifyDeployedBlock = CI.slice(CI.indexOf('verify-deployed:'), CI.indexOf('verify-auth-domains:'));
 
+describe('.github/workflows/ci.yml · validate job (docs-render diff gate)', () => {
+  // The validate job block: everything between the job key and the next
+  // top-level job (`verify-launch-checklist:`). Scoping here keeps every
+  // assertion honest — the step name and its Chrome wiring can only match
+  // inside this job, never in a comment elsewhere in the file.
+  const validateBlock = CI.slice(CI.indexOf('\n  validate:'), CI.indexOf('\n  verify-launch-checklist:'));
+
+  it('defines the docs-render diff gate step in the validate job', () => {
+    // A non-empty block guard: if the jobs are ever reordered so the slice
+    // resolves to '', every toContain below would fail confusingly.
+    expect(validateBlock.length).toBeGreaterThan(0);
+    expect(validateBlock).toContain('Verify docs-render diff (gate 0.6c)');
+    // The step must run the --check mode (npm script), never the write-mode
+    // capture that would silently rewrite the committed PNGs.
+    expect(validateBlock).toContain('run: npm run verify:docs-render');
+  });
+
+  it('wires the Chrome install output into the docs-render step', () => {
+    // On the Linux runner the default /Applications/… fallback in
+    // capture-docs.mjs does not exist, so losing this env wiring would make
+    // the gate skip-not-fail on every run instead of actually verifying.
+    expect(validateBlock).toContain('CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}');
+    expect(validateBlock).toContain('uses: browser-actions/setup-chrome@v2');
+  });
+
+  it('runs the docs-render gate AFTER the Test step (post-test, mirroring the hook ordering)', () => {
+    // The step must sit after the suite that re-renders docs (the dimension
+    // contract test) so the gate proves the committed PNGs match at the end
+    // of the job — and before the build, so a drift fails fast.
+    const testIdx = validateBlock.indexOf('- name: Test');
+    const gateIdx = validateBlock.indexOf('Verify docs-render diff (gate 0.6c)');
+    const buildIdx = validateBlock.indexOf('- name: Production build');
+    expect(testIdx).toBeGreaterThan(-1);
+    expect(gateIdx).toBeGreaterThan(testIdx);
+    expect(buildIdx).toBeGreaterThan(gateIdx);
+  });
+});
+
 describe('.github/workflows/ci.yml · verify-auth-domains job (push-time domains gate)', () => {
   it('still verifies the deployed authorized domains and the auto-authorize SA key', () => {
     const authDomainsBlock = CI.slice(CI.indexOf('verify-auth-domains:'), CI.indexOf('verify-prod-signin:'));

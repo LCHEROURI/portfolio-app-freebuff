@@ -79,8 +79,38 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # The docs-render dimension test (scripts/capture-docs-dimensions.test.ts)
+      # re-runs capture-docs.mjs into a temp dir and asserts the two onboarding
+      # PNGs stay within sane bounds (width 1200, height 2000-6000), so a
+      # renderer change that produces a broken/tiny page fails the suite. The
+      # re-run needs Chrome; the test skips-not-fails when it is absent, so
+      # installing it here is what makes the fresh-render check actually
+      # execute on every push. Same setup-chrome pattern as the gallery and
+      # verify-prod-signin jobs.
+      - name: Install Chrome for docs-render dimension test
+        id: chrome
+        uses: browser-actions/setup-chrome@v2
+        with:
+          chrome-version: stable
+
       - name: Test
         run: npm test
+        env:
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+
+      # Docs-render diff gate (mirror of the pre-push hook's 0.6c): re-renders
+      # the README Handoff + launch.md §4 sections and byte-compares against the
+      # committed screenshots/ PNGs. A doc edit that changes the onboarding
+      # visuals without committing the re-captured PNGs fails CI here — the
+      # same protection the pre-push hook gives local pushes, now enforced on
+      # every run even where the hook never fires. Skips-not-fails when no
+      # committed baseline exists yet (first capture), matching the hook's
+      # contract. Reuses the Chrome installed for the dimension test above;
+      # no secrets, so forks and unconfigured repos stay green.
+      - name: Verify docs-render diff (gate 0.6c)
+        run: npm run verify:docs-render
+        env:
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
 
       - name: Production build
         run: npm run build
