@@ -149,6 +149,29 @@ const GATES = [
   { name: 'dead-words', label: 'Dead-feature lint (report-email + removed integrations)', script: 'verify:dead-words' },
 ];
 
+// ── Self-check: the 12-gate contract must hold before anything runs ─────────
+// The launch-checklist contract promises EXACTLY twelve gates — the same
+// EXPECTED_GATE_COUNT verify-launch-checklist.mjs hardcodes. If a future gate
+// is added to GATE_NAMES (or a GATES entry to the table) without the full
+// contract update — the §4 row + Requires cell, the README/launch.md pipeline
+// diagrams, the contract tests, and the drift guard's own constant — this
+// check fails LOUDLY right here, before the preflight spawn or any gate
+// executes, instead of silently widening the table and reporting a green run
+// off a contract that no longer holds. The preflight drift guard would also
+// catch the mismatch, but only after spawning a child process; this is
+// instant and names the exact source of truth.
+const EXPECTED_GATE_COUNT = 12;
+if (GATE_NAMES.length !== EXPECTED_GATE_COUNT || GATES.length !== GATE_NAMES.length) {
+  console.error(`✗ FAIL: gate contract — GATE_NAMES has ${GATE_NAMES.length}, GATES has ${GATES.length}, but the launch-checklist contract promises ${EXPECTED_GATE_COUNT}.`);    console.error('  A gate was added without the full contract update:');
+    console.error('    - scripts/verify-launch-checklist.mjs  EXPECTED_GATE_COUNT');
+    console.error('    - docs/launch.md §4 row + Requires cell');
+    console.error('    - README.md + docs/launch.md pipeline diagrams');
+    console.error('    - the launch-checklist / readme-handoff / ci-workflows contract tests');
+    console.error('    - scripts/verify-all.test.ts  (the live-tree lock that pins 12 entries)');
+    console.error('  Update every surface together, then re-run.');
+  process.exit(2);
+}
+
 // Sub-result labels live in verify-all-subresults.mjs alongside the marker
 // parser, so the friendly-name map and the regex contract are unit-tested in
 // one place (see scripts/verify-all.test.ts).

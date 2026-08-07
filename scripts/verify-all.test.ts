@@ -152,6 +152,58 @@ describe('verify-all.mjs · onboarding-doc pipeline-diagram presence row', () =>
   });
 });
 
+// ── verify-all.mjs's 12-gate self-check ────────────────────────────────────
+// The runner asserts GATE_NAMES.length === 12 (matching the drift guard's
+// EXPECTED_GATE_COUNT) BEFORE the preflight spawn or any gate executes, so a
+// future gate added without the full contract update fails loudly at runtime
+// instead of silently widening the table.
+
+describe('verify-all.mjs · 12-gate runtime self-check', () => {
+  const src = readFileSync(join(process.cwd(), 'scripts', 'verify-all.mjs'), 'utf8');
+
+  it('hardcodes EXPECTED_GATE_COUNT = 12 matching the drift guard', () => {
+    // The runner and verify-launch-checklist.mjs must promise the SAME count;
+    // a future gate bump that touches only one file fails this lock.
+    expect(src).toContain('const EXPECTED_GATE_COUNT = 12;');
+    const drift = readFileSync(join(process.cwd(), 'scripts', 'verify-launch-checklist.mjs'), 'utf8');
+    expect(drift).toContain('const EXPECTED_GATE_COUNT = 12;');
+  });
+
+  it('asserts GATE_NAMES.length === EXPECTED_GATE_COUNT before the preflight and any gate runs', () => {
+    // Positional contract: the self-check must sit BEFORE the preflight spawn
+    // (which only runs after the arrays are defined) and the gate loop, so a
+    // widened table aborts before a single gate executes.
+    const checkIdx = src.indexOf('GATE_NAMES.length !== EXPECTED_GATE_COUNT');
+    expect(checkIdx).toBeGreaterThan(-1);
+    const preflightIdx = src.indexOf('Launch checklist runner');
+    const gateLoopIdx = src.indexOf('for (const gate of GATES)');
+    expect(preflightIdx).toBeGreaterThan(checkIdx);
+    expect(gateLoopIdx).toBeGreaterThan(checkIdx);
+  });
+
+  it('exits nonzero with a loud contract message on mismatch', () => {
+    // Scope the exit assertion to the self-check block itself (between the
+    // constant and the results array) — a file-wide regex would be satisfied
+    // by the unknown-gate block's process.exit(2) even if the self-check's own
+    // exit were silently removed.
+    const block = src.slice(src.indexOf('const EXPECTED_GATE_COUNT = 12;'), src.indexOf('const failures = [];'));
+    expect(block.length).toBeGreaterThan(0);
+    expect(block).toContain('launch-checklist contract promises');
+    expect(block).toContain('Update every surface together, then re-run.');
+    expect(block).toMatch(/process\.exit\(2\);/);
+  });
+
+  it('keeps GATE_NAMES and GATES at 12 entries today (live-tree lock)', () => {
+    // The self-check must pass on the real tree right now: both arrays hold
+    // exactly 12 entries and agree with each other, so the guard is green
+    // rather than dead code that trips on the next run.
+    const gateNames = src.match(/const GATE_NAMES = \[([^\]]*)\]/)?.[1] ?? '';
+    expect([...gateNames.matchAll(/'([^']+)'/g)]).toHaveLength(12);
+    const gatesBody = src.match(/const GATES = \[([\s\S]*?)\n\];/)?.[1] ?? '';
+    expect([...gatesBody.matchAll(/name: '([^']+)'/g)]).toHaveLength(12);
+  });
+});
+
 // The real lock: scan every gate's source for the markers it actually emits
 // and assert the bidirectional contract — every emitted marker has a friendly
 // label, and every label is still emitted by a gate. A hand-written "known
