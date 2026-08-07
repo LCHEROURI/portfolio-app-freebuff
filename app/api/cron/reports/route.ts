@@ -33,13 +33,13 @@ import {
 //                    inbox. Omitted by default to keep the response lean.
 //   ?previewBody=1&format=text → dev-only plain-text preview: returns the
 //                    composed body as text/plain, so the exact text can be
-//                    piped into a mail client or file without waiting for the
+//                    piped into a file or viewer without waiting for the
 //                    scheduled cron.
 //
-// Emailed reports are DISABLED: the route composes the report bodies (exposed
-// via ?previewBody=1 / format=text for the in-app Reports page and the
-// verification suite) but never sends email — no email envelope rides on the
-// response.
+// Reports are composed in-app only: the route composes the report bodies
+// (exposed via ?previewBody=1 / format=text for the in-app Reports page and
+// the verification suite) but never sends anything — no email envelope rides
+// on the response.
 //
 // Each run still logs a `report_generated` activity doc to the Firestore
 // activity collection when the service account is configured, so the Activity
@@ -206,7 +206,7 @@ export async function GET(req: NextRequest) {
   }));
 
   for (const s of summarized) {
-    // Emailed reports are disabled — no email envelope rides on the response
+    // Reports are composed in-app — no email envelope rides on the response
     // (the body rides along only when ?previewBody=1 asks).
     reports.push({
       kind: s.kind, title: s.title, attentionCount: s.attentionCount,

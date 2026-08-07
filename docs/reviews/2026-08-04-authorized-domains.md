@@ -12,7 +12,7 @@ The app runs Firebase Auth on the shared `meal-planner-lcherouri` project. The p
 > app moved onto its own dedicated Firebase project,
 > `portfolio-app-freebuff2`, with a portfolio-only ruleset (see
 > `docs/migrations/dedicated-firebase-project.md`). The migration is
-> **complete and verified**: all four gates (`verify:cron-email`,
+> **complete and verified**: all four gates (`verify:cron-reports`,
 > `verify:auth-domains`, `verify-prod-signin`, `verify:google-idp`) PASS
 > against `portfolio-app-freebuff2`. The shared `meal-planner-lcherouri`
 > list below is historical context only.

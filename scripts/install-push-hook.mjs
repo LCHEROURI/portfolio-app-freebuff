@@ -4,7 +4,7 @@
 //
 // Copies this repo's canonical `.githooks/pre-push` into each target repo and
 // points that repo at it with `git config core.hooksPath .githooks`, so every
-// project gets the same sign-in / cron-email / authorized-domains guard. The
+// project gets the same sign-in / cron-reports / authorized-domains guard. The
 // hook itself is self-gating: in repos without the verify suite (or without the
 // deployment secrets) it skips the unavailable checks instead of failing, so a
 // routine push is never blocked by a repo that can't run the suite.

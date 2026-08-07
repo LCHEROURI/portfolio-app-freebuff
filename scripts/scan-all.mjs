@@ -185,7 +185,7 @@ async function main() {
 
 /**
  * Resolve the CRON_SECRET from --notify-secret, then env, then .env.local,
- * mirroring scripts/verify-cron-email.mjs so the two never drift.
+ * mirroring scripts/verify-cron-reports.mjs so the two never drift.
  */
 const resolveCronSecret = () => {
   if (NOTIFY_SECRET) return NOTIFY_SECRET;

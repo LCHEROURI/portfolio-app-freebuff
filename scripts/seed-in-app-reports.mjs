@@ -2,7 +2,7 @@
 // ============================================================================
 // scripts/seed-in-app-reports.mjs — pull composed reports into the in-app feed.
 //
-// Emailed reports are disabled: the cron route still composes the daily/weekly
+// Nothing is emailed: the cron route still composes the daily/weekly
 // bodies (exposed via ?previewBody=1) but never sends them. This script closes
 // the loop for the in-app Reports page — it calls the cron route with the same
 // CRON_SECRET bearer, takes the composed reports out of the JSON response, and

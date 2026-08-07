@@ -70,7 +70,7 @@ Each exits nonzero on failure. Read secrets from env, then `.env.local`.
 | --- | --- |
 | `npm run verify:token-health` | Stored `VERCEL_TOKEN` is alive: reads it (env → `.env.local` → CLI store), calls `GET /v2/user/tokens`, and reports the active token's name + expiry (or "no expiration"); a revoked token exits 2 with the paste-a-fresh-token guidance. Runs **first** in `verify:all` so a dead credential is caught in ~1s before any gate that depends on it |
 | `npm run verify:vercel-env` | Vercel production env **matches** `.env.local`: pulls the decrypted values via `vercel env pull`, asserts every local key exists in Vercel prod with an identical value (report shows names + value lengths only, never the secrets), reports Vercel-only vars as informational, and classifies GitHub secrets — CI-only ones (e.g. `VERCEL_ORG_ID`) are expected, not drift, while a GitHub secret that `.env.local` has but Vercel prod lacks fails the gate. Exits 1 on drift, 2 on an invalid token. Requires `VERCEL_TOKEN` + the Vercel CLI; `gh` degrades to skip-not-fail |
-| `npm run verify:cron-email` | Deployed `/api/cron/reports` 401s without auth; daily + weekly report bodies carry the friendly `(DeepSeek Chat)` heading and raw-id `Model:` footer; weekly winner-recommendation section present. Emailed reports are disabled — this proves the composed bodies still ship for the in-app Reports page |
+| `npm run verify:cron-reports` | Deployed `/api/cron/reports` 401s without auth; daily + weekly report bodies carry the friendly `(DeepSeek Chat)` heading and raw-id `Model:` footer; weekly winner-recommendation section present. Reports are composed in-app only — this proves the composed bodies still ship for the in-app Reports page |
 | `npm run verify:firestore-rules` | Rules on `portfolio-app-freebuff2`: portfolio write/read under the user's uid, cross-user denied |
 | `npm run verify:auth-domains` | `/api/status?project=<domain>` reports `authDomains.ok` for the shipping domain |
 | `node scripts/verify-prod-signin.mjs` | AuthGate renders, email/password + Google buttons present, both IdPs enabled (admin API), sign-in releases into the Command Center, Firestore write/read sync proven; `[3b]` asserts the classic OAuth client |
@@ -86,7 +86,7 @@ auth-domains rows (they share one script), and prints a summary table,
 exiting nonzero on any failure. `--only a,b` / `--skip a,b` narrow a run;
 `--expect <sha>` forwards a deployed-hash assertion into the runner.
 
-CI runs the cron-email + firestore-rules + auth-domains gates after every push
+CI runs the cron-reports + firestore-rules + auth-domains gates after every push
 (`ci.yml`), a sign-in gate, and `preview-gate.yml` validates every Vercel
 preview URL via `deployment_status`. A separate `verify-deployed-hash.yml`
 workflow (also `deployment_status`-triggered) closes the GitHub↔Vercel drift
@@ -141,7 +141,7 @@ unaffected.
 ## 6. What was verified at go-live (2026-08-06)
 
 - All four verify gates **PASS** against `portfolio-app-freebuff.vercel.app`
-  (cron-email, auth-domains, prod-signin incl. `[3b]` IdP checks, google-idp).
+  (cron-reports, auth-domains, prod-signin incl. `[3b]` IdP checks, google-idp).
 - CI for `fcdb059` (push run `31059206686`) and its Preview gate
   (`31059245823`) both **success**.
 - Google popup opens the **real Google sign-in page** (classic client
@@ -164,6 +164,6 @@ unaffected.
   is server-rendered on Vercel.
 - **`CRON_SECRET` rotation** must update `.env.local`, Vercel, and the GitHub
   secret together (README documents the exact sed/vercel commands). Drift
-  shows up as a `401` in the cron-email gate.
+  shows up as a `401` in the cron-reports gate.
 - Migration history: `docs/migrations/dedicated-firebase-project.md` (old
   project references are historical, marked COMPLETE).

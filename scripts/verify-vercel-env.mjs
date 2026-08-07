@@ -32,7 +32,7 @@
 // PRESENCE-CHECKS sensitive vars (key must exist in Vercel prod) and
 // VALUE-COMPARES only the readable `encrypted`/`plain` vars, which DO pull
 // their real values (e.g. REPORT_OWNER_ID). A sensitive var whose value is
-// behaviorally proven elsewhere (verify:cron-email authenticates with the
+// behaviorally proven elsewhere (verify:cron-reports authenticates with the
 // deployed CRON_SECRET) is reported as present-but-not-readable, never as
 // false drift. The per-key `type` comes from the REST env list; a key whose
 // pulled value is empty is treated as write-only, not as a mismatch.

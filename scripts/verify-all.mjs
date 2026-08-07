@@ -50,7 +50,7 @@ const PRODUCTION_URL = 'https://portfolio-app-freebuff.vercel.app';
 const ONLY = onlyArg ? onlyArg.split(',').map((s) => s.trim()).filter(Boolean) : [];
 const SKIP = skipArg ? skipArg.split(',').map((s) => s.trim()).filter(Boolean) : [];
 
-const GATE_NAMES = ['token-health', 'vercel-env', 'cron-email', 'firestore-rules', 'auth-domains', 'prod-signin', 'google-idp', 'auth-domains-direct', 'deployed-hash', 'import-surface'];
+const GATE_NAMES = ['token-health', 'vercel-env', 'cron-reports', 'firestore-rules', 'auth-domains', 'prod-signin', 'google-idp', 'auth-domains-direct', 'deployed-hash', 'import-surface'];
 const unknownOnly = ONLY.filter((n) => !GATE_NAMES.includes(n));
 const unknownSkip = SKIP.filter((n) => !GATE_NAMES.includes(n));
 if (unknownOnly.length > 0 || unknownSkip.length > 0) {
@@ -62,7 +62,7 @@ if (unknownOnly.length > 0 || unknownSkip.length > 0) {
 // ── Gate table (mirrors docs/launch.md §4) ──────────────────────────────────
 // npm gates spawn `npm run <script>`; node gates spawn `node <file>`.
 // `baseFlag` / `appFlag` declare which CLI flag the gate accepts for the app
-// URL override (each gate names its own flag: --base for cron-email, --app
+// URL override (each gate names its own flag: --base for cron-reports, --app
 // for the others). `duplicateOf` marks a row that resolves to the same file
 // as an earlier gate — it is reported but not re-run.
 // Whether a secret is available where the verify scripts read it: the env
@@ -101,7 +101,7 @@ const GATES = [
   // first. Requires the Vercel CLI (falls back to npx) + gh for the GitHub
   // classification (which degrades to skip-not-fail when gh is absent).
   { name: 'vercel-env', label: 'Vercel prod env matches .env.local', script: 'verify:vercel-env', secrets: ['VERCEL_TOKEN'], note: 'vercel CLI' },
-  { name: 'cron-email', label: 'Cron report bodies', script: 'verify:cron-email', baseFlag: '--base', secrets: ['CRON_SECRET'] },
+  { name: 'cron-reports', label: 'Cron report bodies', script: 'verify:cron-reports', baseFlag: '--base', secrets: ['CRON_SECRET'] },
   { name: 'firestore-rules', label: 'Firestore rules isolation', script: 'verify:firestore-rules', secrets: ['NEXT_PUBLIC_FIREBASE_PROJECT_ID', 'FIREBASE_WEB_API_KEY'] },
   { name: 'auth-domains', label: 'Authorized domains', script: 'verify:auth-domains', appFlag: '--app', secrets: ['FIREBASE_WEB_API_KEY'] },
   { name: 'prod-signin', label: 'Production sign-in + Firestore sync', script: 'verify:prod-signin', appFlag: '--app', secrets: ['FIREBASE_WEB_API_KEY', 'NEXT_PUBLIC_FIREBASE_PROJECT_ID'], note: 'Chrome' },

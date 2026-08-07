@@ -2,7 +2,7 @@
 // ============================================================================
 // scripts/seed-winner-candidates.mjs — seed a rule-10 fixture into Firestore.
 //
-// The weekly cron email renders an AI winner-recommendation section only when
+// The weekly cron report renders an AI winner-recommendation section only when
 // live data has a project with multiple active versions, no winner selected,
 // and at least one evaluation (automation rule 10). This script upserts exactly
 // that fixture — one project, two versions, two evaluations — into Firestore,

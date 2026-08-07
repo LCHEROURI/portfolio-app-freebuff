@@ -1,18 +1,18 @@
 #!/usr/bin/env node
 // ============================================================================
-// scripts/verify-cron-email.mjs — deployed cron-email smoke test.
+// scripts/verify-cron-reports.mjs — deployed cron report-body smoke test.
 //
 // Verifies the LIVE /api/cron/reports endpoint end to end without opening an
 // inbox, using the dev-only ?previewBody=1 flag (which still requires the
 // CRON_SECRET bearer). Asserts:
 //   1. Unauthenticated calls get 401.
-//   2. The weekly email body carries the friendly executive-summary heading
+//   2. The weekly report body carries the friendly executive-summary heading
 //      (model label, not raw id) AND the raw-id footer line.
-//   3. The daily email body carries the top-three narration heading with the
+//   3. The daily report body carries the top-three narration heading with the
 //      friendly label, the raw-id footer, and the structured narration field.
 //
 // Usage:
-//   node scripts/verify-cron-email.mjs [--base https://...] [--secret <CRON_SECRET>] [--owner <uid>]
+//   node scripts/verify-cron-reports.mjs [--base https://...] [--secret <CRON_SECRET>] [--owner <uid>]
 //
 // Reads CRON_SECRET from --secret, then CRON_SECRET env, then .env.local.
 // Exits nonzero on any failed assertion so CI can gate on it.
@@ -100,14 +100,14 @@ if (probe.status === 401) {
   fail(`authenticated probe returned unexpected status ${probe.status}`);
 }
 
-// 3. Weekly email body: friendly heading + raw footer + winner recommendation.
-console.log('\n[3/4] Weekly email body (?kind=weekly&previewBody=1)');
+// 3. Weekly report body: friendly heading + raw footer + winner recommendation.
+console.log('\n[3/4] Weekly report body (?kind=weekly&previewBody=1)');
 const weekly = await getJson('/api/cron/reports?kind=weekly&previewBody=1', auth);
 const weeklyReport = weekly.json?.reports?.find((r) => r.kind === 'weekly');
 const weeklyBody = weeklyReport?.body ?? '';
 // Owner-scoped strict mode: the deployed cron reads REPORT_OWNER_ID server-side,
 // so when --owner is passed the response's ownerId must match it — anything else
-// means the Vercel env never got the real uid and the email is scoped to the
+// means the Vercel env never got the real uid and the report is scoped to the
 // wrong account (or demo-user).
 if (OWNER) {
   if (!weekly.json?.ownerId) {
@@ -153,13 +153,13 @@ if (!failures) {
   if (weeklyReport?.aiModel) ok(`weekly aiModel=${weeklyReport.aiModel}`);
 }
 
-// 4. Daily email body: narration is data-dependent. When the automation engine
+// 4. Daily report body: narration is data-dependent. When the automation engine
 //    has actionable items the narration must carry the friendly heading, the
 //    DeepSeek Chat label, and the raw-id footer; when the queue is empty the
 //    graceful fallback must omit the narration cleanly while the executive
 //    summary and raw footer still ship. This keeps the check green on quiet
 //    days without letting regressions sneak through.
-console.log('\n[4/4] Daily email body (?kind=daily&previewBody=1)');
+console.log('\n[4/4] Daily report body (?kind=daily&previewBody=1)');
 const daily = await getJson('/api/cron/reports?kind=daily&previewBody=1', auth);
 const dailyReport = daily.json?.reports?.find((r) => r.kind === 'daily');
 const dailyBody = dailyReport?.body ?? '';

@@ -204,7 +204,7 @@ describe('GET /api/cron/reports — daily top-three narration', () => {
     expect(json.reports[0].kind).toBe('daily');
     expect(json.reports[0].aiModel).toBe('deepseek/deepseek-chat');
     expect(json.reports[0].narrationModel).toBe('deepseek/deepseek-chat');
-    // Emailed reports are disabled — no email envelope rides on the response.
+    // Reports are composed in-app — no email envelope rides on the response.
     expect(json.reports[0]).not.toHaveProperty('email');
   });
 
@@ -401,9 +401,9 @@ describe('GET /api/cron/reports — previewBody=1', () => {
   });
 });
 
-// ─── Emailed reports disabled (no envelope) ─────────────────────────────────
+// ─── No email envelope (reports are composed in-app) ────────────────────────
 
-describe('GET /api/cron/reports — emailed reports disabled', () => {
+describe('GET /api/cron/reports — no email envelope', () => {
   it('carries no email envelope on any report', async () => {
     const res = await GET(makeReq('daily'));
     expect(res.status).toBe(200);

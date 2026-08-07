@@ -15,5 +15,5 @@ export const LOCAL_SCAN_TITLE = 'Local scan';
 /** Subtitle shown under the in-app heading. */
 export const LOCAL_SCAN_SUBTITLE = 'newest → oldest across repos';
 
-/** Section heading used inside the emailed daily/weekly report bodies. */
+/** Section heading used inside the composed daily/weekly report bodies. */
 export const LOCAL_SCAN_EMAIL_HEADING = 'Local scan freshness';

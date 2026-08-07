@@ -447,7 +447,7 @@ if (isMain) {
       console.log();
       console.log('Next: sign in with this owner on the deployed app (or the cron with');
       console.log('REPORT_OWNER_ID set to the same owner) — Command Center metrics, the');
-      console.log('priority queue, top-three, and the emailed reports now compute against');
+      console.log('priority queue, top-three, and the composed reports now compute against');
       console.log('live Firestore rows instead of zeros.');
       console.log();
       console.log('Safety: run with --list before --clear to confirm what is owned by this owner.');

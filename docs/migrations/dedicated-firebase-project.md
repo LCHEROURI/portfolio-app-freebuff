@@ -3,7 +3,7 @@
 > **Status: COMPLETE (Aug 2026).** This app now runs on its own dedicated
 > Firebase project, **`portfolio-app-freebuff2`**. The migration below was
 > executed and all four verify gates pass against the new project
-> (cron-email, auth-domains, prod-signin, google-idp). **Everything in this
+> (cron-reports, auth-domains, prod-signin, google-idp). **Everything in this
 > document that mentions `meal-planner-lcherouri` describes the
 > pre-migration state and is historical context only** — the shared project is
 > no longer referenced or touched by this app.
@@ -32,7 +32,7 @@ Also done since the original plan was written:
   `docs/reviews/2026-08-04-authorized-domains.md`).
 - **Service account generated** → `FIREBASE_SERVICE_ACCOUNT` on Vercel, and
   `REPORT_OWNER_ID` set.
-- **All four verify gates PASS against the new project**: `verify:cron-email`,
+- **All four verify gates PASS against the new project**: `verify:cron-reports`,
   `verify:auth-domains`, `verify-prod-signin`, and `verify:google-idp`.
 
 The old shared project (`meal-planner-lcherouri`) is untouched and the
@@ -74,7 +74,7 @@ originally pointed at `meal-planner-lcherouri`:
 Verify scripts that already resolve the project id from env (no change needed,
 they follow the swap automatically): `verify-prod-signin.mjs`,
 `verify-auth-domains.mjs`, `verify-firestore-rules.mjs` (via
-`NEXT_PUBLIC_FIREBASE_PROJECT_ID`), `verify-cron-email.mjs` (hits the deployed
+`NEXT_PUBLIC_FIREBASE_PROJECT_ID`), `verify-cron-reports.mjs` (hits the deployed
 URL). `lib/firebase.ts`, `lib/server/firestoreAdmin.ts`, `sa-token.mjs`, and
 the `firestore.rules` deploy (`firebase.json`) all read the id from env too.
 
@@ -304,7 +304,7 @@ the `--project` flag is mandatory).
 npm run verify:auth-domains          # /api/status?project=<domain> → ok
 npm run verify:firestore-rules       # portfolio write/read, cross-user denied
 npm run verify:prod-signin           # sign in + Firestore sync on the live URL
-node scripts/verify-cron-email.mjs   # email bodies (once FIREBASE_SERVICE_ACCOUNT is on Vercel)
+node scripts/verify-cron-reports.mjs   # report bodies (once FIREBASE_SERVICE_ACCOUNT is on Vercel)
 ```
 
 All four read the project id from env, so they validate the new project after

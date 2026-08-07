@@ -35,7 +35,7 @@ const EXPECTED_GATE_COUNT = 10;
 // row is documented WITH its --expect argument (that is the gate form the
 // pre-push hook and CI use); the parser tolerates trailing args on npm gates.
 const EXPECTED_GATES = [
-  'npm run verify:cron-email',
+  'npm run verify:cron-reports',
   'npm run verify:firestore-rules',
   'npm run verify:auth-domains',
   'node scripts/verify-prod-signin.mjs',

@@ -110,7 +110,7 @@ jobs:
         run: node scripts/verify-launch-checklist.mjs
 
   # Post-deploy smoke tests against the LIVE app. Every push (or manual
-  # re-verify via workflow_dispatch) proves the deployed cron-email bodies
+  # re-verify via workflow_dispatch) proves the deployed cron report bodies
   # (gated on CRON_SECRET) and the deployed Firestore rules (gated on
   # FIREBASE_WEB_API_KEY) behave end to end, in one job. Each step is gated
   # on its secret so forks / unconfigured repos stay green and only run where
@@ -160,12 +160,12 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
-      # Resend/email is disabled — no resend key-health step. The cron-email
-      # gate below still proves the deployed bodies compose correctly.
+      # Nothing is emailed — no resend key-health step. The cron-reports gate
+      # below still proves the deployed bodies compose correctly.
 
-      - name: Verify deployed cron email bodies
+      - name: Verify deployed cron report bodies
         if: ${{ env.CRON_SECRET != '' }}
-        run: node scripts/verify-cron-email.mjs
+        run: node scripts/verify-cron-reports.mjs
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
 

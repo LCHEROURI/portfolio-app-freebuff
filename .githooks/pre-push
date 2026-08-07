@@ -17,7 +17,7 @@
 #   0.7 scripts/verify-vercel-env.mjs    (needs VERCEL_TOKEN + vercel CLI — pulls prod
 #                                          env and asserts it matches .env.local)
 #   1. scripts/verify-auth-domains.mjs   (needs FIREBASE_WEB_API_KEY)
-#   2. scripts/verify-cron-email.mjs     (needs CRON_SECRET)
+#   2. scripts/verify-cron-reports.mjs  (needs CRON_SECRET)
 #   3. scripts/verify-prod-signin.mjs    (needs FIREBASE_WEB_API_KEY + Chrome)
 # A check that cannot run (missing key / secret / Chrome / script file) is
 # skipped with a notice, not a failure — so machines without the deployment
@@ -240,12 +240,12 @@ else
   [ -n "$KEY" ] || echo "pre-push: FIREBASE_WEB_API_KEY not set — skipping authorized-domains proof"
 fi
 
-# ── 2. Cron-email gate (needs CRON_SECRET) ─────────────────────────────────
-if [ -n "$CRON" ] && [ -f scripts/verify-cron-email.mjs ]; then
-  run_verify "deployed cron-email bodies" scripts/verify-cron-email.mjs
+# ── 2. Cron-reports gate (needs CRON_SECRET) ────────────────────────────────
+if [ -n "$CRON" ] && [ -f scripts/verify-cron-reports.mjs ]; then
+  run_verify "deployed cron report bodies" scripts/verify-cron-reports.mjs
 else
-  [ -f scripts/verify-cron-email.mjs ] || echo "pre-push: verify suite not present — skipping cron-email proof"
-  [ -n "$CRON" ] || echo "pre-push: CRON_SECRET not set — skipping cron-email proof"
+  [ -f scripts/verify-cron-reports.mjs ] || echo "pre-push: verify suite not present — skipping cron-reports proof"
+  [ -n "$CRON" ] || echo "pre-push: CRON_SECRET not set — skipping cron-reports proof"
 fi
 
 # ── 3. Sign-in + Firestore sync gate (needs Chrome) ─────────────────────────

@@ -8,8 +8,8 @@
 #
 # After the scan succeeds it also runs scripts/seed-in-app-reports.mjs with
 # --owner <REPORT_OWNER_ID> (env var, then .env.local, then 'demo-user'), so
-# the composed daily report lands in the in-app Reports feed — emailed reports
-# are disabled, so this is how the feed stays populated daily.
+# the composed daily report lands in the in-app Reports feed — nothing is
+# emailed, so this is how the feed stays populated daily.
 #
 # Usage:
 #   /bin/bash scripts/scan-all-scheduled.sh
@@ -75,8 +75,8 @@ node scripts/scan-all.mjs "${ARGS[@]}" >> "${LOG_FILE}" 2>&1
 SCAN_STATUS=$?
 echo "[$(date '+%F %T')] scan-all scheduled run finished (exit ${SCAN_STATUS})" >> "${LOG_FILE}"
 
-# Seed the composed report into the in-app Reports feed (emailed reports are
-# disabled). Owner resolves env -> .env.local -> cron default 'demo-user', so
+# Seed the composed report into the in-app Reports feed (nothing is emailed).
+# Owner resolves env -> .env.local -> cron default 'demo-user', so
 # the report lands under the same account the automation reads.
 REPORT_OWNER="${REPORT_OWNER_ID:-$(grep -E '^REPORT_OWNER_ID=' "${PROJECT_ROOT}/.env.local" 2>/dev/null | head -1 | cut -d= -f2- || true)}"
 REPORT_OWNER="${REPORT_OWNER:-demo-user}"
