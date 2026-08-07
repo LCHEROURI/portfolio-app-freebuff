@@ -151,7 +151,10 @@ jobs:
   verify-deployed:
     name: Verify deployed cron reports + rules
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 20m (vs 10m originally): the review-sheet step drives two AI
+    # recommendation round-trips (up to ~90s each) plus seeding, sign-in, and
+    # the CDP review-sheet capture on top of the existing smoke gates.
+    timeout-minutes: 20
     needs: validate
     if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
 
@@ -161,6 +164,7 @@ jobs:
     env:
       CRON_SECRET: ${{ secrets.CRON_SECRET }}
       FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
     steps:
@@ -182,17 +186,19 @@ jobs:
       # re-verifies stay exempt: forks never carry these secrets, and a
       # workflow_dispatch re-verify shows its skipped steps to the operator.
       - name: Fail loudly if a verify secret is missing (main push)
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'LCHEROURI/portfolio-app-freebuff' && (env.CRON_SECRET == '' || env.FIREBASE_WEB_API_KEY == '' || env.VERCEL_TOKEN == '') }}
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'LCHEROURI/portfolio-app-freebuff' && (env.CRON_SECRET == '' || env.FIREBASE_WEB_API_KEY == '' || env.FIREBASE_SERVICE_ACCOUNT == '' || env.VERCEL_TOKEN == '') }}
         run: |
           echo "::error::Required GitHub Actions secret(s) missing on main push:"
           [ -z "$CRON_SECRET" ] && echo "  - CRON_SECRET (gates 'Verify deployed cron report bodies')"
           [ -z "$FIREBASE_WEB_API_KEY" ] && echo "  - FIREBASE_WEB_API_KEY (gates 'Verify deployed Firestore rules' and 'Verify Google sign-in IdP config')"
+          [ -z "$FIREBASE_SERVICE_ACCOUNT" ] && echo "  - FIREBASE_SERVICE_ACCOUNT (gates 'Verify deployed review-sheet print-all contract')"
           [ -z "$VERCEL_TOKEN" ] && echo "  - VERCEL_TOKEN (gates 'Verify Vercel token health')"
           echo "Add them under GitHub -> Settings -> Secrets and variables -> Actions, then re-run this job."
           exit 1
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
       # Vercel token health: proves the CI VERCEL_TOKEN (the same secret the
@@ -239,6 +245,35 @@ jobs:
           FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           NEXT_PUBLIC_FIREBASE_PROJECT_ID: portfolio-app-freebuff2
+
+      # Review-sheet print-all contract: drives the DEPLOYED Model Comparison
+      # page in headless Chrome, seeds a fixture under a throwaway user,
+      # generates two AI winner recommendations, opens the Print-all review
+      # sheet, and asserts both numbered entries render with the friendly
+      # model label — the same gate verify:all and the pre-push hook run, now
+      # enforced after every deploy. Gated on the SAME credential pair as
+      # prod-signin (web API key to mint the throwaway user + service account
+      # to seed the fixture) so forks / unconfigured repos stay green. Needs
+      # Chrome on the Linux runner (the /Applications fallback does not
+      # exist), so the binary is installed here like the prod-signin job.
+      # Note the step id is chrome-review-sheet (NOT chrome): steps.* references
+      # cannot cross jobs, and the validate + prod-signin jobs already own the
+      # bare `chrome` id — reusing it here would make CHROME_PATH resolve to
+      # nothing (or the wrong job's step), silently skip-not-failing the gate.
+      - name: Install Chrome for review-sheet CDP
+        id: chrome-review-sheet
+        uses: browser-actions/setup-chrome@v2
+        with:
+          chrome-version: stable
+
+      - name: Verify deployed review-sheet print-all contract
+        if: ${{ env.FIREBASE_WEB_API_KEY != '' && env.FIREBASE_SERVICE_ACCOUNT != '' }}
+        run: node scripts/verify-review-sheet.mjs
+        env:
+          FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: portfolio-app-freebuff2
+          CHROME_PATH: ${{ steps.chrome-review-sheet.outputs.chrome-path }}
 
   # Post-deploy authorized-domains smoke test. Mints a throwaway Firebase
   # user, calls the deployed /api/status?project=<domain> and fails the run

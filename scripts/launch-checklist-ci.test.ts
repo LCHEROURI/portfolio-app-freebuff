@@ -12,7 +12,7 @@ describe('parseCiGateSteps (live repo)', () => {
   const steps = parseCiGateSteps(read('.github/workflows/ci.yml'));
 
   it('finds every gated verify step across the three post-deploy jobs', () => {
-    expect(steps).toHaveLength(6);
+    expect(steps).toHaveLength(7);
     const byRun = new Map(steps.map((s) => [s.run, s]));
     expect([...byRun.keys()].sort()).toEqual([
       'verify-auth-domains.mjs',
@@ -20,6 +20,7 @@ describe('parseCiGateSteps (live repo)', () => {
       'verify-firestore-rules.mjs',
       'verify-google-idp.mjs',
       'verify-prod-signin.mjs',
+      'verify-review-sheet.mjs',
       'verify-token-health.mjs',
     ]);
   });
@@ -32,6 +33,10 @@ describe('parseCiGateSteps (live repo)', () => {
     expect(byRun.get('verify-google-idp.mjs').gatingSecrets).toEqual(['FIREBASE_WEB_API_KEY']);
     expect(byRun.get('verify-auth-domains.mjs').gatingSecrets).toEqual(['FIREBASE_WEB_API_KEY']);
     expect(byRun.get('verify-prod-signin.mjs').gatingSecrets).toEqual(['FIREBASE_WEB_API_KEY']);
+    // The review-sheet gate declares the SAME credential pair as prod-signin
+    // (web API key + service account); both non-public secrets must be gated
+    // so a missing credential skips-not-fails only on forks.
+    expect(byRun.get('verify-review-sheet.mjs').gatingSecrets).toEqual(['FIREBASE_WEB_API_KEY', 'FIREBASE_SERVICE_ACCOUNT']);
   });
 
   it('does not pick up loud-guard, checkout, or install steps', () => {

@@ -139,6 +139,22 @@ describe('.github/workflows/ci.yml · verify-deployed job (post-deploy smoke gat
     expect(verifyDeployedBlock).toContain("if: ${{ env.FIREBASE_WEB_API_KEY != '' }}");
     expect(verifyDeployedBlock).toContain('FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}');
   });
+
+  it('still runs the review-sheet print-all gate, gated on the Firebase pair with Chrome', () => {
+    // The review-sheet gate (verify-review-sheet.mjs) drives the deployed
+    // Model Comparison page — the print-all contract must be CI-proven after
+    // every deploy, not just via verify:all and pre-push. It needs the same
+    // credential pair as prod-signin (web API key mints the throwaway user,
+    // service account seeds the fixture), both gated so a missing secret
+    // skips-not-fails only on forks, and a Chrome binary for the CDP driver
+    // (the Linux runner has no /Applications fallback).
+    expect(verifyDeployedBlock).toMatch(/run: node scripts\/verify-review-sheet\.mjs/);
+    expect(verifyDeployedBlock).toContain("if: ${{ env.FIREBASE_WEB_API_KEY != '' && env.FIREBASE_SERVICE_ACCOUNT != '' }}");
+    expect(verifyDeployedBlock).toContain('FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}');
+    expect(verifyDeployedBlock).toContain('NEXT_PUBLIC_FIREBASE_PROJECT_ID: portfolio-app-freebuff2');
+    expect(verifyDeployedBlock).toContain('Install Chrome for review-sheet CDP');
+    expect(verifyDeployedBlock).toContain('CHROME_PATH: ${{ steps.chrome-review-sheet.outputs.chrome-path }}');
+  });
 });
 
 describe('.github/workflows/preview-gate.yml · deployment_status preview gate', () => {
