@@ -129,6 +129,7 @@ When each gate runs (same picture as the README handoff section):
    ┌───────────────────────────────────────────────────────────────┐
    │  LOCAL — every git push (.githooks/pre-push)                  │
    │  runs the 11 verify:all gates + drift guards (timeboxed); a   │
+   │  hook gates 0.6/0.6b/0.6c (lints + docs-render diff);         │
    │  dirty tree or any failure ABORTS the push                    │
    └──────────────────────────────┬────────────────────────────────┘
                                   │  push lands only when green
@@ -215,7 +216,10 @@ the one-command checklist covers it too.
 
 **Final pre-push capstone:** the hook ends with the `ship:ready` verdict
 (`scripts/ship-ready.mjs`, 20-minute budget — the full `verify:all` suite far
-exceeds the 90s per-verifier timebox): after every individual gate passes, it
+exceeds the 90s per-verifier timebox). Before the capstone, the hook also
+runs its three lint gates — **0.6** import-surface, **0.6b** dead-words,
+**0.6c** docs-render diff (re-renders the onboarding-docs PNGs and fails
+until the committed screenshots match). After every individual gate passes, it
 asserts the working tree is clean (nothing staged, unstaged, or untracked — a
 dirty tree means the pushed commit cannot match the code you just ran) and
 runs the complete eleven-gate suite against production, printing a single

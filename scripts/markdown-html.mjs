@@ -23,6 +23,15 @@ const escapeHtml = (s) => s
 
 const INLINE_CODE_RE = /`([^`]+)`/g;
 const BOLD_RE = /\*\*([^*]+)\*\*/g;
+// Image reference: `![alt](path)`. Consumed BEFORE the link pattern so the
+// leading `!` is never left behind and the path is never turned into a
+// clickable link. Emitted as a styled span — NOT an <img>: the capture renders
+// into a data: URL page where a relative src cannot resolve, and inlining the
+// actual PNG bytes would compound image data into the section PNG on every
+// regeneration (docs-handoff.png would embed its own previous generation),
+// breaking the --check byte-diff gate. The alt text keeps the reference
+// visible in the rendered PNG.
+const IMAGE_RE = /!\[([^\]]*)\]\(([^)]+)\)/g;
 const LINK_RE = /\[([^\]]+)\]\(([^)]+)\)/g;
 // Placeholder for a code span while bold/links run, so a code span containing
 // `**` or `[` can never be corrupted by the later patterns (real markdown
@@ -42,6 +51,7 @@ export const renderInline = (text) => {
   });
   const withBoldLinks = protectedText
     .replace(BOLD_RE, '<strong>$1</strong>')
+    .replace(IMAGE_RE, '<span class="doc-img">[image: $1]</span>')
     .replace(LINK_RE, '<a href="$2">$1</a>');
   return withBoldLinks.replace(
     new RegExp(`${CODE_PLACEHOLDER}(\\d+)${CODE_PLACEHOLDER}`, 'g'),

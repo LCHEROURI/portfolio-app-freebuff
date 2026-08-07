@@ -32,6 +32,28 @@ describe('renderInline (escaped input)', () => {
       '<strong>run <code>npm run x</code></strong>',
     );
   });
+
+  it('renders image references as a clean span, not a stray ! + link', () => {
+    // The capture renders into a data: URL page where a relative src cannot
+    // resolve, and inlining bytes would compound across regenerations — so an
+    // image reference becomes the alt text as a styled span with an [image:]
+    // prefix, and the leading `!` must not leak out or turn the path into a
+    // clickable link.
+    expect(renderInline('![README Handoff](screenshots/docs-handoff.png)')).toBe(
+      '<span class="doc-img">[image: README Handoff]</span>',
+    );
+    expect(renderInline('plain ![alt](x.png) text')).toBe(
+      'plain <span class="doc-img">[image: alt]</span> text',
+    );
+  });
+
+  it('keeps image syntax inside code spans atomic', () => {
+    // A code span containing ![ ]( ) must stay one <code> element; the image
+    // pattern runs on placeholders and can never reach inside.
+    expect(renderInline('`![not an image](x.png)`')).toBe(
+      '<code>![not an image](x.png)</code>',
+    );
+  });
 });
 
 describe('renderMarkdown (block constructs)', () => {
@@ -134,6 +156,10 @@ describe('extractSection', () => {
     expect(section).toContain('## Handoff — read this first');
     expect(section).toContain('### The 11 verification gates');
     expect(section).toContain('When each gate runs:');
+    // Both docs-PNG embeds must stay inside the Handoff section (before the
+    // Screenshots section) — a future edit dropping either embed fails here.
+    expect(section).toContain('screenshots/docs-handoff.png');
+    expect(section).toContain('screenshots/docs-launch-gates.png');
     expect(section).not.toContain('## Screenshots');
   });
 

@@ -120,9 +120,12 @@ reads its secrets from env, then `.env.local`:
 checklist matches the runner's gate names and secrets, and the ci.yml +
 deployment_status workflows gate on exactly the secrets each gate declares —
 a gate renamed, dropped, or mis-gated fails before anything runs. The
-`.githooks/pre-push` hook runs the whole suite (timeboxed) on every push, and
-`npm run ship:go` commits, pushes, waits for the Vercel deploy, then re-runs
-`ship:ready` against the live build.
+`.githooks/pre-push` hook runs the whole suite (timeboxed) on every push,
+preceded by the hook's three lint gates — **0.6** import-surface, **0.6b**
+dead-words, **0.6c** docs-render diff (re-renders the onboarding-docs PNGs
+and fails until the committed screenshots match) — and `npm run ship:go`
+commits, pushes, waits for the Vercel deploy, then re-runs `ship:ready`
+against the live build.
 
 When each gate runs:
 
@@ -130,6 +133,7 @@ When each gate runs:
    ┌───────────────────────────────────────────────────────────────┐
    │  LOCAL — every git push (.githooks/pre-push)                  │
    │  runs the 11 verify:all gates + drift guards (timeboxed); a   │
+   │  hook gates 0.6/0.6b/0.6c (lints + docs-render diff);         │
    │  dirty tree or any failure ABORTS the push                    │
    └──────────────────────────────┬────────────────────────────────┘
                                   │  push lands only when green
@@ -179,6 +183,21 @@ for `VERCEL_TOKEN`. GitHub-only secrets (`VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`,
 drift. The Firebase project id is pinned to `portfolio-app-freebuff2` by a CI
 guard that fails on any bare `portfolio-app-freebuff` used as a project id —
 keep the **2**.
+
+### Onboarding visuals
+
+These two docs are captured to full-page PNGs by `npm run capture:docs`
+(every gallery run renders them into the artifact), so the same pictures are
+visible right here in the repo:
+
+| Doc | Render |
+| :--- | :---: |
+| **README Handoff** (this section) | ![README Handoff section](screenshots/docs-handoff.png) |
+| **launch.md §4 gates** | ![launch.md §4 verification gates](screenshots/docs-launch-gates.png) |
+
+> Regenerate them whenever these sections change — `npm run capture:docs`, then
+> commit the two PNGs with the edit. The pre-push hook's docs-render gate
+> (gate 0.6c) fails until the committed PNGs match the current docs.
 
 ## Screenshots
 
