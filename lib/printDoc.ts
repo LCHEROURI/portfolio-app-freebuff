@@ -69,6 +69,10 @@ export const reportPrintMeta = (input: {
 export const briefingPrintMeta = (actionCount: number): string =>
   `${actionCount} priority ${actionCount === 1 ? 'action' : 'actions'}`;
 
+/** Meta line for an AI winner recommendation print (recommended version). */
+export const recommendationPrintMeta = (recommendedVersionName: string): string =>
+  `AI winner recommendation · Recommended: ${recommendedVersionName}`;
+
 /** Standalone stylesheet for the preview window. The .paper sheet mirrors the
  *  print layout (white sheet, dark text, wrapped monospace body); the toolbar
  *  is hidden in @media print so what you see on screen is what hits the

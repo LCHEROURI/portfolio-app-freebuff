@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Scale, Trophy, Sparkles, Check } from 'lucide-react';
+import { Scale, Trophy, Sparkles, Check, Printer } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader } from '@/components/ui/Card';
@@ -11,6 +11,9 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { useStore } from '@/lib/store';
 import { buildComparison } from '@/lib/engine';
 import { fetchWinnerRecommendation } from '@/lib/liveData';
+import { modelLabel } from '@/lib/labels';
+import { recommendationPrintMeta, type PrintDoc } from '@/lib/printDoc';
+import { usePrint } from '@/lib/usePrint';
 import { type Project, type ModelEvaluation } from '@/types';
 
 const COLUMNS = [
@@ -32,9 +35,35 @@ interface RecState {
   model: string;
 }
 
+// The print-only area mirrors a project's AI winner recommendation panel: the
+// recommended version and the note. Shares the .print-report recipe with the
+// Command Center, Today page, and Reports page via the usePrint hook — print
+// never touches the data layer.
+type PrintRecommendation = {
+  projectName: string;
+  recommendedVersionName: string;
+  note: string;
+  model: string;
+};
+
+// Map a project's recommendation to the shared print-preview document: the
+// note becomes a callout with the friendly model label. The recommendation is
+// printed as it reads on screen (editable draft wins over the saved note).
+const buildPrintDoc = (payload: PrintRecommendation): PrintDoc => ({
+  title: `${payload.projectName} — AI winner recommendation`,
+  // Shared builder — the in-page .print-report fallback below calls the same
+  // function, so the two render paths can never drift.
+  meta: recommendationPrintMeta(payload.recommendedVersionName),
+  callouts: payload.note
+    ? [{ heading: 'AI winner recommendation', label: modelLabel(payload.model), text: payload.note }]
+    : [],
+});
+
 export default function ModelComparisonPage() {
   const store = useStore();
   const rows = buildComparison(store);
+  // Shared print lifecycle for the per-project AI winner recommendation panels.
+  const { printTarget, printReport } = usePrint<PrintRecommendation>(buildPrintDoc);
 
   // Per-project AI recommendation state. Drafts are editable text the user can
   // tweak before saving onto the project.
@@ -108,6 +137,22 @@ export default function ModelComparisonPage() {
         winnerRecommendationModel: rec.model || project.winnerRecommendationModel,
       });
     }
+  };
+
+  // The print payload mirrors what is on screen right now: the recommended
+  // version name resolved from the live rec state, and the editable draft
+  // (falling back to the saved note) so the printed text is what the user sees.
+  const buildPrintRecommendation = (project: Project): PrintRecommendation => {
+    const rec = recs[project.id];
+    const versionId = rec?.recommendedVersionId ?? project.winningVersionId;
+    return {
+      projectName: project.name,
+      recommendedVersionName: versionId
+        ? store.versions.find((v) => v.id === versionId)?.versionName ?? '…'
+        : '…',
+      note: drafts[project.id] ?? project.winnerRecommendation ?? rec?.note ?? '',
+      model: rec?.model ?? project.winnerRecommendationModel ?? '',
+    };
   };
 
   return (
@@ -201,6 +246,15 @@ export default function ModelComparisonPage() {
                       <span className="text-xs font-semibold uppercase tracking-wide text-pepper-500">AI winner recommendation</span>
                       <ModelBadge model={recs[project.id]?.model ?? project.winnerRecommendationModel} />
                       {hint[project.id] && <Badge tone="turmeric">AI unavailable — top score shown</Badge>}
+                      <button
+                        type="button"
+                        className="btn-ghost text-xs"
+                        aria-label={`Print winner recommendation for ${project.name}`}
+                        title="Print this recommendation"
+                        onClick={() => printReport(buildPrintRecommendation(project))}
+                      >
+                        <Printer size={13} aria-hidden="true" /> Print
+                      </button>
                     </div>
                     {recs[project.id] && (
                       <p className="mt-1 text-xs text-pepper-500">
@@ -245,6 +299,28 @@ export default function ModelComparisonPage() {
               </Card>
             );
           })}
+        </div>
+      )}
+
+      {/* Print-only area — visible ONLY in the print dialog (@media print in
+          globals.css hides everything else and anchors this to the top of the
+          page). Rendered only while a recommendation is being printed, so it
+          never lingers in the on-screen DOM. */}
+      {printTarget && (
+        <div className="print-report" data-testid="print-report" aria-hidden="true">
+          <h2 className="print-report-title">{printTarget.projectName} — AI winner recommendation</h2>
+          <p className="print-report-meta">
+            {/* Same shared builder as the preview document — never inline a copy. */}
+            {recommendationPrintMeta(printTarget.recommendedVersionName)}
+          </p>
+          {printTarget.note && (
+            <div className="print-report-summary">
+              <strong>AI winner recommendation</strong>
+              {/* Friendly label, not the raw model id — matches the on-screen badge. */}
+              <span> ({modelLabel(printTarget.model)})</span>
+              <p>{printTarget.note}</p>
+            </div>
+          )}
         </div>
       )}
     </div>

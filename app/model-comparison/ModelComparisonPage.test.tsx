@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import ModelComparisonPage from './page';
@@ -195,5 +195,98 @@ describe('ModelComparisonPage — AI winner recommendation', () => {
     expect(noteSave.winnerRecommendation).toBe('Gemini wins.');
     expect(noteSave.winningVersionId).toBe('v-gemini');
     expect(noteSave.overallStatus).toBe('WINNER_SELECTED');
+  });
+});
+
+// ─── Print the AI winner recommendation ───────────────────────────────────
+
+// A fake window.open() return value: a minimal window whose document spies
+// capture the standalone HTML the preview flow writes.
+const fakePreviewWindow = () => {
+  const write = vi.fn();
+  const win = {
+    document: { open: vi.fn(), write, close: vi.fn() },
+    focus: vi.fn(),
+  } as unknown as Window;
+  return { win, write };
+};
+
+describe('ModelComparisonPage — print AI winner recommendation', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('prints the recommendation note, recommended version, and model label via the in-page recipe', async () => {
+    vi.spyOn(window, 'open').mockReturnValue(null);
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {});
+    queue = [{
+      ok: true, configured: true,
+      recommendation: { recommendedVersionId: 'v-gemini', note: 'Gemini wins on features and overall score.', model: 'deepseek/deepseek-chat' },
+    }];
+    render(<ModelComparisonPage />);
+
+    // Generate the recommendation first so the print payload carries it.
+    fireEvent.click(screen.getByRole('button', { name: 'Recommend winner for Weeknight Meal Planner' }));
+    expect(await screen.findByText('AI winner recommendation')).toBeInTheDocument();
+
+    // Print the panel: the print-only area mirrors the recommendation.
+    fireEvent.click(screen.getByRole('button', { name: 'Print winner recommendation for Weeknight Meal Planner' }));
+
+    const printArea = screen.getByTestId('print-report');
+    expect(within(printArea).getByText(/Weeknight Meal Planner — AI winner recommendation/)).toBeInTheDocument();
+    expect(within(printArea).getByText(/Recommended: Gemini Build/)).toBeInTheDocument();
+    expect(within(printArea).getByText(/Gemini wins on features and overall score./)).toBeInTheDocument();
+    // Friendly model label, not the raw model id.
+    expect(within(printArea).getByText(/DeepSeek Chat/)).toBeInTheDocument();
+    await waitFor(() => expect(printSpy).toHaveBeenCalledTimes(1));
+
+    // The area is released after the dialog opens — nothing lingers on screen.
+    await waitFor(() => expect(screen.queryByTestId('print-report')).toBeNull());
+  });
+
+  it('prints the editable draft rather than the saved note (what is on screen)', async () => {
+    vi.spyOn(window, 'open').mockReturnValue(null);
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {});
+    queue = [{
+      ok: true, configured: true,
+      recommendation: { recommendedVersionId: 'v-gemini', note: 'Original AI note.', model: 'deepseek/deepseek-chat' },
+    }];
+    render(<ModelComparisonPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Recommend winner for Weeknight Meal Planner' }));
+    const textarea = await screen.findByLabelText('Winner recommendation note for Weeknight Meal Planner');
+    // The user edits the note before printing — the print must carry the edit.
+    fireEvent.change(textarea, { target: { value: 'Edited before printing.' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Print winner recommendation for Weeknight Meal Planner' }));
+
+    const printArea = screen.getByTestId('print-report');
+    expect(within(printArea).getByText(/Edited before printing./)).toBeInTheDocument();
+    expect(within(printArea).queryByText(/Original AI note./)).toBeNull();
+    await waitFor(() => expect(printSpy).toHaveBeenCalledTimes(1));
+  });
+
+  it('opens a styled preview window with the recommendation when the popup is allowed', async () => {
+    const { win, write } = fakePreviewWindow();
+    vi.spyOn(window, 'open').mockReturnValue(win);
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {});
+    queue = [{
+      ok: true, configured: true,
+      recommendation: { recommendedVersionId: 'v-gemini', note: 'Gemini wins on features.', model: 'deepseek/deepseek-chat' },
+    }];
+    render(<ModelComparisonPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Recommend winner for Weeknight Meal Planner' }));
+    expect(await screen.findByText('AI winner recommendation')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Print winner recommendation for Weeknight Meal Planner' }));
+
+    expect(write).toHaveBeenCalledTimes(1);
+    const html = String(write.mock.calls[0][0]);
+    expect(html).toContain('Weeknight Meal Planner — AI winner recommendation');
+    expect(html).toContain('Gemini wins on features.');
+    expect(html).toContain('DeepSeek Chat');
+    expect(printSpy).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('print-report')).toBeNull();
   });
 });

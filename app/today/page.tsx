@@ -4,7 +4,7 @@ import { useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import {
   CalendarClock, AlertCircle, TrendingUp, CheckCircle2, ChevronRight,
-  Plus, Bell, RotateCcw,
+  Plus, Bell, RotateCcw, Printer,
 } from 'lucide-react';
 
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -14,7 +14,32 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { TaskModal } from '@/components/tasks/TaskModal';
 import { useStore } from '@/lib/store';
 import { buildTopThree, isDueToday, isOverdue, timeAgo } from '@/lib/engine';
+import { briefingPrintMeta, type PrintDoc } from '@/lib/printDoc';
+import { usePrint } from '@/lib/usePrint';
 import type { Task, Reminder } from '@/types';
+
+// The print-only area mirrors the Top Three hero card: the ranked action list
+// with project context. Shares the .print-report recipe with the Command Center
+// and Reports page via the usePrint hook — print never touches the data layer.
+type PrintBriefing = {
+  actions: Array<{ priority: number; title: string; description: string; projectName?: string }>;
+};
+
+// Map the on-screen top three to the shared print-preview document: the ranked
+// actions become a numbered list with project + rank context. Today's Top Three
+// is rule-based (no AI narration on this page), so the doc carries no callouts.
+const buildPrintDoc = (payload: PrintBriefing): PrintDoc => ({
+  title: "Today's Top Three",
+  // Shared builder — the in-page .print-report fallback below calls the same
+  // function, so the two render paths can never drift.
+  meta: briefingPrintMeta(payload.actions.length),
+  list: payload.actions.map((action, i) => ({
+    number: i + 1,
+    title: action.title,
+    project: action.projectName,
+    detail: `${action.description} (rank ${action.priority})`,
+  })),
+});
 
 const uid = (prefix: string) =>
   `${prefix}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
@@ -29,6 +54,20 @@ const todayInput = () => {
 export default function TodayPage() {
   const store = useStore();
   const topThree = buildTopThree(store);
+  // Shared print lifecycle for the Top Three hero card.
+  const { printTarget, printReport } = usePrint<PrintBriefing>(buildPrintDoc);
+
+  // The print payload mirrors what is on screen right now: the ranked actions
+  // with project names resolved for context.
+  const buildPrintBriefing = (): PrintBriefing => ({
+    actions: topThree.map((a) => ({
+      priority: a.priority,
+      title: a.title,
+      description: a.description,
+      projectName: a.projectId ? store.projects.find((p) => p.id === a.projectId)?.name : undefined,
+    })),
+  });
+
   const dueToday = store.tasks.filter((t) => t.status !== 'COMPLETED' && t.status !== 'CANCELED' && isDueToday(t.dueDate));
   const overdue = store.tasks.filter((t) => t.status !== 'COMPLETED' && t.status !== 'CANCELED' && isOverdue(t.dueDate));
   const recentDone = store.tasks
@@ -81,7 +120,26 @@ export default function TodayPage() {
       {/* Top three hero */}
       <section aria-label="Today's top three" className="mb-6">
         <Card className="bg-gradient-warm dark:bg-pepper-800">
-          <CardHeader title="Today's Top Three" subtitle="Auto-computed from the priority queue and your due dates." action={<TrendingUp size={18} className="text-tomato-500" aria-hidden="true" />} />
+          <CardHeader
+            title="Today's Top Three"
+            subtitle="Auto-computed from the priority queue and your due dates."
+            action={
+              <div className="flex items-center gap-2">
+                {topThree.length > 0 && (
+                  <button
+                    type="button"
+                    className="btn-ghost text-xs"
+                    aria-label="Print today's top three"
+                    title="Print this briefing"
+                    onClick={() => printReport(buildPrintBriefing())}
+                  >
+                    <Printer size={14} aria-hidden="true" /> Print
+                  </button>
+                )}
+                <TrendingUp size={18} className="text-tomato-500" aria-hidden="true" />
+              </div>
+            }
+          />
           {topThree.length === 0 ? (
             <p className="text-sm text-pepper-500 dark:text-pepper-300">Nothing urgent. Use the time for comparisons, roadmap, or rest. 🎉</p>
           ) : (
@@ -240,6 +298,29 @@ export default function TodayPage() {
       </div>
 
       <TaskModal open={editModalOpen} onClose={() => setEditModalOpen(false)} editing={editing ?? undefined} projectId={editing?.projectId ?? fallbackProjectId} />
+
+      {/* Print-only area — visible ONLY in the print dialog (@media print in
+          globals.css hides everything else and anchors this to the top of the
+          page). Rendered only while a briefing is being printed, so it never
+          lingers in the on-screen DOM. */}
+      {printTarget && (
+        <div className="print-report" data-testid="print-report" aria-hidden="true">
+          <h2 className="print-report-title">Today&apos;s Top Three</h2>
+          <p className="print-report-meta">
+            {/* Same shared builder as the preview document — never inline a copy. */}
+            {briefingPrintMeta(printTarget.actions.length)}
+          </p>
+          <ol>
+            {printTarget.actions.map((action, i) => (
+              <li key={i}>
+                <strong>{i + 1}. {action.title}</strong>
+                {action.projectName && <span> · {action.projectName}</span>}
+                <p>{action.description} (rank {action.priority})</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
     </div>
   );
 }
