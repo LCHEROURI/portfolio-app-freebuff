@@ -137,6 +137,11 @@ const chrome = spawn(CHROME, [
   '--disable-gpu',
   '--hide-scrollbars',
   '--no-first-run',
+  // GitHub-hosted runners run Chromium without a usable sandbox; these flags
+  // let headless Chrome start there (and are harmless on macOS) — same
+  // convention as verify-prod-signin.mjs / verify-review-sheet.mjs.
+  '--no-sandbox',
+  '--disable-dev-shm-usage',
   `--remote-debugging-port=${PORT}`,
   '--user-data-dir=/tmp/docs-capture-chrome',
   'about:blank',
@@ -171,7 +176,10 @@ chrome.on('error', (err) => {
 const fetchJson = async (url) => (await fetch(url)).json();
 
 let wsUrl = null;
-for (let i = 0; i < 40 && !wsUrl; i++) {
+// 15s window (60 × 250ms): Chrome on a cold GitHub runner — especially mid
+// full-suite load — can take longer than the 10s this used to allow before
+// the DevTools endpoint answers.
+for (let i = 0; i < 60 && !wsUrl; i++) {
   try {
     const list = await fetchJson(`http://127.0.0.1:${PORT}/json/list`);
     wsUrl = list.find((t) => t.type === 'page')?.webSocketDebuggerUrl;
