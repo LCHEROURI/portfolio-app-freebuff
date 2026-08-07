@@ -10,8 +10,12 @@
 //   - `node scripts/X`    → the file must exist AND be aliased by a
 //                           package.json script (so it is runnable the same
 //                           canonical way every other gate is).
+//   - the §4 gate names   → must EXACTLY match scripts/verify-all.mjs's
+//     GATE_NAMES / GATES arrays (the runner that executes the checklist). A
+//     gate renamed, dropped, or added in the runner without a matching §4
+//     change fails here, even when the doc and package.json stay runnable.
 //
-// Also enforces the doc's "ten gates" claim: if §4 stops listing one of the
+// Also enforces the doc's "eleven gates" claim: if §4 stops listing one of the
 // gates, or a new gate is added to the doc without a matching script, this
 // check fails — so the checklist can never drift from the runnable commands.
 //
@@ -21,12 +25,14 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { crossCheckVerifyAllGates } from './launch-checklist-gates.mjs';
 
 const ROOT = process.cwd();
 
 const read = (path) => readFileSync(resolve(ROOT, path), 'utf8');
 
 const DOC = 'docs/launch.md';
+const VERIFY_ALL = 'scripts/verify-all.mjs';
 const GATE_SECTION_HEADING = /^## \d+\. The verification gates/;
 const EXPECTED_GATE_COUNT = 11;
 // The exact canonical commands §4 must document. Hardcoding the set (not just
@@ -45,7 +51,7 @@ const EXPECTED_GATES = [
   'node scripts/verify-auth-domains.mjs',
   'npm run verify:deployed-hash -- --expect <sha>',
   'npm run verify:import-surface',
-  'npm run verify:email-words',
+  'npm run verify:dead-words',
   // NOTE: the deployed-hash row above keeps the literal "<sha>" placeholder
   // ON PURPOSE — the exact-set check matches this string verbatim against the
   // doc row, so the doc must stay in this documented form (a real sha or
@@ -85,7 +91,7 @@ const gates = tableRows
   })
   .filter((x) => Boolean(x));
 
-console.log(`\n[1/3] Parsing gate table from ${DOC}`);
+console.log(`\n[1/4] Parsing gate table from ${DOC}`);
 console.log(`  found ${gates.length} gate command(s) in §4`);
 gates.forEach((g) => console.log(`    - ${g}`));
 
@@ -131,7 +137,7 @@ for (const [name, value] of Object.entries(npmScripts)) {
 }
 
 // ── 3. Assert every gate is runnable ────────────────────────────────────────
-console.log('\n[2/3] Cross-referencing against package.json scripts');
+console.log('\n[2/4] Cross-referencing against package.json scripts');
 for (const gate of gates) {
   const npm = gate.match(/^npm run (\S+)(?:\s+.*)?$/);
   if (npm) {
@@ -169,7 +175,25 @@ for (const gate of gates) {
   fail(`"${gate}" — unsupported command form in the gate table (expected "npm run <name>" or "node scripts/<file>.mjs").`);
 }
 
-console.log('\n[3/3] Summary');
+// ── 3. Cross-check §4 gate names against verify-all.mjs ─────────────────────
+// package.json runnability alone can't see a gate RENAMED or DROPPED in the
+// runner: both stores can stay internally consistent while the doc and the
+// runner disagree about what exists. The pure cross-check resolves every §4
+// command to the gate name verify-all.mjs uses and asserts the sets match.
+console.log('\n[3/4] Cross-referencing §4 gate names against verify-all.mjs');
+const verifyAllSrc = read(VERIFY_ALL);
+const crossFailures = crossCheckVerifyAllGates({
+  docCommands: gates,
+  verifyAllSrc,
+  npmScripts,
+  expectedCount: EXPECTED_GATE_COUNT,
+});
+for (const msg of crossFailures) fail(msg);
+if (crossFailures.length === 0) {
+  ok(`§4 gate names exactly match verify-all.mjs GATE_NAMES (${EXPECTED_GATE_COUNT})`);
+}
+
+console.log('\n[4/4] Summary');
 if (failures.length > 0) {
   console.error(`RESULT: FAIL (${failures.length})`);
   console.error(`\n${DOC} §4 promises commands the repo cannot run. Fix the doc or add the missing scripts above.`);
