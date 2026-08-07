@@ -26,6 +26,18 @@ jobs:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
       VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
+      # The review-sheet cells (Model Comparison print-all) re-render through
+      # the shared verify-review-sheet.mjs driver, which needs the Firebase
+      # env trio. When a secret is absent (fork PRs) the driver skip-not-fails
+      # via capture-gallery.mjs's NOTE branch — same philosophy as the rest
+      # of the job. NOTE: these two cells intentionally capture from the
+      # PRODUCTION app (--review-sheet-app default), not this preview: the
+      # review sheet needs a signed-in owner with seeded data + live AI, which
+      # the demo-mode preview cannot provide. The 18 route cells above always
+      # come from the preview; only the review-sheet pair is production-sourced.
+      FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: portfolio-app-freebuff2
 
     steps:
       - name: Check out repository

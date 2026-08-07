@@ -230,6 +230,17 @@ describe('.github/workflows/gallery.yml · PR/dispatch gallery capture', () => {
     expect(GALLERY).toContain('CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}');
   });
 
+  it('still wires the Firebase env trio so the review-sheet cells re-render in CI', () => {
+    // capture-gallery.mjs runs the shared verify-review-sheet.mjs driver when
+    // the Firebase env is present; the job env must pass the trio through so
+    // the print-all pair ships with the gallery on every run, and the project
+    // id must stay pinned to freebuff2 (a copy-paste to the old project would
+    // make the review sheet render against the wrong Firestore).
+    expect(GALLERY).toContain('FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}');
+    expect(GALLERY).toContain('FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}');
+    expect(GALLERY).toContain('NEXT_PUBLIC_FIREBASE_PROJECT_ID: portfolio-app-freebuff2');
+  });
+
   it('still renders the onboarding docs to PNG for the artifact', () => {
     // Scoped to the step block (from the step name to the next step) so the
     // CHROME_PATH assertion can only be satisfied by THIS step, not the

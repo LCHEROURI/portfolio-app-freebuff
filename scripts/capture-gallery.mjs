@@ -3,9 +3,14 @@
  * Capture the full README gallery (9 routes × light/dark = 18 PNGs) from a
  * deployed Vercel build using Chrome DevTools Protocol with REAL waits, so the
  * screenshots always match what visitors see at the live link rather than a
- * local dev server.
+ * local dev server. When the Firebase env is present, also re-renders the two
+ * Model Comparison review-sheet cells (review-sheet-panels / preview) via the
+ * shared verify-review-sheet.mjs driver, so the print-all pair ships with the
+ * gallery on every deploy.
  *
- * Uses the demo-mode preview deployment (no Firebase vars → no auth gate).
+ * Uses the demo-mode preview deployment (no Firebase vars → no auth gate) for
+ * the route cells; the review-sheet cells need the LIVE app (auth + AI) and
+ * default to the production URL (override with --review-sheet-app).
  *
  * Usage:
  *   node scripts/capture-gallery.mjs \
@@ -14,7 +19,9 @@
  *     --header 'x-vercel-protection-bypass: <secret>'   # repeatable; sent on every request
  */
 import { spawn } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import { copyFile, mkdir, rm, writeFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 // Single source of truth shared with app/gallery/page.tsx and
@@ -40,6 +47,11 @@ const valOf = (flag) => {
 const urlArg = valOf('--url')
   ?? 'https://portfolio-app-freebuff.vercel.app';
 const outArg = valOf('--out') ?? 'screenshots';
+// The review-sheet cells need the LIVE app (Firebase auth + server AI), which
+// the demo-mode preview this driver targets does not have — so they default to
+// the production URL, independent of --url.
+const reviewSheetAppArg = valOf('--review-sheet-app')
+  ?? 'https://portfolio-app-freebuff.vercel.app';
 
 // Repeatable --header 'Name: value' pairs (e.g. Vercel protection bypass).
 // Sent on every request via Network.setExtraHTTPHeaders.
@@ -162,6 +174,69 @@ for (const route of ROUTES) {
   }
 }
 
+// ── Review-sheet cells (Model Comparison print-all) ─────────────────────────
+// The review-sheet pair cannot be captured from the route loop: it needs a
+// signed-in owner with seeded evaluations plus TWO live AI round-trips, which
+// the demo-mode preview (no Firebase) cannot produce. So these two cells reuse
+// the SHARED review-sheet driver (scripts/verify-review-sheet.mjs) — the same
+// driver the verify:review-sheet gate runs — and copy its two outputs into
+// the gallery under stable names, so the committed PNGs always match what the
+// print-all flow actually renders. Runs only when the Firebase env the driver
+// needs is present (FIREBASE_WEB_API_KEY + FIREBASE_SERVICE_ACCOUNT); skips
+// with a NOTE (not a SKIP, so the shell wrapper's stale-gallery guard stays
+// quiet) when absent — mirroring the fork-PR skip-not-fail philosophy.
+const REVIEW_SHEET_FILES = [
+  { from: '01-model-comparison-panels.png', to: 'review-sheet-panels.png' },
+  { from: '02-review-sheet-preview.png', to: 'review-sheet-preview.png' },
+];
+const reviewCaptured = [];
+// Resolve the driver's credential requirements the SAME way the driver does
+// (process env first, then .env.local) so the gate and the driver can never
+// disagree about whether the review sheet can render.
+const readLocalEnv = (name) => {
+  if (process.env[name]) return process.env[name];
+  try {
+    const env = readFileSync(resolve('.env.local'), 'utf8');
+    const m = env.match(new RegExp(`^${name}=(.*)$`, 'm'));
+    return m ? m[1].trim().replace(/^"|"$/g, '') : undefined;
+  } catch {
+    return undefined;
+  }
+};
+// Match the driver's resolution EXACTLY (no drift): verify-review-sheet.mjs
+// reads FIREBASE_WEB_API_KEY from process.env only, NEXT_PUBLIC_FIREBASE_API_KEY
+// from env then .env.local, and seed-live-data reads FIREBASE_SERVICE_ACCOUNT
+// from env then .env.local. A looser gate (e.g. reading FIREBASE_WEB_API_KEY
+// from .env.local) would pass while the driver immediately exits 1.
+const reviewSheetReady = Boolean(
+  process.env.FIREBASE_WEB_API_KEY || readLocalEnv('NEXT_PUBLIC_FIREBASE_API_KEY'),
+) && Boolean(readLocalEnv('FIREBASE_SERVICE_ACCOUNT'));
+if (!reviewSheetReady) {
+  console.log('NOTE: review-sheet cells skipped (set FIREBASE_WEB_API_KEY + FIREBASE_SERVICE_ACCOUNT to render)');
+} else {
+  console.log(`\n[review-sheet] re-rendering the Model Comparison review sheet from ${reviewSheetAppArg}`);
+  const tmp = `${outArg}/.review-sheet-tmp`;
+  await rm(tmp, { recursive: true, force: true });
+  const driver = spawn('node', ['scripts/verify-review-sheet.mjs', '--app', reviewSheetAppArg, '--out', tmp], {
+    cwd: process.cwd(), stdio: 'inherit', env: process.env,
+  });
+  const code = await new Promise((resolvePromise) => driver.on('exit', resolvePromise));
+  if (code !== 0) {
+    console.log(`NOTE: review-sheet cells skipped (driver exited ${code})`);
+  } else {
+    for (const { from, to } of REVIEW_SHEET_FILES) {
+      try {
+        await copyFile(`${tmp}/${from}`, `${outArg}/${to}`);
+        reviewCaptured.push({ route: 'review-sheet', theme: 'light', name: to });
+        console.log(`captured ${to} (review sheet)`);
+      } catch (err) {
+        console.log(`NOTE: review-sheet cell ${to} skipped (${err.message})`);
+      }
+    }
+  }
+  await rm(tmp, { recursive: true, force: true });
+}
+
 // ── HTML contact sheet ──────────────────────────────────────────────────────
 // Emitted next to the PNGs so the gallery is browsable locally without opening
 // the README. The shell wrapper relocates it to docs/screenshots.html and
@@ -181,6 +256,15 @@ const cellsHtml = ROUTES.map((route) => {
   <div class="pair">${fig(light, 'Light')}${fig(dark, 'Dark')}</div>
 </section>`;
 }).join('\n');
+// The review-sheet pair has no light/dark twin; show them as a single row
+// (both cells are single captures, not theme pairs).
+const reviewHtml = reviewCaptured.length
+  ? `
+<section>
+  <h2>Review Sheet (Model Comparison print-all)</h2>
+  <div class="pair">${reviewCaptured.map((c) => fig(c, c.name === 'review-sheet-panels.png' ? 'Panels' : 'Preview window')).join('')}</div>
+</section>`
+  : '';
 
 const sheet = `<!doctype html>
 <html lang="en">
@@ -210,7 +294,7 @@ const sheet = `<!doctype html>
   <h1>App Portfolio Command Center — Screenshot Gallery</h1>
   <p>Captured from ${BASE} · ${seen.size}/18 cells · ${new Date().toISOString().slice(0, 10)}</p>
 </header>
-<main>${cellsHtml}
+<main>${cellsHtml}${reviewHtml}
 </main>
 </body>
 </html>
@@ -218,6 +302,6 @@ const sheet = `<!doctype html>
 
 await writeFile(`${outArg}/screenshots.html`, sheet);
 console.log(`contact sheet written to ${outArg}/screenshots.html`);
-console.log(`\n${seen.size}/18 captured into ${outArg}/`);
+console.log(`\n${seen.size}/18 route cells + ${reviewCaptured.length} review-sheet cell${reviewCaptured.length === 1 ? '' : 's'} captured into ${outArg}/`);
 ws.close();
 chrome.kill();

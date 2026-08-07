@@ -13,6 +13,10 @@
 #   ./scripts/capture-screenshots.sh --out /tmp/gallery
 #   ./scripts/capture-screenshots.sh --header 'x-vercel-protection-bypass: <secret>'
 #   ./scripts/capture-screenshots.sh --diff          # only rewrite PNGs whose pixels changed
+#   ./scripts/capture-screenshots.sh --review-sheet-app https://...  # review-sheet cells source
+#
+# The two review-sheet cells (Model Comparison print-all) default to the
+# production URL (they need live auth + AI); --review-sheet-app overrides.
 #
 # Exit codes: 0 = all cells captured, 1 = any cell skipped or missing.
 set -euo pipefail
@@ -20,6 +24,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="screenshots"
 URL="https://portfolio-app-freebuff.vercel.app"
+REVIEW_SHEET_APP="https://portfolio-app-freebuff.vercel.app"
 EXPECTED=18
 DIFF=0
 HEADERS=()
@@ -28,6 +33,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --url) URL="${2:?--url needs a value}"; shift 2 ;;
     --out) OUT="${2:?--out needs a value}"; shift 2 ;;
+    --review-sheet-app) REVIEW_SHEET_APP="${2:?--review-sheet-app needs a value}"; shift 2 ;;
     --header) HEADERS+=("${2:?--header needs a value}"); shift 2 ;;
     --diff) DIFF=1; shift ;;
     -h|--help)
@@ -96,7 +102,7 @@ fi
 
 echo "Capturing $EXPECTED gallery cells from $URL into $CAPTURE_DIR/ ..."
 CAPTURE_LOG="$(mktemp)"
-DRIVER_ARGS=(--url "$URL" --out "$CAPTURE_DIR")
+DRIVER_ARGS=(--url "$URL" --out "$CAPTURE_DIR" --review-sheet-app "$REVIEW_SHEET_APP")
 if [[ ${#HEADERS[@]} -gt 0 ]]; then
   for hdr in "${HEADERS[@]}"; do DRIVER_ARGS+=(--header "$hdr"); done
 fi
