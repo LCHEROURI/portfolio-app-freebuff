@@ -6,7 +6,7 @@
 // against production (or an --app override), so the go-live checklist is
 // executable in a single command:
 //
-//   npm run verify:all                       # all thirteen gates, production URL
+//   npm run verify:all                       # all fourteen gates, production URL
 //   node scripts/verify-all.mjs --app http://localhost:3000
 //   node scripts/verify-all.mjs --only prod-signin,google-idp
 //   node scripts/verify-all.mjs --skip prod-signin --timeout 900
@@ -21,7 +21,7 @@
 //   - Reports the onboarding-doc pipeline-diagram presence as its own static
 //     summary row: an inline run of the SAME pure check the drift guard runs
 //     as [3e/4] (no child process, no secrets, no network — it reads
-//     README.md + docs/launch.md from the tree), surfaced beside the 13 gates
+//     README.md + docs/launch.md from the tree), surfaced beside the 14 gates
 //     so the one-command checklist shows the picture's presence at a glance.
 //     It is deliberately NOT a GATES/GATE_NAMES entry — adding it there would
 //     break the 11-gate §4 contract the drift guard enforces.
@@ -60,7 +60,7 @@ const PRODUCTION_URL = 'https://portfolio-app-freebuff.vercel.app';
 const ONLY = onlyArg ? onlyArg.split(',').map((s) => s.trim()).filter(Boolean) : [];
 const SKIP = skipArg ? skipArg.split(',').map((s) => s.trim()).filter(Boolean) : [];
 
-const GATE_NAMES = ['disk-headroom', 'token-health', 'vercel-env', 'cron-reports', 'firestore-rules', 'auth-domains', 'prod-signin', 'google-idp', 'review-sheet', 'auth-domains-direct', 'deployed-hash', 'import-surface', 'dead-words'];
+const GATE_NAMES = ['disk-headroom', 'conv-db', 'token-health', 'vercel-env', 'cron-reports', 'firestore-rules', 'auth-domains', 'prod-signin', 'google-idp', 'review-sheet', 'auth-domains-direct', 'deployed-hash', 'import-surface', 'dead-words'];
 const unknownOnly = ONLY.filter((n) => !GATE_NAMES.includes(n));
 const unknownSkip = SKIP.filter((n) => !GATE_NAMES.includes(n));
 if (unknownOnly.length > 0 || unknownSkip.length > 0) {
@@ -109,6 +109,15 @@ const GATES = [
   // disk is not the developer's, so no ci.yml step runs it — it lives in the
   // pre-push hook (gate 0.05), verify:all, and docs/launch.md §4.
   { name: 'disk-headroom', label: 'Disk headroom', script: 'verify:disk-headroom' },
+  // The conv-db gate runs the LOCAL WAL maintainer against the Freebuff
+  // conversation DB (the machine's .freebuff/desktop-v2.db, the same DB the
+  // app's SQLite "disk I/O error" came from). It reports the maintainer's
+  // outcome as sub-rows (wal-idle / wal-truncated / wal-busy / wal-error) so
+  // the WAL health shows in the launch-checklist summary; those rows carry the
+  // '(local)' suffix because this check is a local-machine probe, not a
+  // deployed-app gate. Like disk-headroom, it is deliberately LOCAL-only — a
+  // CI runner's DB is not the developer's — so no ci.yml step runs it.
+  { name: 'conv-db', label: 'Conv DB WAL maintenance (local)', file: 'scripts/maintain-conv-db.mjs', capture: true, subSuffix: '(local)' },
   // The token-health gate proves the VERCEL_TOKEN is alive
   // before any gate that depends on a deployment or CI credential runs — a
   // revoked token is caught in ~1s instead of surfacing as a confusing 403
@@ -159,8 +168,8 @@ const GATES = [
   { name: 'dead-words', label: 'Dead-feature lint (report-email + removed integrations)', script: 'verify:dead-words' },
 ];
 
-// ── Self-check: the 12-gate contract must hold before anything runs ─────────
-// The launch-checklist contract promises EXACTLY thirteen gates — the same
+// ── Self-check: the 14-gate contract must hold before anything runs ─────────
+// The launch-checklist contract promises EXACTLY fourteen gates — the same
 // EXPECTED_GATE_COUNT verify-launch-checklist.mjs hardcodes. If a future gate
 // is added to GATE_NAMES (or a GATES entry to the table) without the full
 // contract update — the §4 row + Requires cell, the README/launch.md pipeline
@@ -170,7 +179,7 @@ const GATES = [
 // off a contract that no longer holds. The preflight drift guard would also
 // catch the mismatch, but only after spawning a child process; this is
 // instant and names the exact source of truth.
-const EXPECTED_GATE_COUNT = 13;
+const EXPECTED_GATE_COUNT = 14;
 if (GATE_NAMES.length !== EXPECTED_GATE_COUNT || GATES.length !== GATE_NAMES.length) {
   console.error(`✗ FAIL: gate contract — GATE_NAMES has ${GATE_NAMES.length}, GATES has ${GATES.length}, but the launch-checklist contract promises ${EXPECTED_GATE_COUNT}.`);    console.error('  A gate was added without the full contract update:');
     console.error('    - scripts/verify-launch-checklist.mjs  EXPECTED_GATE_COUNT');
@@ -288,7 +297,7 @@ const runOne = async (gate) => {
   // row already tells the story). The parent gate's exit code still governs
   // pass/fail for the whole run; the sub-row is visibility, not a second gate.
   if (capture) {
-    for (const sub of parseSubResultMarkers(captured, gate.name)) {
+    for (const sub of parseSubResultMarkers(captured, gate.name, undefined, gate.subSuffix)) {
       results.push({
         gate: { name: sub.name, label: sub.label, secrets: [], sub: true },
         pass: sub.pass,
@@ -321,7 +330,7 @@ if (preflightCode !== 0) {
 // The drift guard's [3e/4] step already fails the preflight when either
 // onboarding doc loses the "When each gate runs:" picture. This inline run of
 // the SAME pure check — no child process, no secrets, no network — surfaces
-// the picture's presence as its own summary row beside the 13 gates, so the
+// the picture's presence as its own summary row beside the 14 gates, so the
 // one-command checklist reports it at a glance instead of only in the
 // preflight's scrollback. Failures flow through the shared failures array, so
 // a missing picture fails the whole run even if [3e/4] were ever weakened.

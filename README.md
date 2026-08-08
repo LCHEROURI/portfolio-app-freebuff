@@ -95,15 +95,16 @@ Data flow at a glance:
 └──────────────────────────────────────────────────────┘
 ```
 
-### The 13 verification gates
+### The 14 verification gates
 
-`npm run verify:all` runs all thirteen against the production URL (or
+`npm run verify:all` runs all fourteen against the production URL (or
 `--app <url>` for a preview) and exits nonzero on any failure. Each gate
 reads its secrets from env, then `.env.local`:
 
 | Gate | Requires | Proves |
 | --- | --- | --- |
 | disk-headroom | — | Local Data-volume headroom: the machine's Data volume stays under `DISK_LIMIT_PCT` (default 90) via `df`, with a non-blocking warning once it crosses `DISK_WARN_PCT` (default 85) — a full disk caused the SQLite "disk I/O error" on button clicks. Skip-not-fail when `df` is unavailable. Also pre-push gate 0.05 |
+| conv-db | — | Local WAL maintenance on the machine's conversation DB: TRUNCATE checkpoint when the `-wal` sidecar exceeds 2 MiB (busy-retry), idles at/below the threshold, skips-not-fail when sqlite3/DB absent. Emits `wal-idle`/`wal-truncated`/`wal-busy`/`wal-error` sub-rows (local suffix). Local-only like disk-headroom, never in CI |
 | token-health | `VERCEL_TOKEN` | the stored Vercel token is alive (name + expiry) |
 | vercel-env | `VERCEL_TOKEN` (+ Vercel CLI) | Vercel prod env matches `.env.local` |
 | cron-reports | `CRON_SECRET` | deployed cron 401s without auth; daily/weekly report bodies carry the friendly model heading + raw-id footer; no report send envelope |
@@ -135,7 +136,7 @@ When each gate runs:
 ```text
    ┌───────────────────────────────────────────────────────────────┐
    │  LOCAL — every git push (.githooks/pre-push)                  │
-   │  runs the 13 verify:all gates + drift guards (timeboxed); a  │
+   │  runs the 14 verify:all gates + drift guards (timeboxed); a  │
    │  hook gates 0.6/0.6b/0.6c/0.6d (lints + render byte gates);   │
    │  dirty tree or any failure ABORTS the push                    │
    └──────────────────────────────┬────────────────────────────────┘

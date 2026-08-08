@@ -202,6 +202,14 @@ async function main() {
   console.log(`Freebuff conversation DB WAL maintenance (${dbPath}) — threshold ${formatBytes(threshold)}`);
   const result = await runMaintenance(dbPath, { threshold, retries, retryDelayMs });
 
+  // VERIFY-SUBRESULT markers (stdout, so verify:all's capture scans them):
+  // each outcome row surfaces the WAL health in the launch-checklist summary.
+  // skip emits nothing — a sub-check that could not run shows no row at all.
+  if (result.kind === 'idle') console.log('VERIFY-SUBRESULT|wal-idle|PASS');
+  if (result.kind === 'truncated') console.log('VERIFY-SUBRESULT|wal-truncated|PASS');
+  if (result.kind === 'busy') console.log('VERIFY-SUBRESULT|wal-busy|PASS');
+  if (result.kind === 'error') console.log('VERIFY-SUBRESULT|wal-error|FAIL');
+
   if (result.kind === 'skip') {
     console.log('  — cannot maintain — sqlite3 unavailable or DB file missing (skip-not-fail)');
     console.log('RESULT: SKIPPED');

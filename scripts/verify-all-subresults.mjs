@@ -41,6 +41,10 @@ export const SUBRESULT_LABELS = {
   'alias-drift': 'Alias-routing drift watch',
   'expect-match': 'Deployed sha matches --expect',
   'check-local': 'Local HEAD matches deployed',
+  'wal-idle': 'Conv DB WAL at/below threshold (idle)',
+  'wal-truncated': 'Conv DB WAL flushed to zero (truncated)',
+  'wal-busy': 'Conv DB WAL deferred (app reading — safe)',
+  'wal-error': 'Conv DB WAL maintenance failed',
 };
 
 // The exact marker shape a gate may emit. Anything else on the line is
@@ -56,16 +60,20 @@ const MARKER_RE = /^VERIFY-SUBRESULT\|([^|]+)\|(PASS|FAIL)\s*$/;
  * @param {string} captured   The gate's piped stdout (may be '' or undefined).
  * @param {string} gateName   The parent gate's name, prefixed to each marker.
  * @param {Record<string,string>} [labels] Label map; defaults to SUBRESULT_LABELS.
+ * @param {string} [suffix]   Suffix on each sub-row label; defaults to
+ *   '(deployed)' for the live-app gates. A local-only gate passes its own
+ *   suffix (e.g. '(local)') so its sub-rows are not mislabeled as deployed
+ *   checks — the conv-db gate emits wal-* markers from the local machine.
  * @returns {Array<{name: string, label: string, pass: boolean}>}
  */
-export function parseSubResultMarkers(captured, gateName, labels = SUBRESULT_LABELS) {
+export function parseSubResultMarkers(captured, gateName, labels = SUBRESULT_LABELS, suffix = '(deployed)') {
   const rows = [];
   for (const line of (captured ?? '').split('\n')) {
     const m = line.match(MARKER_RE);
     if (!m) continue;
     rows.push({
       name: `${gateName}/${m[1]}`,
-      label: `  ↳ ${labels[m[1]] ?? m[1]} (deployed)`,
+      label: `  ↳ ${labels[m[1]] ?? m[1]} ${suffix}`,
       pass: m[2] === 'PASS',
     });
   }
