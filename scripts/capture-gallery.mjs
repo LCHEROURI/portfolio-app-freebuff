@@ -5,12 +5,15 @@
  * screenshots always match what visitors see at the live link rather than a
  * local dev server. When the Firebase env is present, also re-renders the two
  * Model Comparison review-sheet cells (review-sheet-panels / preview) via the
- * shared verify-review-sheet.mjs driver, so the print-all pair ships with the
- * gallery on every deploy.
+ * shared verify-review-sheet.mjs driver, and the live /deployments feed cell
+ * (deployments-feed.png) via the shared capture-deployments-feed.mjs driver,
+ * so the print-all pair and the feed capture ship with the gallery on every
+ * deploy.
  *
  * Uses the demo-mode preview deployment (no Firebase vars → no auth gate) for
- * the route cells; the review-sheet cells need the LIVE app (auth + AI) and
- * default to the production URL (override with --review-sheet-app).
+ * the route cells; the review-sheet and deployments-feed cells need the LIVE
+ * app (auth) and default to the production URL (override with
+ * --review-sheet-app / --deployments-feed-app).
  *
  * Usage:
  *   node scripts/capture-gallery.mjs \
@@ -51,6 +54,11 @@ const outArg = valOf('--out') ?? 'screenshots';
 // the demo-mode preview this driver targets does not have — so they default to
 // the production URL, independent of --url.
 const reviewSheetAppArg = valOf('--review-sheet-app')
+  ?? 'https://portfolio-app-freebuff.vercel.app';
+// The deployments-feed cell also needs the LIVE app (Firebase auth): the
+// demo-mode preview this driver targets cannot sign in. Defaults to
+// production, independent of --url, same as the review-sheet cells.
+const deploymentsFeedAppArg = valOf('--deployments-feed-app')
   ?? 'https://portfolio-app-freebuff.vercel.app';
 
 // Repeatable --header 'Name: value' pairs (e.g. Vercel protection bypass).
@@ -237,6 +245,48 @@ if (!reviewSheetReady) {
   await rm(tmp, { recursive: true, force: true });
 }
 
+// ── Deployments feed cell ───────────────────────────────────────────────────
+// The live /deployments page (Vercel + Firebase rows with health checks)
+// needs a signed-in user, which the demo-mode preview cannot provide — so this
+// cell reuses the SHARED capture-deployments-feed.mjs driver against the LIVE
+// app (production default, --deployments-feed-app to override) and copies its
+// PNG into the gallery under the stable name. Runs only when the Firebase web
+// API key the driver needs is present; skips with a NOTE (not a SKIP, so the
+// shell wrapper's stale-gallery guard stays quiet) when absent — mirroring the
+// review-sheet skip-not-fail philosophy.
+const DEPLOYMENTS_FEED_FILE = { from: 'deployments-feed.png', to: 'deployments-feed.png' };
+const feedCaptured = [];
+// Same credential resolution the driver uses (env first, then .env.local) so
+// the gallery gate and the driver can never disagree about whether the feed
+// can render: capture-deployments-feed.mjs reads FIREBASE_WEB_API_KEY from
+// process.env, NEXT_PUBLIC_FIREBASE_API_KEY from env then .env.local.
+const deploymentsFeedReady = Boolean(
+  process.env.FIREBASE_WEB_API_KEY || readLocalEnv('NEXT_PUBLIC_FIREBASE_API_KEY'),
+);
+if (!deploymentsFeedReady) {
+  console.log('NOTE: deployments-feed cell skipped (set FIREBASE_WEB_API_KEY or NEXT_PUBLIC_FIREBASE_API_KEY to render)');
+} else {
+  console.log(`\n[deployments-feed] re-capturing the live Deployments feed from ${deploymentsFeedAppArg}`);
+  const tmp = `${outArg}/.deployments-feed-tmp`;
+  await rm(tmp, { recursive: true, force: true });
+  const driver = spawn('node', ['scripts/capture-deployments-feed.mjs', '--app', deploymentsFeedAppArg, '--out', tmp], {
+    cwd: process.cwd(), stdio: 'inherit', env: process.env,
+  });
+  const code = await new Promise((resolvePromise) => driver.on('exit', resolvePromise));
+  if (code !== 0) {
+    console.log(`NOTE: deployments-feed cell skipped (driver exited ${code})`);
+  } else {
+    try {
+      await copyFile(`${tmp}/${DEPLOYMENTS_FEED_FILE.from}`, `${outArg}/${DEPLOYMENTS_FEED_FILE.to}`);
+      feedCaptured.push({ route: 'deployments-feed', theme: 'light', name: DEPLOYMENTS_FEED_FILE.to });
+      console.log(`captured ${DEPLOYMENTS_FEED_FILE.to} (deployments feed)`);
+    } catch (err) {
+      console.log(`NOTE: deployments-feed cell ${DEPLOYMENTS_FEED_FILE.to} skipped (${err.message})`);
+    }
+  }
+  await rm(tmp, { recursive: true, force: true });
+}
+
 // ── HTML contact sheet ──────────────────────────────────────────────────────
 // Emitted next to the PNGs so the gallery is browsable locally without opening
 // the README. The shell wrapper relocates it to docs/screenshots.html and
@@ -263,6 +313,14 @@ const reviewHtml = reviewCaptured.length
 <section>
   <h2>Review Sheet (Model Comparison print-all)</h2>
   <div class="pair">${reviewCaptured.map((c) => fig(c, c.name === 'review-sheet-panels.png' ? 'Panels' : 'Preview window')).join('')}</div>
+</section>`
+  : '';
+// The deployments-feed cell is a single live capture (no light/dark twin).
+const feedHtml = feedCaptured.length
+  ? `
+<section>
+  <h2>Deployments Feed (live Vercel + Firebase)</h2>
+  <div class="pair">${feedCaptured.map((c) => fig(c, 'Live feed')).join('')}</div>
 </section>`
   : '';
 
@@ -294,7 +352,7 @@ const sheet = `<!doctype html>
   <h1>App Portfolio Command Center — Screenshot Gallery</h1>
   <p>Captured from ${BASE} · ${seen.size}/18 cells · ${new Date().toISOString().slice(0, 10)}</p>
 </header>
-<main>${cellsHtml}${reviewHtml}
+<main>${cellsHtml}${reviewHtml}${feedHtml}
 </main>
 </body>
 </html>
@@ -302,6 +360,6 @@ const sheet = `<!doctype html>
 
 await writeFile(`${outArg}/screenshots.html`, sheet);
 console.log(`contact sheet written to ${outArg}/screenshots.html`);
-console.log(`\n${seen.size}/18 route cells + ${reviewCaptured.length} review-sheet cell${reviewCaptured.length === 1 ? '' : 's'} captured into ${outArg}/`);
+console.log(`\n${seen.size}/18 route cells + ${reviewCaptured.length} review-sheet cell${reviewCaptured.length === 1 ? '' : 's'} + ${feedCaptured.length} deployments-feed cell${feedCaptured.length === 1 ? '' : 's'} captured into ${outArg}/`);
 ws.close();
 chrome.kill();
