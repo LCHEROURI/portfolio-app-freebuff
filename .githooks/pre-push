@@ -10,9 +10,9 @@
 #
 # Runs, in order, each gated on what it needs:
 #   0.05 scripts/verify-disk-headroom.mjs (df — no secrets, pure local,
-#       instant; FAILS the push when the Data volume is over 90% full — a
-#       full disk breaks SQLite writes and the Chrome/npm verifiers, so it is
-#       checked FIRST)
+#       instant; FAILS the push when the Data volume is over 90% full, and
+#       WARNS non-blocking over 85% — a full disk breaks SQLite writes and
+#       the Chrome/npm verifiers, so it is checked FIRST)
 #   0. scripts/verify-deployed-hash.mjs  (needs VERCEL_TOKEN — resolves the
 #      canonical production URL via the v13 by-host lookup and asserts it
 #      serves the last PUSHED commit; a bare fallback needs no team scope)
@@ -208,7 +208,9 @@ PRODUCTION_URL="https://portfolio-app-freebuff.vercel.app"
 # docs/launch.md §4 run, so the hook and the runner share one implementation
 # and can never drift. The script exits 0 on pass AND when df is unavailable
 # (skip-not-fail), exits 1 when the probed volume exceeds DISK_LIMIT_PCT
-# (default 90).
+# (default 90), and prints a NON-blocking warning (still passes) once the
+# volume crosses DISK_WARN_PCT (default 85) — a creeping disk is surfaced
+# before it hits the hard limit.
 if [ -f scripts/verify-disk-headroom.mjs ]; then
   run_verify "disk headroom" scripts/verify-disk-headroom.mjs
 else

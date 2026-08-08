@@ -103,7 +103,7 @@ reads its secrets from env, then `.env.local`:
 
 | Gate | Requires | Proves |
 | --- | --- | --- |
-| disk-headroom | — | Local Data-volume headroom: the machine's Data volume stays under `DISK_LIMIT_PCT` (default 90) via `df` — a full disk caused the SQLite "disk I/O error" on button clicks. Skip-not-fail when `df` is unavailable. Also pre-push gate 0.05 |
+| disk-headroom | — | Local Data-volume headroom: the machine's Data volume stays under `DISK_LIMIT_PCT` (default 90) via `df`, with a non-blocking warning once it crosses `DISK_WARN_PCT` (default 85) — a full disk caused the SQLite "disk I/O error" on button clicks. Skip-not-fail when `df` is unavailable. Also pre-push gate 0.05 |
 | token-health | `VERCEL_TOKEN` | the stored Vercel token is alive (name + expiry) |
 | vercel-env | `VERCEL_TOKEN` (+ Vercel CLI) | Vercel prod env matches `.env.local` |
 | cron-reports | `CRON_SECRET` | deployed cron 401s without auth; daily/weekly report bodies carry the friendly model heading + raw-id footer; no report send envelope |

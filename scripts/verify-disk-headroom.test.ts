@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import {
   DEFAULT_DISK_LIMIT_PCT,
+  DEFAULT_DISK_WARN_PCT,
   diskHeadroomVerdict,
   parseUsePct,
   probeUsePct,
   resolveLimit,
+  resolveWarn,
 } from './verify-disk-headroom.mjs';
 
 // probeUsePct takes the df runner as an injectable argument (default: real
@@ -78,6 +80,25 @@ describe('resolveLimit · env override safety', () => {
   });
 });
 
+describe('resolveWarn · the 85% warning threshold', () => {
+  it('defaults to 85 when the env var is unset or blank', () => {
+    expect(resolveWarn(undefined)).toBe(DEFAULT_DISK_WARN_PCT);
+    expect(resolveWarn('')).toBe(DEFAULT_DISK_WARN_PCT);
+    expect(DEFAULT_DISK_WARN_PCT).toBe(85);
+  });
+
+  it('honors a valid numeric override', () => {
+    expect(resolveWarn('80')).toBe(80);
+    expect(resolveWarn('88')).toBe(88);
+  });
+
+  it('falls back to 85 on a non-numeric or non-positive override', () => {
+    expect(resolveWarn('abc')).toBe(DEFAULT_DISK_WARN_PCT);
+    expect(resolveWarn('0')).toBe(DEFAULT_DISK_WARN_PCT);
+    expect(resolveWarn('-3')).toBe(DEFAULT_DISK_WARN_PCT);
+  });
+});
+
 describe('probeUsePct · mount probing (injected df runner)', () => {
   it('returns { pct, mount } when df succeeds on the Data volume', () => {
     const runDf = (mount) => (mount === '/System/Volumes/Data' ? DF_OUT(81, mount) : '');
@@ -114,21 +135,71 @@ describe('diskHeadroomVerdict · the exit-decision contract', () => {
     });
   });
 
-  it('maps an under-limit probe to pass (exit 0)', () => {
+  it('maps an under-limit probe to pass (exit 0) without a warning', () => {
     expect(diskHeadroomVerdict({ probed: { pct: 78, mount: '/' }, limit: 90 })).toEqual({
       kind: 'pass',
       pct: 78,
       mount: '/',
       limit: 90,
+      warn: false,
     });
   });
 
   it('passes AT the limit (strictly OVER fails — the "over 90%" contract)', () => {
+    // Exactly at the hard limit passes (the -gt semantics), and since 90 also
+    // crosses the default 85 warn threshold, the pass carries warn: true —
+    // exactly-at-limit is both a pass AND a warning, which is the point of
+    // the two-tier design.
     expect(diskHeadroomVerdict({ probed: { pct: 90, mount: '/System/Volumes/Data' }, limit: 90 })).toEqual({
       kind: 'pass',
       pct: 90,
       mount: '/System/Volumes/Data',
       limit: 90,
+      warn: true,
+    });
+  });
+});
+
+describe('diskHeadroomVerdict · the non-blocking 85% warning tier', () => {
+  it('warns (still pass, exit 0) when the pct crosses the warn threshold but is under the limit', () => {
+    expect(diskHeadroomVerdict({ probed: { pct: 87, mount: '/System/Volumes/Data' }, limit: 90 })).toEqual({
+      kind: 'pass',
+      pct: 87,
+      mount: '/System/Volumes/Data',
+      limit: 90,
+      warn: true,
+    });
+  });
+
+  it('does NOT warn exactly AT the warn threshold (strictly-over semantics)', () => {
+    expect(diskHeadroomVerdict({ probed: { pct: 85, mount: '/' }, limit: 90 })).toEqual({
+      kind: 'pass',
+      pct: 85,
+      mount: '/',
+      limit: 90,
+      warn: false,
+    });
+  });
+
+  it('honors a DISK_WARN_PCT override', () => {
+    expect(diskHeadroomVerdict({ probed: { pct: 82, mount: '/' }, limit: 90, warnLimit: 80 })).toEqual({
+      kind: 'pass',
+      pct: 82,
+      mount: '/',
+      limit: 90,
+      warn: true,
+    });
+  });
+
+  it('never warns when the warn threshold sits at or above the hard limit (the limit governs)', () => {
+    // With warnLimit 90 = limit 90, no value can cross the warn threshold and
+    // still be a pass — the warning is unreachable by design.
+    expect(diskHeadroomVerdict({ probed: { pct: 88, mount: '/' }, limit: 90, warnLimit: 90 })).toEqual({
+      kind: 'pass',
+      pct: 88,
+      mount: '/',
+      limit: 90,
+      warn: false,
     });
   });
 });
