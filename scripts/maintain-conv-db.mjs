@@ -23,6 +23,28 @@
 // idle gap succeeds). This is the same checkpoint `verify:conv-db` proves;
 // this script is the periodic shrinker that keeps the file bounded.
 //
+// APP-SIDE FIX (recommendation for the Freebuff app maintainer, Aug 2026):
+// The app owns this DB (a live Bun/SQLite connection), so the durable fix
+// belongs in the app, not in this external agent. Two levers, one verdict:
+//   - DO NOT raise wal_autocheckpoint (currently the 1000-page default). The
+//     root cause is not the threshold — the passive checkpoint runs at the
+//     crossing commit and copies the frames, but its RESET step is blocked by
+//     the open read transaction (busy=1). Raising the threshold only defers
+//     the crossing and enlarges the WAL before the same blocked attempt.
+//   - DO add an explicit idle-period checkpoint: a timer (e.g. every 60-300s)
+//     that runs `PRAGMA wal_checkpoint(TRUNCATE)` when no read transaction is
+//     open, retrying on busy — the in-process version of what this script
+//     does externally. The app's advantage over any external agent is that it
+//     KNOWS when its own reads are done, so it can checkpoint cleanly between
+//     transactions instead of racing them. Concretely: sqlite3_wal_checkpoint_v2
+//     (SQLITE_CHECKPOINT_TRUNCATE) on a timer, or `PRAGMA wal_checkpoint(TRUNCATE)`
+//     from a context guaranteed to hold no read txn.
+//   - Why this is not urgent: the WAL is bounded and safe by design — frames
+//     always flush to the main DB (stable at ~48 MiB); only the truncate
+//     defers, so the -wal file ratchets to ~4-5 MiB and stays there. At a
+//     healthy disk this is harmless. The external maintainer here is a
+//     footprint nicety, not a correctness fix.
+//
 // Behavior contract (maintenance is best-effort, NOT a gate):
 //   - exit 0 (SKIP)      — sqlite3 missing or the DB file absent
 //   - exit 0 (idle)      — WAL ≤ threshold, nothing to do (a pure stat, no
