@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -135,6 +135,94 @@ describe('verify-all.mjs · conv-db gate (local) suffix contract', () => {
     expect(parseSubResultMarkers('VERIFY-SUBRESULT|wal-idle|PASS\n', 'conv-db', undefined, '(local)')).toEqual([
       { name: 'conv-db/wal-idle', label: '  ↳ Conv DB WAL at/below threshold (idle) (local)', pass: true },
     ]);
+  });
+});
+
+// ── Capture/marker contract: every deployed gate captures AND emits ─────────
+// A gate's summary sub-rows exist only if BOTH halves hold: (a) the GATES
+// entry declares capture: true, so the runner parses the gate's piped stdout
+// for VERIFY-SUBRESULT lines, and (b) the gate's script actually emits at
+// least one marker. Either half silently disappearing loses sub-rows from the
+// summary with no failure anywhere — these tests lock both directions so a
+// silent capture loss is caught. Gate → script resolution mirrors the runner:
+// direct `file` when present, else the npm script's `node scripts/X.mjs`
+// target from package.json (which also covers the two lints, whose scripts
+// are not named verify-*.mjs).
+
+describe('verify-all.mjs · capture/marker contract', () => {
+  const src = readFileSync(join(process.cwd(), 'scripts', 'verify-all.mjs'), 'utf8');
+  const pkg = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8'));
+
+  // Parse every GATES entry into { name, capture, file, script, subSuffix }.
+  // Entries are one line each (`  { name: '…', … },`), so splitting on lines
+  // and matching the opening brace is exact — and the explicit 14-entry
+  // assertion below keeps this parse from ever going silently empty.
+  const gatesBody = src.match(/const GATES = \[([\s\S]*?)\n\];/)?.[1] ?? '';
+  const gates = gatesBody
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith('{ name: '))
+    .map((line) => ({
+      name: line.match(/name: '([^']+)'/)?.[1] ?? '',
+      capture: /capture: true/.test(line),
+      file: line.match(/file: '([^']+)'/)?.[1] ?? null,
+      script: line.match(/script: '([^']+)'/)?.[1] ?? null,
+      subSuffix: line.match(/subSuffix: '([^']+)'/)?.[1] ?? null,
+    }));
+
+  // Resolve a gate to its script file, exactly like the runner spawns it.
+  const gateFile = (gate) => {
+    if (gate.file) return join(process.cwd(), gate.file);
+    const cmd = pkg.scripts[gate.script] ?? '';
+    const m = cmd.match(/node scripts\/([^\s]+\.mjs)/);
+    return m ? join(process.cwd(), 'scripts', m[1]) : null;
+  };
+
+  // Marker names a script's source literally emits (same scan as the
+  // SUBRESULT_LABELS drift guard above, minus the doc placeholder).
+  const emittedBy = (file) => {
+    if (!file || !existsSync(file)) return new Set();
+    const names = new Set();
+    for (const m of readFileSync(file, 'utf8').matchAll(/VERIFY-SUBRESULT\|([^|$]+)\|/g)) {
+      const name = m[1].trim();
+      if (name && !name.startsWith('<')) names.add(name);
+    }
+    return names;
+  };
+
+  it('parses all 14 GATES entries (the contract never goes vacuous)', () => {
+    expect(gates).toHaveLength(14);
+    expect(gates.filter((g) => g.capture).length).toBeGreaterThan(0);
+  });
+
+  it('every capture gate resolves to a script that emits at least one marker', () => {
+    for (const gate of gates.filter((g) => g.capture)) {
+      const file = gateFile(gate);
+      expect(file, `capture gate '${gate.name}' does not resolve to a script file`).toBeTruthy();
+      const names = emittedBy(file);
+      expect(names.size, `capture gate '${gate.name}' (${file}) emits no VERIFY-SUBRESULT markers`).toBeGreaterThan(0);
+    }
+  });
+
+  it('every gate whose script emits markers declares capture: true (no silent capture loss)', () => {
+    for (const gate of gates) {
+      const file = gateFile(gate);
+      if (!file) continue;
+      const names = emittedBy(file);
+      if (names.size > 0) {
+        expect(gate.capture, `gate '${gate.name}' emits markers (${[...names].join(', ')}) but lacks capture: true`).toBe(true);
+      }
+    }
+  });
+
+  it('every capture gate renders its sub-rows with a suffix — (local) for conv-db, the deployed default elsewhere', () => {
+    for (const gate of gates.filter((g) => g.capture)) {
+      if (gate.name === 'conv-db') {
+        expect(gate.subSuffix).toBe('(local)');
+      } else {
+        expect(gate.subSuffix ?? '(deployed)', `capture gate '${gate.name}' must not carry a non-default subSuffix`).toBe('(deployed)');
+      }
+    }
   });
 });
 
