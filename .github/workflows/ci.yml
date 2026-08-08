@@ -165,6 +165,14 @@ jobs:
       FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
       FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      # The deployed-store LIVE-flag set (source of truth: EXPECTED_LIVE_FLAGS
+      # in scripts/verify-vercel-env.mjs). These are PUBLIC build-time flags
+      # (inlined into the client bundle), so wiring them here as plain values
+      # is safe — it declares what the deployed store must carry and locks the
+      # workflow to the same set the local gate asserts. ci-workflows.test.ts
+      # fails if this list and EXPECTED_LIVE_FLAGS ever drift apart.
+      NEXT_PUBLIC_LIVE_REPOS: '1'
+      NEXT_PUBLIC_LIVE_DEPLOYMENTS: '1'
 
     steps:
       - name: Check out repository

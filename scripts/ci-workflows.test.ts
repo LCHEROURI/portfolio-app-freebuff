@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
+import { EXPECTED_LIVE_FLAGS } from './verify-vercel-env.mjs';
+
 // ============================================================================
 // scripts/ci-workflows.test.ts — lock the CI post-deploy surface contract.
 //
@@ -165,6 +167,19 @@ describe('.github/workflows/ci.yml · verify-deployed job (post-deploy smoke gat
     expect(verifyDeployedBlock).toContain("if: ${{ env.FIREBASE_WEB_API_KEY != '' }}");
     expect(verifyDeployedBlock).toContain('FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}');
   });
+
+  it('wires the full EXPECTED_LIVE_FLAGS set into the verify-deployed job env', () => {
+    // The deployed-store LIVE-flag set (source of truth: EXPECTED_LIVE_FLAGS
+    // in verify-vercel-env.mjs) must be declared in this job's env so the
+    // workflow stays locked to the same set the local gate asserts. A flag
+    // added to EXPECTED_LIVE_FLAGS without this wiring — or a flag dropped
+    // here while still required — fails below: CI can never silently drift
+    // from the gate's deployed-store contract.
+    expect(Object.keys(EXPECTED_LIVE_FLAGS).length).toBeGreaterThan(0);
+    for (const [key, value] of Object.entries(EXPECTED_LIVE_FLAGS)) {
+      expect(verifyDeployedBlock).toContain(`${key}: '${value}'`);
+    }
+  });
 });
 
 describe('.github/workflows/preview-gate.yml · deployment_status preview gate', () => {
@@ -265,6 +280,19 @@ describe('.github/workflows/gallery.yml · PR/dispatch gallery capture', () => {
     expect(GALLERY).toContain('FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}');
     expect(GALLERY).toContain('FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}');
     expect(GALLERY).toContain('NEXT_PUBLIC_FIREBASE_PROJECT_ID: portfolio-app-freebuff2');
+  });
+
+  it('wires the full EXPECTED_LIVE_FLAGS set into the gallery job env', () => {
+    // Same contract as the verify-deployed job: every flag the local gate
+    // requires in the deployed store must be declared here, so the gallery
+    // workflow (which captures the live feed via capture-deployments-feed.mjs
+    // and fails loudly when the live badge is missing) stays locked to the
+    // same set. A flag added to EXPECTED_LIVE_FLAGS without this wiring fails
+    // below — CI can never silently drift from the gate's contract.
+    expect(Object.keys(EXPECTED_LIVE_FLAGS).length).toBeGreaterThan(0);
+    for (const [key, value] of Object.entries(EXPECTED_LIVE_FLAGS)) {
+      expect(GALLERY).toContain(`${key}: '${value}'`);
+    }
   });
 
   it('still renders the onboarding docs to PNG for the artifact', () => {

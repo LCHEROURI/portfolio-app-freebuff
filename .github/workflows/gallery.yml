@@ -38,6 +38,16 @@ jobs:
       FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
       FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
       NEXT_PUBLIC_FIREBASE_PROJECT_ID: portfolio-app-freebuff2
+      # The deployed-store LIVE-flag set (source of truth: EXPECTED_LIVE_FLAGS
+      # in scripts/verify-vercel-env.mjs). Public build-time flags, safe as
+      # plain values — declares what the deployed store must carry and locks
+      # the workflow to the same set the local gate asserts. The deployments-
+      # feed cell (capture-deployments-feed.mjs) FAILS loudly when the live
+      # badge is missing, so a deployed store without these flags turns this
+      # job red. ci-workflows.test.ts fails if this list and EXPECTED_LIVE_FLAGS
+      # ever drift apart.
+      NEXT_PUBLIC_LIVE_REPOS: '1'
+      NEXT_PUBLIC_LIVE_DEPLOYMENTS: '1'
 
     steps:
       - name: Check out repository
