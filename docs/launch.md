@@ -299,6 +299,18 @@ peak WAL — a WAL that crosses the `wal_autocheckpoint` threshold with no
 flush just means the app holds an open reader (deferred, healthy);
 `verify:conv-db` flushes it on demand.
 
+**Why the WAL grows** — confirmed Aug 2026: the app's own read transaction,
+open around its writes, blocks the automatic PASSIVE checkpoint from
+*resetting* the WAL file, so it ratchets up with use while the main DB stays a
+stable ~48 MiB (frames still get copied in — the file is mostly dead space).
+`npm run maintain:conv-db` is the periodic shrinker: when the `-wal` file
+exceeds 4 MiB (override `CONV_DB_MAINTAIN_THRESHOLD`) it runs a TRUNCATE
+checkpoint with a busy-retry loop (the read transaction blocks only
+momentarily), so an idle moment reclaims the space. Schedule it every 10
+minutes with `npm run conv-db:schedule install` (or `cron` for the crontab
+line — launchd is TCC-blocked from scripts under `~/Documents`, see the
+installer's note).
+
 ## 5. Go-live checklist (order matters)
 
 1. **Firebase console** (`portfolio-app-freebuff2`):
