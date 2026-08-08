@@ -18,6 +18,7 @@
     "chrome:watch": "bash scripts/chrome-watch.sh",
     "verify:disk-headroom": "node scripts/verify-disk-headroom.mjs",
     "verify:conv-db": "node scripts/verify-conv-db.mjs",
+    "verify:conv-db:watch": "node scripts/verify-conv-db.mjs --watch",
     "verify:cron-reports": "node scripts/verify-cron-reports.mjs",
     "verify:firestore-rules": "node scripts/verify-firestore-rules.mjs",
     "verify:auth-domains": "node scripts/verify-auth-domains.mjs",

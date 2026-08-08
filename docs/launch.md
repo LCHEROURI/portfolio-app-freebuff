@@ -291,7 +291,13 @@ prove the conversation DB's write path (scratch write → WAL checkpoint →
 integrity) is clean again. `verify:conv-db` is a manual one-shot (it checks the
 Freebuff app's local store, so it is deliberately not in the pre-push hook or
 CI); `verify:disk-headroom` runs again on the way out and will block the push
-if the disk has refilled.
+if the disk has refilled. For steady-state behavior, `npm run
+verify:conv-db:watch` passively samples the WAL/main sizes every 15s (flags
+`--interval` / `--duration`, env `CONV_DB_WATCH_INTERVAL` /
+`CONV_DB_WATCH_DURATION`) and reports write throughput, flush events, and the
+peak WAL — a WAL that crosses the `wal_autocheckpoint` threshold with no
+flush just means the app holds an open reader (deferred, healthy);
+`verify:conv-db` flushes it on demand.
 
 ## 5. Go-live checklist (order matters)
 
