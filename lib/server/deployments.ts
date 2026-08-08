@@ -1,11 +1,14 @@
 import type { Deployment, HealthStatus } from '@/types';
 
+import { mintServiceAccountToken } from './sa-token.mjs';
+
 // ============================================================================
 // Live deployment feed (server-only).
 // Shared by /api/deployments (client refresh) and the automation engine cron.
 //
 // 1. Vercel API (when VERCEL_TOKEN is set): latest deployment per project.
-// 2. Firebase Hosting releases (when FIREBASE_TOKEN + project are set).
+// 2. Firebase Hosting releases (when the service account or FIREBASE_TOKEN
+//    + FIREBASE_PROJECT_ID are set).
 // 3. Live health checks: every deployment URL is fetched and scored
 //    (200/503/…, response time), which feeds the health status.
 //
@@ -139,18 +142,24 @@ export const fetchLiveDeployments = async (userId: string): Promise<Deployment[]
     }
   }
 
-  // ── 1b. Firebase Hosting releases (when FIREBASE_TOKEN + project are set) ──
+  // ── 1b. Firebase Hosting releases (SA-minted token or FIREBASE_TOKEN) ──
   const firebaseToken = process.env.FIREBASE_TOKEN;
   const firebaseProject = process.env.FIREBASE_PROJECT_ID;
   const firebaseSites = process.env.FIREBASE_SITES
     ? process.env.FIREBASE_SITES.split(',').map((s) => s.trim()).filter(Boolean)
     : (firebaseProject ? [firebaseProject] : []);
-  if (firebaseToken && firebaseProject) {
+  // The Hosting Admin API lives at firebasehosting.googleapis.com — the
+  // firebase.googleapis.com host only serves the Management API and 404s on
+  // sites/releases. Token source: a static FIREBASE_TOKEN (legacy) or, when
+  // the service account is present, a per-request mint — durable (no 1h
+  // expiry), cached, and already in Vercel prod via FIREBASE_SERVICE_ACCOUNT.
+  if ((firebaseToken || process.env.FIREBASE_SERVICE_ACCOUNT) && firebaseProject) {
+    const token = firebaseToken ?? (await mintServiceAccountToken());
     const results = await Promise.allSettled(
       firebaseSites.map(async (site) => {
         const res = await fetch(
-          `https://firebase.googleapis.com/v1beta1/projects/${encodeURIComponent(firebaseProject)}/sites/${encodeURIComponent(site)}/releases?pageSize=1`,
-          { headers: { Authorization: `Bearer ${firebaseToken}` }, cache: 'no-store' },
+          `https://firebasehosting.googleapis.com/v1beta1/projects/${encodeURIComponent(firebaseProject)}/sites/${encodeURIComponent(site)}/releases?pageSize=1`,
+          { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' },
         );
         if (!res.ok) return null;
         const body = (await res.json()) as { releases?: Array<{ name?: string; type?: string; releaseTime?: string; message?: { text?: string } }> };

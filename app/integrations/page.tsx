@@ -111,8 +111,8 @@ const SETUP_GUIDES: Record<string, SetupStep[]> = {
     },
     {
       label: 'Optional: Firebase Hosting deployments feed',
-      code: 'FIREBASE_TOKEN=',
-      note: 'Generate with npx firebase login:ci. Without it the app still works — only the Hosting deployments feed stays off.',
+      code: 'FIREBASE_PROJECT_ID=<project-id>\nFIREBASE_SITES=<site-id>',
+      note: 'The feed mints a per-request token from FIREBASE_SERVICE_ACCOUNT (already set for the admin gates — durable, no expiry). A static FIREBASE_TOKEN (npx firebase login:ci) is still supported as a fallback. Without either, only the Hosting deployments feed stays off.',
     },
   ],
   automation: [

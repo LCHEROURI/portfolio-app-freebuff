@@ -95,7 +95,10 @@ export const loadLiveSnapshot = async (ownerId: string): Promise<LiveSnapshot> =
     configured: {
       firestore,
       github: Boolean(process.env.GITHUB_TOKEN) || (repositories?.length ?? 0) > 0,
-      deployments: Boolean(process.env.VERCEL_TOKEN) || Boolean(process.env.FIREBASE_TOKEN),
+      deployments:
+        Boolean(process.env.VERCEL_TOKEN) ||
+        Boolean(process.env.FIREBASE_TOKEN) ||
+        Boolean(process.env.FIREBASE_SERVICE_ACCOUNT),
     },
     collections: {
       tasks: tasks ?? [],

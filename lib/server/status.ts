@@ -3,6 +3,7 @@ import { isDomainAuthorized, originHostname } from '@/lib/authDomains';
 import {
   getFirestoreAdminToken, getFirestoreProjectId, isFirestoreAdminConfigured,
 } from '@/lib/server/firestoreAdmin';
+import { mintServiceAccountToken } from '@/lib/server/sa-token.mjs';
 
 // ============================================================================
 // Integration connection-status checks (server-only).
@@ -202,27 +203,37 @@ const checkFirebase = async (origin?: string, projectOrigin?: string): Promise<I
     varSet('NEXT_PUBLIC_FIREBASE_API_KEY') && varSet('NEXT_PUBLIC_FIREBASE_PROJECT_ID');
   const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? '';
   const fbToken = varSet('FIREBASE_TOKEN');
+  const fbSA = varSet('FIREBASE_SERVICE_ACCOUNT');
+  const feedConfigured = fbToken || fbSA;
   const env = [
     envVar('NEXT_PUBLIC_FIREBASE_API_KEY', true),
     envVar('NEXT_PUBLIC_FIREBASE_PROJECT_ID', true),
     envVar('NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN'),
     envVar('FIREBASE_TOKEN'),
+    envVar('FIREBASE_SERVICE_ACCOUNT'),
     envVar('FIREBASE_PROJECT_ID'),
     envVar('FIREBASE_SITES'),
   ];
 
   let ep = unsetEndpoint();
-  if (fbToken) {
-    const r = await cachedPing('firebase', 'https://firebase.googleapis.com/v1beta1/projects?pageSize=1', {
-      headers: { Authorization: `Bearer ${process.env.FIREBASE_TOKEN as string}` },
-    });
-    const detail =
-      r.status === 200 ? 'Token valid'
-      : r.status === 401 ? 'Token invalid'
-      : r.status === 403 ? 'Token lacks access'
-      : r.status === null ? 'Unreachable'
-      : `HTTP ${r.status}`;
-    ep = endpoint(r, detail);
+  if (feedConfigured) {
+    const token =
+      process.env.FIREBASE_TOKEN ??
+      (await mintServiceAccountToken().catch(() => ''));
+    if (token) {
+      const r = await cachedPing('firebase', 'https://firebase.googleapis.com/v1beta1/projects?pageSize=1', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const detail =
+        r.status === 200 ? 'Token valid'
+        : r.status === 401 ? 'Token invalid'
+        : r.status === 403 ? 'Token lacks access'
+        : r.status === null ? 'Unreachable'
+        : `HTTP ${r.status}`;
+      ep = endpoint(r, detail);
+    } else {
+      ep = endpoint({ status: null, ms: 0, json: null }, 'No token available');
+    }
   }
 
   // Authorized-domains gate: Firebase silently blocks sign-in from an origin
@@ -251,8 +262,8 @@ const checkFirebase = async (origin?: string, projectOrigin?: string): Promise<I
   return {
     id: 'firebase', name: 'Firebase', enabled: clientConfigured,
     configured: clientConfigured, env, endpoint: ep, authDomains,
-    note: clientConfigured && !fbToken
-      ? 'Client SDK configured — auth verified via ID token. Hosting feed needs FIREBASE_TOKEN.'
+    note: clientConfigured && !feedConfigured
+      ? 'Client SDK configured — auth verified via ID token. Hosting feed needs FIREBASE_SERVICE_ACCOUNT or FIREBASE_TOKEN.'
       : undefined,
   };
 };

@@ -13,13 +13,15 @@ export async function GET(req: NextRequest) {
   const userId = await getRequestUserId(req);
   if (!userId) return NextResponse.json({ ok: false, error: 'Authentication required.' }, { status: 401 });
 
+  const firebaseConfigured =
+    Boolean(process.env.FIREBASE_TOKEN) || Boolean(process.env.FIREBASE_SERVICE_ACCOUNT);
   const deployments = await fetchLiveDeployments(userId);
-  const configured = Boolean(process.env.VERCEL_TOKEN) || Boolean(process.env.FIREBASE_TOKEN) || deployments.length > 0;
+  const configured = Boolean(process.env.VERCEL_TOKEN) || firebaseConfigured || deployments.length > 0;
 
   return NextResponse.json({
     ok: true,
     configured,
-    source: process.env.VERCEL_TOKEN ? 'vercel' : process.env.FIREBASE_TOKEN ? 'firebase' : 'none',
+    source: process.env.VERCEL_TOKEN ? 'vercel' : firebaseConfigured ? 'firebase' : 'none',
     deployments,
   });
 }
