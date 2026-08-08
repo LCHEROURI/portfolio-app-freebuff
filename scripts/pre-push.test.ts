@@ -47,6 +47,23 @@ describe('.githooks/pre-push · shared verifier runners', () => {
     expect(hook).toMatch(/^\s*if timebox "\$budget" "\$@"; then$/m);
   });
 
+  it('captures rc INSIDE the else, not after a no-else if (else a false condition reads rc=0)', () => {
+    // Live proof caught this: `if cmd; then return; fi; local rc=$?` always
+    // sees rc=0 because the if statement itself exits 0 on a false condition,
+    // which would silently break the 142-timeout and FATAL_RC branches below.
+    // The capture must sit inside the else branch (the pre-refactor idiom),
+    // and the comment documenting WHY must be present so the reason survives.
+    const helper = hook.slice(hook.indexOf('run_with_retry() {'), hook.indexOf('KEY="$(read_env'));
+    expect(helper).toContain('# CRITICAL: capture $? INSIDE the else');
+    // The capture line itself: `local rc=$?` nested under the else (the
+    // comment lines may sit between them, so allow [\s\S]* between).
+    expect(helper).toMatch(/else[\s\S]*?local rc=\$\?/);
+    // And the buggy no-else shape must NOT exist: a bare
+    // `if timebox; then ...; return 0; fi` immediately followed by the capture
+    // would read rc=0 on a false condition.
+    expect(helper).not.toMatch(/if timebox "\$budget" "\$@"; then\n\s+echo "pre-push: \$label passed ✓"\n\s+return 0\n\s+fi\n\s+local rc=\$\?/);
+  });
+
   it('aborts immediately on the 142 alarm timeout (never retries a budget blowout)', () => {
     expect(hook).toMatch(/\$label exceeded \$\{budget\}s — too slow, run CI instead/);
     expect(hook).toMatch(/\$rc" -eq 142/);

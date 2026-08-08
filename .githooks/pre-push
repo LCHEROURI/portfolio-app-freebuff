@@ -145,31 +145,38 @@ run_with_retry() {
   if timebox "$budget" "$@"; then
     echo "pre-push: $label passed ✓"
     return 0
-  fi
-  local rc=$?
-  if [ "$rc" -eq 142 ]; then
-    echo "pre-push: $label exceeded ${budget}s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
-    exit 1
-  fi
-  if [ -n "${FATAL_RC:-}" ] && [ "$rc" -eq "$FATAL_RC" ]; then
-    echo "pre-push: $label aborted — ${FATAL_MSG:-fatal rc=$rc} (SKIP_VERIFY_SIGNIN=1 to override)" >&2
-    exit 1
-  fi
-  echo "pre-push: $label failed (rc=$rc) — waiting 30s and retrying once (transient $transient?)…" >&2
-  sleep 30
-  if timebox "$budget" "$@"; then
-    echo "pre-push: $label passed ✓ (on retry)"
-    return 0
-  fi
-  local rc2=$?
-  if [ "$rc2" -eq 142 ]; then
-    echo "pre-push: $label exceeded ${budget}s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
-  elif [ -n "${FATAL_RC:-}" ] && [ "$rc2" -eq "$FATAL_RC" ]; then
-    echo "pre-push: $label aborted — ${FATAL_MSG:-fatal rc=$rc2} (SKIP_VERIFY_SIGNIN=1 to override)" >&2
   else
-    echo "pre-push: $label FAILED — $fail_msg (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+    # CRITICAL: capture $? INSIDE the else, not after a no-else `if` — a bare
+    # `if cmd; then return; fi; local rc=$?` always sees rc=0 because the if
+    # statement itself exits 0 on a false condition. Capturing in the else
+    # (the pre-refactor idiom) preserves the real exit code so the 142-timeout
+    # and FATAL_RC branches below can fire.
+    local rc=$?
+    if [ "$rc" -eq 142 ]; then
+      echo "pre-push: $label exceeded ${budget}s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+      exit 1
+    fi
+    if [ -n "${FATAL_RC:-}" ] && [ "$rc" -eq "$FATAL_RC" ]; then
+      echo "pre-push: $label aborted — ${FATAL_MSG:-fatal rc=$rc} (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+      exit 1
+    fi
+    echo "pre-push: $label failed (rc=$rc) — waiting 30s and retrying once (transient $transient?)…" >&2
+    sleep 30
+    if timebox "$budget" "$@"; then
+      echo "pre-push: $label passed ✓ (on retry)"
+      return 0
+    else
+      local rc2=$?
+      if [ "$rc2" -eq 142 ]; then
+        echo "pre-push: $label exceeded ${budget}s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+      elif [ -n "${FATAL_RC:-}" ] && [ "$rc2" -eq "$FATAL_RC" ]; then
+        echo "pre-push: $label aborted — ${FATAL_MSG:-fatal rc=$rc2} (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+      else
+        echo "pre-push: $label FAILED — $fail_msg (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+      fi
+      exit 1
+    fi
   fi
-  exit 1
 }
 
 KEY="$(read_env FIREBASE_WEB_API_KEY)"
