@@ -6,7 +6,7 @@ prove it works. Written after the go-live pass on **2026-08-05/06** so the
 next launch (or a new maintainer) doesn't re-derive any of it.
 
 > **New here?** Start with the README's **Handoff — read this first** section
-> (`../README.md#handoff--read-this-first`) — architecture, the 11
+> (`../README.md#handoff--read-this-first`) — architecture, the 13
 > verification gates, and the three-secret-store reality in one page. This
 > checklist is the operational go-live companion to that overview.
 
@@ -258,6 +258,36 @@ minutes, or one failing at the **Set up job** step with `Service Unavailable`
 service is degraded — not your code. No redeploy is needed: wait for the
 outage to clear and re-run the run (`gh run rerun <id>`); the deployed app is
 unaffected.
+
+### Disk full emergency
+
+A full boot disk is the one failure mode that silently breaks everything this
+checklist's gates depend on. It was the root cause of the Freebuff app's
+SQLite "disk I/O error" on button clicks (the conversation DB writes on every
+click), and it breaks the Chrome `/tmp` profiles and npm steps the verifiers
+need. The pre-push hook (gate 0.05) already blocks a push past `DISK_LIMIT_PCT`
+(default 90) and warns non-blocking over `DISK_WARN_PCT` (default 85) — but
+when you're already inside the app and clicks are failing, recover first, then
+verify:
+
+```bash
+npm run verify:disk-headroom                       # what's the damage? warn 85 / fail 90
+DISK_LIMIT_PCT=80 node scripts/verify-disk-headroom.mjs   # tighten the limit for a quick recheck
+```
+
+**What to clear** — the full safe-to-clear list (npm cache, Chrome's on-device
+AI model store, Docker VM/installer data, wallpaper assets, go/playwright/
+antigravity/iCloud/Codex/pnpm/pip caches, logs — all regenerable, none of it
+your data) lives in the README's **Disk headroom** section:
+[`../README.md#disk-headroom`](../README.md#disk-headroom). Never touch
+`~/Library/Application Support/Google` (your real Chrome profile — history,
+passwords, extensions) or app data with login state. Clearing the list
+recovered ~48Gi on 2026-08-08 (90% → 67%).
+
+**After freeing space** — re-run `npm run verify:disk-headroom` until it prints
+`RESULT: PASS` (a `⚠ WARNING` at/above 85% still passes — it is the heads-up
+to free space before the hard 90% line), then push; the gate runs itself on
+the way out.
 
 ## 5. Go-live checklist (order matters)
 
