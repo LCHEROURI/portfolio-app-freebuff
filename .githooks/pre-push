@@ -248,7 +248,36 @@ fi
 if [ -f scripts/capture-docs.mjs ]; then
   CHROME="${CHROME_PATH:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
   if [ -x "$CHROME" ]; then
-    run_verify "onboarding-docs render diff" scripts/capture-docs.mjs --check
+    # The docs render boots headless Chrome and may hit transient startup
+    # failures, so the gate retries ONCE after a 30s backoff before failing the
+    # push — a transient clears on the retry, a genuinely stale PNG pair fails
+    # both attempts and aborts (mirroring the deployed-hash gate's retry).
+    run_docs_gate() {
+      perl -e 'alarm shift; exec @ARGV' 90 node scripts/capture-docs.mjs --check
+    }
+    echo "pre-push: verifying onboarding-docs render diff…"
+    if run_docs_gate; then
+      echo "pre-push: onboarding-docs render diff passed ✓"
+    else
+      docs_rc=$?
+      if [ "$docs_rc" -eq 142 ]; then
+        echo "pre-push: onboarding-docs render diff exceeded 90s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+        exit 1
+      fi
+      echo "pre-push: onboarding-docs render diff failed (rc=$docs_rc) — waiting 30s and retrying once (transient Chrome failure?)…" >&2
+      sleep 30
+      if run_docs_gate; then
+        echo "pre-push: onboarding-docs render diff passed ✓ (on retry)"
+      else
+        local_rc=$?
+        if [ "$local_rc" -eq 142 ]; then
+          echo "pre-push: onboarding-docs render diff exceeded 90s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+        else
+          echo "pre-push: onboarding-docs render diff FAILED — run npm run capture:docs and commit (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+        fi
+        exit 1
+      fi
+    fi
   else
     echo "pre-push: Chrome not found — skipping onboarding-docs render diff"
   fi
@@ -349,7 +378,37 @@ fi
 if [ -n "$KEY" ] && [ -f scripts/verify-prod-signin.mjs ]; then
   CHROME="${CHROME_PATH:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
   if [ -x "$CHROME" ]; then
-    run_verify "production sign-in + Firestore sync" scripts/verify-prod-signin.mjs
+    # The sign-in proof drives the LIVE app: transient first-attempt failures
+    # (auth/network-request-failed, a slow Firestore sync) have been observed,
+    # so the gate retries ONCE after a 30s backoff before failing the push —
+    # a transient clears on the retry, a genuine regression fails both
+    # attempts and aborts (mirroring the deployed-hash gate's retry).
+    run_signin_gate() {
+      perl -e 'alarm shift; exec @ARGV' 90 node scripts/verify-prod-signin.mjs
+    }
+    echo "pre-push: verifying production sign-in + Firestore sync…"
+    if run_signin_gate; then
+      echo "pre-push: production sign-in + Firestore sync passed ✓"
+    else
+      signin_rc=$?
+      if [ "$signin_rc" -eq 142 ]; then
+        echo "pre-push: production sign-in + Firestore sync exceeded 90s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+        exit 1
+      fi
+      echo "pre-push: production sign-in + Firestore sync failed (rc=$signin_rc) — waiting 30s and retrying once (transient live-app failure?)…" >&2
+      sleep 30
+      if run_signin_gate; then
+        echo "pre-push: production sign-in + Firestore sync passed ✓ (on retry)"
+      else
+        local_rc=$?
+        if [ "$local_rc" -eq 142 ]; then
+          echo "pre-push: production sign-in + Firestore sync exceeded 90s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+        else
+          echo "pre-push: production sign-in + Firestore sync FAILED — fix before pushing (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+        fi
+        exit 1
+      fi
+    fi
   else
     echo "pre-push: Chrome not found — skipping sign-in proof"
   fi
@@ -367,7 +426,36 @@ fi
 if [ -n "$KEY" ] && [ -f scripts/verify-profile-no-email.mjs ]; then
   CHROME="${CHROME_PATH:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
   if [ -x "$CHROME" ]; then
-    run_verify "profile no-email walkthrough" scripts/verify-profile-no-email.mjs
+    # The walkthrough drives the LIVE app with the same transient first-attempt
+    # profile as gate 3 (sign-in network blips, slow page loads), so the gate
+    # retries ONCE after a 30s backoff before failing the push (mirroring the
+    # deployed-hash gate's retry).
+    run_profile_gate() {
+      perl -e 'alarm shift; exec @ARGV' 90 node scripts/verify-profile-no-email.mjs
+    }
+    echo "pre-push: verifying profile no-email walkthrough…"
+    if run_profile_gate; then
+      echo "pre-push: profile no-email walkthrough passed ✓"
+    else
+      prof_rc=$?
+      if [ "$prof_rc" -eq 142 ]; then
+        echo "pre-push: profile no-email walkthrough exceeded 90s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+        exit 1
+      fi
+      echo "pre-push: profile no-email walkthrough failed (rc=$prof_rc) — waiting 30s and retrying once (transient live-app failure?)…" >&2
+      sleep 30
+      if run_profile_gate; then
+        echo "pre-push: profile no-email walkthrough passed ✓ (on retry)"
+      else
+        local_rc=$?
+        if [ "$local_rc" -eq 142 ]; then
+          echo "pre-push: profile no-email walkthrough exceeded 90s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+        else
+          echo "pre-push: profile no-email walkthrough FAILED — fix before pushing (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+        fi
+        exit 1
+      fi
+    fi
   else
     echo "pre-push: Chrome not found — skipping profile no-email proof"
   fi

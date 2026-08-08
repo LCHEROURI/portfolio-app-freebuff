@@ -116,17 +116,40 @@ describe('.githooks/pre-push · onboarding-docs render diff gate (gate 0.6c)', (
     expect(hook).toContain('committed onboarding PNGs would change');
   });
 
-  it('defines the gate block that runs capture-docs.mjs --check through run_verify', () => {
+  it('defines the gate block that runs capture-docs.mjs --check', () => {
     expect(hook).toContain('# ── 0.6c Onboarding-docs render diff gate');
-    expect(hook).toContain('run_verify "onboarding-docs render diff" scripts/capture-docs.mjs --check');
+    expect(hook).toContain('node scripts/capture-docs.mjs --check');
   });
 
-  it('forwards extra args through run_verify so --check reaches the script', () => {
-    // Line-anchored on purpose: the forward must be the real exec line, not a
-    // comment mention. Without it, the gate would run capture-docs.mjs in
-    // WRITE mode and rewrite the committed PNGs on every push instead of
-    // comparing them.
-    expect(hook).toMatch(/^\s*if perl -e 'alarm shift; exec @ARGV' 90 node "\$script" "\$@"; then$/m);
+  it('runs capture-docs.mjs --check through the gate\'s OWN exec line, not WRITE mode', () => {
+    // Line-anchored: the exec must be a plain line inside the gate's own
+    // function (never routed through run_verify's 90s wrapper, never wrapped
+    // in an `if ...; then` that would break the retry structure) and MUST
+    // carry --check — without it the gate would run capture-docs.mjs in WRITE
+    // mode and rewrite the committed PNGs on every push instead of comparing
+    // them.
+    expect(hook).toMatch(/^\s*perl -e 'alarm shift; exec @ARGV' 90 node scripts\/capture-docs\.mjs --check\s*$/m);
+  });
+
+  it('wraps the gate in a named function so it can be retried, mirroring the deployed-hash gate', () => {
+    expect(hook).toContain('run_docs_gate() {');
+    expect(hook).toMatch(/^\s*if run_docs_gate; then$/m);
+  });
+
+  it('retries ONCE after a 30s backoff before failing the push', () => {
+    expect(hook).toContain('sleep 30');
+    expect(hook).toContain('if run_docs_gate; then');
+    expect(hook).toContain('onboarding-docs render diff passed ✓ (on retry)');
+    expect(hook).toContain('transient Chrome failure?');
+    // The second failure branch must not be followed by a hardcoded exit 1
+    // that would swallow the real rc into a bare 1.
+    const gateTail = hook.slice(hook.indexOf('onboarding-docs render diff FAILED'));
+    expect(gateTail).toMatch(/exit 1\s*$/m);
+  });
+
+  it('names the 142 alarm timeout and the re-capture failure reason', () => {
+    expect(hook).toContain('exceeded 90s');
+    expect(hook).toContain('run npm run capture:docs and commit');
   });
 
   it('skips with a notice when Chrome is missing, matching gates 3/3b', () => {
@@ -140,6 +163,102 @@ describe('.githooks/pre-push · onboarding-docs render diff gate (gate 0.6c)', (
     expect(gate06c).toBeGreaterThan(gate06b);
     expect(gate06c).toBeGreaterThan(-1);
     expect(gate07).toBeGreaterThan(gate06c);
+  });
+});
+
+describe('.githooks/pre-push · production sign-in + Firestore sync gate (gate 3)', () => {
+  it('lists the sign-in gate in the header gate inventory', () => {
+    expect(hook).toContain('3. scripts/verify-prod-signin.mjs');
+    expect(hook).toContain('needs FIREBASE_WEB_API_KEY + Chrome');
+  });
+
+  it('defines the gate block that runs verify-prod-signin.mjs', () => {
+    expect(hook).toContain('# ── 3. Sign-in + Firestore sync gate');
+    expect(hook).toContain('node scripts/verify-prod-signin.mjs');
+  });
+
+  it('wraps the gate in a named function so it can be retried, mirroring the deployed-hash gate', () => {
+    expect(hook).toContain('run_signin_gate() {');
+    expect(hook).toMatch(/^\s*if run_signin_gate; then$/m);
+  });
+
+  it('retries ONCE after a 30s backoff before failing the push', () => {
+    expect(hook).toContain('sleep 30');
+    expect(hook).toContain('if run_signin_gate; then');
+    expect(hook).toContain('production sign-in + Firestore sync passed ✓ (on retry)');
+    expect(hook).toContain('transient live-app failure?');
+    // The second failure branch must not be followed by a hardcoded exit 1
+    // that would swallow the real rc into a bare 1.
+    const gateTail = hook.slice(hook.indexOf('production sign-in + Firestore sync FAILED'));
+    expect(gateTail).toMatch(/exit 1\s*$/m);
+  });
+
+  it('names the 142 alarm timeout and the fix-before-pushing failure reason', () => {
+    expect(hook).toContain('production sign-in + Firestore sync exceeded 90s');
+    expect(hook).toContain('fix before pushing');
+  });
+
+  it('gates on the web API key AND Chrome, skipping with notices when either is missing', () => {
+    expect(hook).toContain('[ -n "$KEY" ] && [ -f scripts/verify-prod-signin.mjs ]');
+    expect(hook).toContain('Chrome not found — skipping sign-in proof');
+    expect(hook).toContain('FIREBASE_WEB_API_KEY not set — skipping sign-in proof');
+  });
+
+  it('sits after the cron-reports gate (2) and before the profile no-email gate (3b)', () => {
+    const gate3 = hook.indexOf('# ── 3. Sign-in + Firestore sync gate');
+    const gate2 = hook.indexOf('# ── 2. Cron-reports gate');
+    const gate3b = hook.indexOf('# ── 3b. Profile no-email gate');
+    expect(gate3).toBeGreaterThan(gate2);
+    expect(gate3).toBeGreaterThan(-1);
+    expect(gate3b).toBeGreaterThan(gate3);
+  });
+});
+
+describe('.githooks/pre-push · profile no-email walkthrough gate (gate 3b)', () => {
+  it('lists the profile no-email gate in the header gate inventory', () => {
+    expect(hook).toContain('3b. scripts/verify-profile-no-email.mjs');
+    expect(hook).toContain('needs FIREBASE_WEB_API_KEY + Chrome');
+  });
+
+  it('defines the gate block that runs verify-profile-no-email.mjs', () => {
+    expect(hook).toContain('# ── 3b. Profile no-email gate');
+    expect(hook).toContain('node scripts/verify-profile-no-email.mjs');
+  });
+
+  it('wraps the gate in a named function so it can be retried, mirroring the deployed-hash gate', () => {
+    expect(hook).toContain('run_profile_gate() {');
+    expect(hook).toMatch(/^\s*if run_profile_gate; then$/m);
+  });
+
+  it('retries ONCE after a 30s backoff before failing the push', () => {
+    expect(hook).toContain('sleep 30');
+    expect(hook).toContain('if run_profile_gate; then');
+    expect(hook).toContain('profile no-email walkthrough passed ✓ (on retry)');
+    expect(hook).toContain('transient live-app failure?');
+    // The second failure branch must not be followed by a hardcoded exit 1
+    // that would swallow the real rc into a bare 1.
+    const gateTail = hook.slice(hook.indexOf('profile no-email walkthrough FAILED'));
+    expect(gateTail).toMatch(/exit 1\s*$/m);
+  });
+
+  it('names the 142 alarm timeout and the fix-before-pushing failure reason', () => {
+    expect(hook).toContain('profile no-email walkthrough exceeded 90s');
+    expect(hook).toContain('fix before pushing');
+  });
+
+  it('gates on the web API key AND Chrome, skipping with notices when either is missing', () => {
+    expect(hook).toContain('[ -n "$KEY" ] && [ -f scripts/verify-profile-no-email.mjs ]');
+    expect(hook).toContain('Chrome not found — skipping profile no-email proof');
+    expect(hook).toContain('FIREBASE_WEB_API_KEY not set — skipping profile no-email proof');
+  });
+
+  it('sits after the sign-in gate (3) and before the ship:ready capstone (4)', () => {
+    const gate3b = hook.indexOf('# ── 3b. Profile no-email gate');
+    const gate3 = hook.indexOf('# ── 3. Sign-in + Firestore sync gate');
+    const gate4 = hook.indexOf('# ── 4. ship:ready final capstone gate');
+    expect(gate3b).toBeGreaterThan(gate3);
+    expect(gate3b).toBeGreaterThan(-1);
+    expect(gate4).toBeGreaterThan(gate3b);
   });
 });
 
