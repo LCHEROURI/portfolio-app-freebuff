@@ -136,7 +136,7 @@ describe('verify-all.mjs · onboarding-doc pipeline-diagram presence row', () =>
   it('stays OUT of GATE_NAMES so the 11-gate §4 contract is intact', () => {
     // The row is a companion check, not a 12th gate. If it ever joins
     // GATE_NAMES, the launch-checklist drift guard cross-check would fail
-    // (the runner's gate names must exactly match §4's eleven), so this
+    // (the runner's gate names must exactly match §4's thirteen), so this
     // assertion pins the deliberate exclusion.
     const gateNamesLine = src.match(/const GATE_NAMES = \[[^\]]*\]/)?.[0] ?? '';
     expect(gateNamesLine).not.toContain('pipeline-diagram');
@@ -152,21 +152,21 @@ describe('verify-all.mjs · onboarding-doc pipeline-diagram presence row', () =>
   });
 });
 
-// ── verify-all.mjs's 12-gate self-check ────────────────────────────────────
-// The runner asserts GATE_NAMES.length === 12 (matching the drift guard's
+// ── verify-all.mjs's 13-gate self-check ────────────────────────────────────
+// The runner asserts GATE_NAMES.length === 13 (matching the drift guard's
 // EXPECTED_GATE_COUNT) BEFORE the preflight spawn or any gate executes, so a
 // future gate added without the full contract update fails loudly at runtime
 // instead of silently widening the table.
 
-describe('verify-all.mjs · 12-gate runtime self-check', () => {
+describe('verify-all.mjs · 13-gate runtime self-check', () => {
   const src = readFileSync(join(process.cwd(), 'scripts', 'verify-all.mjs'), 'utf8');
 
-  it('hardcodes EXPECTED_GATE_COUNT = 12 matching the drift guard', () => {
+  it('hardcodes EXPECTED_GATE_COUNT = 13 matching the drift guard', () => {
     // The runner and verify-launch-checklist.mjs must promise the SAME count;
     // a future gate bump that touches only one file fails this lock.
-    expect(src).toContain('const EXPECTED_GATE_COUNT = 12;');
+    expect(src).toContain('const EXPECTED_GATE_COUNT = 13;');
     const drift = readFileSync(join(process.cwd(), 'scripts', 'verify-launch-checklist.mjs'), 'utf8');
-    expect(drift).toContain('const EXPECTED_GATE_COUNT = 12;');
+    expect(drift).toContain('const EXPECTED_GATE_COUNT = 13;');
   });
 
   it('asserts GATE_NAMES.length === EXPECTED_GATE_COUNT before the preflight and any gate runs', () => {
@@ -186,21 +186,21 @@ describe('verify-all.mjs · 12-gate runtime self-check', () => {
     // constant and the results array) — a file-wide regex would be satisfied
     // by the unknown-gate block's process.exit(2) even if the self-check's own
     // exit were silently removed.
-    const block = src.slice(src.indexOf('const EXPECTED_GATE_COUNT = 12;'), src.indexOf('const failures = [];'));
+    const block = src.slice(src.indexOf('const EXPECTED_GATE_COUNT = 13;'), src.indexOf('const failures = [];'));
     expect(block.length).toBeGreaterThan(0);
     expect(block).toContain('launch-checklist contract promises');
     expect(block).toContain('Update every surface together, then re-run.');
     expect(block).toMatch(/process\.exit\(2\);/);
   });
 
-  it('keeps GATE_NAMES and GATES at 12 entries today (live-tree lock)', () => {
+  it('keeps GATE_NAMES and GATES at 13 entries today (live-tree lock)', () => {
     // The self-check must pass on the real tree right now: both arrays hold
-    // exactly 12 entries and agree with each other, so the guard is green
+    // exactly 13 entries and agree with each other, so the guard is green
     // rather than dead code that trips on the next run.
     const gateNames = src.match(/const GATE_NAMES = \[([^\]]*)\]/)?.[1] ?? '';
-    expect([...gateNames.matchAll(/'([^']+)'/g)]).toHaveLength(12);
+    expect([...gateNames.matchAll(/'([^']+)'/g)]).toHaveLength(13);
     const gatesBody = src.match(/const GATES = \[([\s\S]*?)\n\];/)?.[1] ?? '';
-    expect([...gatesBody.matchAll(/name: '([^']+)'/g)]).toHaveLength(12);
+    expect([...gatesBody.matchAll(/name: '([^']+)'/g)]).toHaveLength(13);
   });
 });
 

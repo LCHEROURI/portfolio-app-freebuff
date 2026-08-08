@@ -9,9 +9,10 @@
 #     node scripts/install-push-hook.mjs <path>   (shared installer, any repo)
 #
 # Runs, in order, each gated on what it needs:
-#   0.05 Data-volume headroom (df — no secrets, pure local, instant; FAILS
-#       the push when the Data volume is over 90% full — a full disk breaks
-#       SQLite writes and the Chrome/npm verifiers, so it is checked FIRST)
+#   0.05 scripts/verify-disk-headroom.mjs (df — no secrets, pure local,
+#       instant; FAILS the push when the Data volume is over 90% full — a
+#       full disk breaks SQLite writes and the Chrome/npm verifiers, so it is
+#       checked FIRST)
 #   0. scripts/verify-deployed-hash.mjs  (needs VERCEL_TOKEN — resolves the
 #      canonical production URL via the v13 by-host lookup and asserts it
 #      serves the last PUSHED commit; a bare fallback needs no team scope)
@@ -202,29 +203,16 @@ PRODUCTION_URL="https://portfolio-app-freebuff.vercel.app"
 # conversation DB writes on every click) and it silently breaks the Chrome
 # /tmp profiles and npm steps below — so this cheap local check runs BEFORE
 # any network or Chrome gate, and a full disk aborts fast instead of after
-# the 20-minute ship:ready capstone. df is instant and needs no secrets.
-# Skips with a notice (never fails) when df is unavailable, so machines
-# without the mount can still push. DISK_LIMIT_PCT overrides the 90% limit.
-DISK_LIMIT_PCT="${DISK_LIMIT_PCT:-90}"
-# A non-numeric override would make the `-gt` comparison error inside the if
-# condition (treated as false) and silently disable the gate while printing
-# 'headroom OK' — so a malformed value falls back to the 90% default, loudly
-# keeping the gate armed.
-case "$DISK_LIMIT_PCT" in ''|*[!0-9]*) DISK_LIMIT_PCT=90;; esac
-DISK_PCT="$(df -k /System/Volumes/Data 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5}' || true)"
-if [ -z "$DISK_PCT" ]; then
-  # Non-macOS fallback: the root mount's use% column.
-  DISK_PCT="$(df -k / 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5}' || true)"
-fi
-if [ -n "$DISK_PCT" ] && [ "$DISK_PCT" -gt "$DISK_LIMIT_PCT" ]; then
-  echo "pre-push: Data volume ${DISK_PCT}% full (limit ${DISK_LIMIT_PCT}%) — a full disk causes SQLite I/O errors and breaks the verifiers. Free space (clear caches / empty Trash / delete ~/Library/Application Support/com.google.AIEdgeEloquent), then re-push (SKIP_VERIFY_SIGNIN=1 to override)" >&2
-  exit 1
-elif [ -n "$DISK_PCT" ]; then
-  # Deliberately no volume name: the primary probe reads the Data volume but
-  # the fallback reads the root mount, so naming one would mislabel the other.
-  echo "pre-push: disk headroom OK (${DISK_PCT}% used) ✓"
+# the 20-minute ship:ready capstone. The check lives in
+# scripts/verify-disk-headroom.mjs — the SAME node gate verify:all and
+# docs/launch.md §4 run, so the hook and the runner share one implementation
+# and can never drift. The script exits 0 on pass AND when df is unavailable
+# (skip-not-fail), exits 1 when the probed volume exceeds DISK_LIMIT_PCT
+# (default 90).
+if [ -f scripts/verify-disk-headroom.mjs ]; then
+  run_verify "disk headroom" scripts/verify-disk-headroom.mjs
 else
-  echo "pre-push: df unavailable — skipping disk headroom check"
+  echo "pre-push: verify suite not present — skipping disk headroom check"
 fi
 
 # ── 0. Deployed-hash gate (needs VERCEL_TOKEN; asserts the LAST pushed ──────

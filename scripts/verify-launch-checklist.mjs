@@ -19,7 +19,7 @@
 //     pipeline-diagram section, so the picture itself is contract-locked in
 //     CI — not just asserted by the vitest suite that checks its content.
 //
-// Also enforces the doc's "twelve gates" claim: if §4 stops listing one of the
+// Also enforces the doc's "thirteen gates" claim: if §4 stops listing one of the
 // gates, or a new gate is added to the doc without a matching script, this
 // check fails — so the checklist can never drift from the runnable commands.
 //
@@ -40,13 +40,14 @@ const README = 'README.md';
 const VERIFY_ALL = 'scripts/verify-all.mjs';
 const CI = '.github/workflows/ci.yml';
 const GATE_SECTION_HEADING = /^## \d+\. The verification gates/;
-const EXPECTED_GATE_COUNT = 12;
+const EXPECTED_GATE_COUNT = 13;
 // The exact canonical commands §4 must document. Hardcoding the set (not just
 // the count) closes the silent-drift hole: deleting a real gate while adding
 // a different row would keep the count at 8 but fail here. The deployed-hash
 // row is documented WITH its --expect argument (that is the gate form the
 // pre-push hook and CI use); the parser tolerates trailing args on npm gates.
 const EXPECTED_GATES = [
+  'npm run verify:disk-headroom',
   'npm run verify:cron-reports',
   'npm run verify:firestore-rules',
   'npm run verify:auth-domains',

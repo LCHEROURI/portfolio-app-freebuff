@@ -16,8 +16,8 @@ describe('parseLaunchChecklistTable (live repo)', () => {
     expect(header).toMatch(/^\|\s*Gate\s*\|\s*Requires\s*\|/);
   });
 
-  it('parses all 12 gate rows with their Requires cells', () => {
-    expect(rows).toHaveLength(12);
+  it('parses all 13 gate rows with their Requires cells', () => {
+    expect(rows).toHaveLength(13);
     for (const row of rows) {
       expect(row.command).toMatch(/^(npm run verify:|node scripts\/)/);
       // Every row must carry a secrets requirement cell — the contract under
@@ -175,7 +175,7 @@ describe('crossCheckVerifyAllGates still passes with the shared parser (live rep
       docCommands: gates,
       verifyAllSrc,
       npmScripts,
-      expectedCount: 12,
+      expectedCount: 13,
     });
     expect(failures).toEqual([]);
   });

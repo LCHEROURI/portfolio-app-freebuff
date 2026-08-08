@@ -73,6 +73,7 @@ Each exits nonzero on failure. Read secrets from env, then `.env.local`.
 
 | Gate | Requires | What it proves |
 | --- | --- | --- |
+| `npm run verify:disk-headroom` | — | Local Data-volume headroom: the machine's Data volume must stay under `DISK_LIMIT_PCT` (default 90) — a full disk is what caused the SQLite "disk I/O error" on button clicks and it silently breaks the Chrome/npm verifiers. Reads `df` (root-mount fallback on non-macOS), exits 1 over the limit, exits 0 on pass **and** when `df` is unavailable (skip-not-fail); `DISK_LIMIT_PCT` is env-overridable with a numeric guard. No secrets, no network, instant — runs **first** in `verify:all` and as pre-push gate 0.05. Deliberately local-only (a CI runner's disk is not the developer's) |
 | `npm run verify:token-health` | `VERCEL_TOKEN` | Stored `VERCEL_TOKEN` is alive: reads it (env → `.env.local` → CLI store), calls `GET /v2/user/tokens`, and reports the active token's name + expiry (or "no expiration"); a revoked token exits 2 with the paste-a-fresh-token guidance. Runs **first** in `verify:all` so a dead credential is caught in ~1s before any gate that depends on it |
 | `npm run verify:vercel-env` | `VERCEL_TOKEN` (+ Vercel CLI) | Vercel production env **matches** `.env.local`: pulls the decrypted values via `vercel env pull`, asserts every local key exists in Vercel prod with an identical value (report shows names + value lengths only, never the secrets), reports Vercel-only vars as informational, and classifies GitHub secrets — CI-only ones (e.g. `VERCEL_ORG_ID`) are expected, not drift, while a GitHub secret that `.env.local` has but Vercel prod lacks fails the gate. Exits 1 on drift, 2 on an invalid token. Requires `VERCEL_TOKEN` + the Vercel CLI; `gh` degrades to skip-not-fail |
 | `npm run verify:cron-reports` | `CRON_SECRET` | Deployed `/api/cron/reports` 401s without auth; daily + weekly report bodies carry the friendly `(DeepSeek Chat)` heading and raw-id `Model:` footer; weekly winner-recommendation section present; **no report carries an `email` envelope** (the sweep shows as its own row in `verify:all`'s summary). Reports are composed in-app only — this proves the composed bodies still ship for the in-app Reports page |
@@ -86,7 +87,7 @@ Each exits nonzero on failure. Read secrets from env, then `.env.local`.
 | `npm run verify:import-surface` | — | Static import-surface lint over `scripts/` + `lib/` + `app/` (TS-compiler-AST scan): no re-exported imports and no unused imports. No secrets, no network — also wired into `npm run lint`, the pre-push hook (gate 0.6), and CI's lint step |
 | `npm run verify:dead-words` | — | Repo-wide sweep for dead-feature phrasing in code comments and docs: the removed report-email wording plus the removed integrations (the old data store, the delivery sender) can never silently return. The env-identifier phrases are **derived from `REMOVED_ENV_VARS` in `lib/integrationVarLinks.ts`** — the same source of truth the Integrations lock test loops over — so the banned list and the lock can never drift: add a removed identifier to the array and both extend automatically. Fails loudly if the array is missing or empty. Skips `docs/reviews/` (historical records), the linter's own files (which must quote the phrases), the source-of-truth array lines, and the removed-var lock lines in `lib/integrationVarLinks.test.ts` (which must quote the dead names to prove they resolve to null). No secrets, no network — also wired into `npm run lint`, the pre-push hook (gate 0.6b), and CI's lint step |
 
-Run **all twelve in one command** with `npm run verify:all` — it preflights the
+Run **all thirteen in one command** with `npm run verify:all` — it preflights the
 drift guard above, runs every gate sequentially against the production URL
 (or `--app <url>` to target a preview/local server), dedupes the two
 auth-domains rows (they share one script), and prints a summary table,
@@ -129,7 +130,7 @@ When each gate runs (same picture as the README handoff section):
 ```text
    ┌───────────────────────────────────────────────────────────────┐
    │  LOCAL — every git push (.githooks/pre-push)                  │
-   │  runs the 12 verify:all gates + drift guards (timeboxed); a  │
+   │  runs the 13 verify:all gates + drift guards (timeboxed); a  │
    │  hook gates 0.6/0.6b/0.6c/0.6d (lints + render byte gates);   │
    │  dirty tree or any failure ABORTS the push                    │
    └──────────────────────────────┬────────────────────────────────┘
@@ -238,7 +239,7 @@ screenshots match; the review-sheet capture runs in deterministic mode). After
 every individual gate passes, it
 asserts the working tree is clean (nothing staged, unstaged, or untracked — a
 dirty tree means the pushed commit cannot match the code you just ran) and
-runs the complete eleven-gate suite against production, printing a single
+runs the complete thirteen-gate suite against production, printing a single
 `SHIP READY` / `SHIP BLOCKED` verdict. Any nonzero exit aborts the push — so
 the same one-command verdict the go-live checklist uses is enforced at the
 point of no return. `SKIP_VERIFY_SIGNIN=1` bypasses it like every other gate.
@@ -267,7 +268,7 @@ unaffected.
 2. **Vercel** — all env vars from §2 set on **Production** (and the GitHub secrets from §3).
 3. **Rules** — `npx firebase deploy --only firestore:rules --project portfolio-app-freebuff2`.
 4. **Push to `main`** — Vercel auto-deploys; the pre-push hook runs the local gates; CI runs the post-deploy gates.
-5. **Run the full verify suite** against the production URL (§4). All eleven gates must pass.
+5. **Run the full verify suite** against the production URL (§4). All thirteen gates must pass.
 6. **Manual smoke** — sign in on the production URL with email/password, then Google; open Command Center; click AI Explain and confirm the briefing card renders with the `DeepSeek Chat` badge.
 
 ## 6. What was verified at go-live (2026-08-06)

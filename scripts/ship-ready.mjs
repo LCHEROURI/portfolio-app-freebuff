@@ -9,7 +9,7 @@
 // 1. Asserts the git working tree is clean (nothing staged, unstaged, or
 //    untracked) — a dirty tree means the pushed/deployed commit cannot match
 //    the code you just ran, so the verdict would be meaningless.
-// 2. Runs the FULL verify:all suite against production (all eleven §4 gates,
+// 2. Runs the FULL verify:all suite against production (all thirteen §4 gates,
 //    including the deployed-hash check that the live build serves local HEAD).
 // 3. Prints one verdict line: SHIP READY or SHIP BLOCKED, and exits
 //    nonzero when blocked.

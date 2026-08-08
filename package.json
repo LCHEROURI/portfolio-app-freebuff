@@ -16,6 +16,7 @@
     "scan:schedule": "bash scripts/scan-schedule.sh",
     "scan:scheduled": "bash scripts/scan-all-scheduled.sh",
     "chrome:watch": "bash scripts/chrome-watch.sh",
+    "verify:disk-headroom": "node scripts/verify-disk-headroom.mjs",
     "verify:cron-reports": "node scripts/verify-cron-reports.mjs",
     "verify:firestore-rules": "node scripts/verify-firestore-rules.mjs",
     "verify:auth-domains": "node scripts/verify-auth-domains.mjs",
