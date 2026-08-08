@@ -41,9 +41,11 @@
 // Usage:
 //   npm run verify:conv-db
 //   npm run verify:conv-db:watch           # steady-state observation
+//   npm run verify:conv-db:flush-watch     # truncate, then measure regrowth
 //   CONV_DB_PATH=/tmp/other.db node scripts/verify-conv-db.mjs
 //   node scripts/verify-conv-db.mjs --db /tmp/other.db
 //   node scripts/verify-conv-db.mjs --watch --interval 5 --duration 60
+//   node scripts/verify-conv-db.mjs --flush-watch --interval 5 --duration 60
 //
 // WATCH MODE (--watch): passively samples the -wal sidecar and main DB file
 // sizes on an interval (default 15s, flag --interval <sec> / env
@@ -57,13 +59,22 @@
 // it is safe to run while the app is open. Exits 0 on a completed watch;
 // exits 0 (SKIP) if the DB is absent.
 //
+// FLUSH-WATCH MODE (--flush-watch): the truncate-plus-watch cycle in one
+// command — run the full write-proof flush first (integrity → scratch write →
+// wal_checkpoint(TRUNCATE) → integrity, leaving the WAL at 0 bytes), then the
+// watch window against the freshly flushed WAL, and finish with a combined
+// summary of the regrowth: peak WAL, throughput in bytes/min, and flush
+// events observed. One command answers "how fast does the WAL regrow after a
+// truncate" without chaining `verify:conv-db` and `verify:conv-db:watch` by
+// hand. Same flags/env as --watch (--interval / --duration).
+//
 // Exports (for the unit test): parseIntegrity, parseJournal, parseCheckpoint,
 // resolveDbPath, walBytes, convDbVerdict, runProof, formatBytes,
-// parseWatchArgs, detectEvent, runWatch, DEFAULT_DB_PATH. runProof and
-// runWatch take their sqlite runner / sample / timer dependencies as
-// injectable arguments (default: execFileSync('sqlite3', …) / real fs + real
-// timers) so every step is lockable with fake runners and no built-in
-// mocking — the same pattern as verify-disk-headroom's probeUsePct.
+// parseWatchArgs, detectEvent, runWatch, runFlushWatch, DEFAULT_DB_PATH.
+// runProof and runWatch take their sqlite runner / sample / timer
+// dependencies as injectable arguments (default: execFileSync('sqlite3', …) /
+// real fs + real timers) so every step is lockable with fake runners and no
+// built-in mocking — the same pattern as verify-disk-headroom's probeUsePct.
 // ============================================================================
 
 import { execFileSync } from 'node:child_process';
@@ -337,6 +348,33 @@ export function runProof(dbPath, runSqliteImpl = runSqlite, statImpl = statSync)
  * (sample, pragmas, sleep, log, now) — the same pattern as runProof. Returns
  * { kind: 'skip' } when the DB is absent, else { kind: 'ok', samples, … }.
  */
+
+/**
+ * One-command regrowth report after a flush: peak WAL, throughput in
+ * bytes/min, and flush events, from a completed watch result. Pure, so it is
+ * lockable without running a watch.
+ */
+export function flushWatchSummary(watch) {
+  const ratePerMin = watch.elapsedMs > 0 ? watch.totalWalDelta / (watch.elapsedMs / 60000) : 0;
+  return `peak WAL ${formatBytes(watch.peakWal)} · regrowth ≈ ${formatBytes(ratePerMin)}/min · flush events ${watch.flushEvents}`;
+}
+
+/**
+ * The truncate-plus-watch cycle in one call: run the full write-proof flush
+ * (runProof — TRUNCATE leaves the WAL at 0 bytes), then the watch window
+ * against the freshly flushed WAL. The flush is injected as runProofImpl, the
+ * watch as runWatchImpl (defaults: the real ones), so the orchestration is
+ * lockable without touching a real DB. Returns the proof verdict unchanged on
+ * skip/fail (the watch never runs on a broken DB), else
+ * { kind: 'ok', proof, watch }.
+ */
+export async function runFlushWatch(dbPath, opts = {}) {
+  const { runProofImpl = runProof, runWatchImpl = runWatch, ...watchOpts } = opts;
+  const proof = runProofImpl(dbPath);
+  if (proof.kind === 'skip' || proof.kind === 'fail') return proof;
+  const watch = await runWatchImpl(dbPath, watchOpts);
+  return { kind: 'ok', proof, watch };
+}
 export async function runWatch(dbPath, opts = {}) {
   const {
     intervalMs = 15000,
@@ -431,6 +469,31 @@ export async function runWatch(dbPath, opts = {}) {
   };
 }
 
+async function flushWatchMain() {
+  const flagIdx = process.argv.indexOf('--db');
+  const flagValue = flagIdx >= 0 ? process.argv[flagIdx + 1] : undefined;
+  const dbPath = resolveDbPath(process.env, flagValue);
+  const { intervalMs, durationMs } = parseWatchArgs(process.argv, process.env);
+
+  console.log(`Freebuff conversation DB flush + watch (${dbPath}) — TRUNCATE flush, then ${Math.round(durationMs / 1000)}s window at ${Math.round(intervalMs / 1000)}s intervals`);
+  const result = await runFlushWatch(dbPath, { intervalMs, durationMs });
+  if (result.kind === 'skip') {
+    console.log('  — cannot run — DB file missing (nothing to flush or watch)');
+    console.log('RESULT: SKIPPED');
+    process.exit(0);
+  }
+  if (result.kind === 'fail') {
+    console.error(`  ✗ FAIL: ${result.reason}`);
+    console.error('RESULT: FAIL');
+    process.exit(1);
+  }
+  // The watch already logged its samples + own summary; print the combined
+  // regrowth report the flush-then-watch cycle exists to answer.
+  console.log(`  ── flush+watch ── ${flushWatchSummary(result.watch)}`);
+  console.log('RESULT: PASS');
+  process.exit(0);
+}
+
 async function watchMain() {
   const flagIdx = process.argv.indexOf('--db');
   const flagValue = flagIdx >= 0 ? process.argv[flagIdx + 1] : undefined;
@@ -448,6 +511,16 @@ async function watchMain() {
 }
 
 function main() {
+  // --flush-watch: the truncate-plus-watch cycle (flush, then observe regrowth).
+  if (process.argv.includes('--flush-watch')) {
+    flushWatchMain().catch((err) => {
+      console.error(`  ✗ FAIL: ${err instanceof Error ? err.message : String(err)}`);
+      console.error('RESULT: FAIL');
+      process.exit(1);
+    });
+    return;
+  }
+
   // --watch: the passive steady-state observer (never touches the DB).
   if (process.argv.includes('--watch')) {
     watchMain().catch((err) => {

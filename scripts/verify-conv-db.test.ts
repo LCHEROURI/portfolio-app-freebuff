@@ -14,6 +14,7 @@ import {
   parseJournal,
   parseWatchArgs,
   resolveDbPath,
+  runFlushWatch,
   runProof,
   runWatch,
   walBytes,
@@ -406,5 +407,63 @@ describe('runWatch · the steady-state observer', () => {
 
   it('skips-not-fails when the DB is absent', async () => {
     await expect(runWatch(join(tmpdir(), 'no-such-conv-db', 'x.db'))).resolves.toEqual({ kind: 'skip' });
+  });
+});
+
+// ── runFlushWatch: the truncate-plus-watch cycle (injected proof + watch) ───
+describe('runFlushWatch · flush-then-watch orchestration', () => {
+  it('runs the proof first, then the watch, and returns both', async () => {
+    const proof = { kind: 'pass', journalMode: 'wal', checkpoint: { busy: 0, log: 0, checkpointed: 0 }, walBytesAfter: 0, walAsserted: true };
+    const watch = { kind: 'ok', samples: 3, elapsedMs: 30000, totalWalDelta: 4096, peakWal: 8192, flushEvents: 1, finalWal: 4096, finalMain: 100 };
+    const calls = [];
+    const result = await runFlushWatch('/tmp/x.db', {
+      runProofImpl: (db) => { calls.push(['proof', db]); return proof; },
+      runWatchImpl: async (db, opts) => { calls.push(['watch', db, opts]); return watch; },
+    });
+    expect(result).toEqual({ kind: 'ok', proof, watch });
+    expect(calls.map((c) => c[0])).toEqual(['proof', 'watch']);
+    expect(calls[0][1]).toBe('/tmp/x.db');
+    expect(calls[1][1]).toBe('/tmp/x.db');
+  });
+
+  it('forwards watch opts to the watch (interval/duration reach it)', async () => {
+    let seenOpts;
+    await runFlushWatch('/tmp/x.db', {
+      runProofImpl: () => ({ kind: 'pass' }),
+      runWatchImpl: async (_db, opts) => { seenOpts = opts; return { kind: 'ok' }; },
+      intervalMs: 15000,
+      durationMs: 60000,
+    });
+    expect(seenOpts).toEqual({ intervalMs: 15000, durationMs: 60000 });
+  });
+
+  it('skips and never runs the watch when the proof skips (DB absent)', async () => {
+    let watchRan = false;
+    const result = await runFlushWatch('/tmp/nope.db', {
+      runProofImpl: () => ({ kind: 'skip' }),
+      runWatchImpl: async () => { watchRan = true; return { kind: 'ok' }; },
+    });
+    expect(result).toEqual({ kind: 'skip' });
+    expect(watchRan).toBe(false);
+  });
+
+  it('fails and never runs the watch when the proof fails', async () => {
+    let watchRan = false;
+    const result = await runFlushWatch('/tmp/broken.db', {
+      runProofImpl: () => ({ kind: 'fail', reason: 'integrity before = "not ok"' }),
+      runWatchImpl: async () => { watchRan = true; return { kind: 'ok' }; },
+    });
+    expect(result).toEqual({ kind: 'fail', reason: 'integrity before = "not ok"' });
+    expect(watchRan).toBe(false);
+  });
+
+  it('passes a warn proof through and still runs the watch', async () => {
+    const warn = { kind: 'warn', reason: 'checkpoint busy — the app is actively writing (healthy)' };
+    const result = await runFlushWatch('/tmp/busy.db', {
+      runProofImpl: () => warn,
+      runWatchImpl: async () => ({ kind: 'ok', samples: 1 }),
+    });
+    expect(result.kind).toBe('ok');
+    expect(result.proof).toEqual(warn);
   });
 });
