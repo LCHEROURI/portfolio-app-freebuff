@@ -1,0 +1,60 @@
+import { describe, expect, it } from 'vitest';
+
+import { classifyFeed } from './verify-deployments.mjs';
+
+const row = (provider, healthStatus) => ({ provider, healthStatus, deploymentUrl: `https://${provider}.example` });
+
+// ── classifyFeed (the pure provider/health bucketing) ────────────────────────
+describe('classifyFeed', () => {
+  it('buckets firebase and vercel rows with HEALTHY counts', () => {
+    const rows = [
+      row('firebase', 'HEALTHY'),
+      row('firebase', 'FAILED'),
+      row('vercel', 'HEALTHY'),
+      row('vercel', 'HEALTHY'),
+      row('vercel', 'DEGRADED'),
+    ];
+    const c = classifyFeed(rows);
+    expect(c.firebase).toHaveLength(2);
+    expect(c.firebaseHealthy).toHaveLength(1);
+    expect(c.vercel).toHaveLength(3);
+    expect(c.vercelHealthy).toHaveLength(2);
+  });
+
+  it('treats only HEALTHY as healthy — FAILED / DEGRADED / UNKNOWN do not count', () => {
+    const rows = [
+      row('firebase', 'FAILED'),
+      row('firebase', 'DEGRADED'),
+      row('firebase', 'UNKNOWN'),
+      row('vercel', 'UNKNOWN'),
+    ];
+    const c = classifyFeed(rows);
+    expect(c.firebase).toHaveLength(3);
+    expect(c.firebaseHealthy).toHaveLength(0);
+    expect(c.vercelHealthy).toHaveLength(0);
+  });
+
+  it('returns empty buckets for an empty or null feed', () => {
+    expect(classifyFeed([])).toEqual({ firebase: [], firebaseHealthy: [], vercel: [], vercelHealthy: [] });
+    expect(classifyFeed(null)).toEqual({ firebase: [], firebaseHealthy: [], vercel: [], vercelHealthy: [] });
+    expect(classifyFeed(undefined)).toEqual({ firebase: [], firebaseHealthy: [], vercel: [], vercelHealthy: [] });
+  });
+
+  it('ignores unknown providers and null entries', () => {
+    const rows = [row('github', 'HEALTHY'), null, undefined, row('firebase', 'HEALTHY')];
+    const c = classifyFeed(rows);
+    expect(c.firebase).toHaveLength(1);
+    expect(c.firebaseHealthy).toHaveLength(1);
+    expect(c.vercel).toHaveLength(0);
+  });
+
+  it('keeps the original row shape so the caller can read URLs / status', () => {
+    const rows = [row('firebase', 'HEALTHY')];
+    const c = classifyFeed(rows);
+    expect(c.firebaseHealthy[0]).toEqual({
+      provider: 'firebase',
+      healthStatus: 'HEALTHY',
+      deploymentUrl: 'https://firebase.example',
+    });
+  });
+});

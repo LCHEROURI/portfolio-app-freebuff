@@ -60,7 +60,7 @@ const PRODUCTION_URL = 'https://portfolio-app-freebuff.vercel.app';
 const ONLY = onlyArg ? onlyArg.split(',').map((s) => s.trim()).filter(Boolean) : [];
 const SKIP = skipArg ? skipArg.split(',').map((s) => s.trim()).filter(Boolean) : [];
 
-const GATE_NAMES = ['disk-headroom', 'conv-db', 'token-health', 'vercel-env', 'cron-reports', 'firestore-rules', 'auth-domains', 'prod-signin', 'google-idp', 'review-sheet', 'auth-domains-direct', 'deployed-hash', 'import-surface', 'dead-words'];
+const GATE_NAMES = ['disk-headroom', 'conv-db', 'token-health', 'vercel-env', 'cron-reports', 'firestore-rules', 'auth-domains', 'prod-signin', 'google-idp', 'review-sheet', 'deployments', 'auth-domains-direct', 'deployed-hash', 'import-surface', 'dead-words'];
 const unknownOnly = ONLY.filter((n) => !GATE_NAMES.includes(n));
 const unknownSkip = SKIP.filter((n) => !GATE_NAMES.includes(n));
 if (unknownOnly.length > 0 || unknownSkip.length > 0) {
@@ -152,6 +152,14 @@ const GATES = [
   // Same credential family as prod-signin (web API key to mint the throwaway
   // user + service account to seed the fixture) plus Chrome.
   { name: 'review-sheet', label: 'Review-sheet print-all (deployed)', script: 'verify:review-sheet', appFlag: '--app', secrets: ['FIREBASE_WEB_API_KEY', 'FIREBASE_SERVICE_ACCOUNT', 'NEXT_PUBLIC_FIREBASE_PROJECT_ID'], note: 'Chrome', capture: true },
+  // The deployments gate proves the DEPLOYED /api/deployments feed end to
+  // end with a throwaway Identity Toolkit user (minted from the web API key,
+  // deleted after): unauthenticated calls get 401, and at least one Firebase
+  // Hosting row AND one Vercel row are present with HEALTHY health checks.
+  // It guards the firebasehosting.googleapis.com host fix + SA-minted token
+  // and the name→id Vercel resolution — a silent regression in either half of
+  // the feed fails CI. Same credential family as prod-signin (web API key).
+  { name: 'deployments', label: 'Deployments feed (Vercel + Firebase)', script: 'verify:deployments', appFlag: '--app', secrets: ['FIREBASE_WEB_API_KEY'], capture: true },
   { name: 'auth-domains-direct', label: 'Authorized domains (direct script)', file: 'scripts/verify-auth-domains.mjs', appFlag: '--app', duplicateOf: 'auth-domains', secrets: ['FIREBASE_WEB_API_KEY'] },
   { name: 'deployed-hash', label: 'Deployed commit matches expected', script: 'verify:deployed-hash', expectFlag: '--expect', url: PRODUCTION_URL, secrets: ['VERCEL_TOKEN'], capture: true },
   // Pure static lint over scripts/ + lib/ + app/: re-exported or unused
@@ -168,8 +176,8 @@ const GATES = [
   { name: 'dead-words', label: 'Dead-feature lint (report-email + removed integrations)', script: 'verify:dead-words' },
 ];
 
-// ── Self-check: the 14-gate contract must hold before anything runs ─────────
-// The launch-checklist contract promises EXACTLY fourteen gates — the same
+// ── Self-check: the 15-gate contract must hold before anything runs ─────────
+// The launch-checklist contract promises EXACTLY fifteen gates — the same
 // EXPECTED_GATE_COUNT verify-launch-checklist.mjs hardcodes. If a future gate
 // is added to GATE_NAMES (or a GATES entry to the table) without the full
 // contract update — the §4 row + Requires cell, the README/launch.md pipeline
@@ -179,7 +187,7 @@ const GATES = [
 // off a contract that no longer holds. The preflight drift guard would also
 // catch the mismatch, but only after spawning a child process; this is
 // instant and names the exact source of truth.
-const EXPECTED_GATE_COUNT = 14;
+const EXPECTED_GATE_COUNT = 15;
 if (GATE_NAMES.length !== EXPECTED_GATE_COUNT || GATES.length !== GATE_NAMES.length) {
   console.error(`✗ FAIL: gate contract — GATE_NAMES has ${GATE_NAMES.length}, GATES has ${GATES.length}, but the launch-checklist contract promises ${EXPECTED_GATE_COUNT}.`);    console.error('  A gate was added without the full contract update:');
     console.error('    - scripts/verify-launch-checklist.mjs  EXPECTED_GATE_COUNT');

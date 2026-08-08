@@ -36,6 +36,8 @@ export const SUBRESULT_LABELS = {
   'review-sheet-preview': 'Review-sheet preview window renders',
   'review-sheet-entries': 'Both numbered recommendations listed',
   'review-sheet-model-label': 'Friendly model label rendered',
+  'firebase-row': 'Firebase Hosting row present + HEALTHY',
+  'vercel-row': 'Vercel deployment row present + HEALTHY',
   'token-active': 'Vercel token resolves + valid',
   'expiry-verdict': 'Token expiry verdict',
   'alias-drift': 'Alias-routing drift watch',

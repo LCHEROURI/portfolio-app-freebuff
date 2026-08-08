@@ -40,7 +40,7 @@ const README = 'README.md';
 const VERIFY_ALL = 'scripts/verify-all.mjs';
 const CI = '.github/workflows/ci.yml';
 const GATE_SECTION_HEADING = /^## \d+\. The verification gates/;
-const EXPECTED_GATE_COUNT = 14;
+const EXPECTED_GATE_COUNT = 15;
 // The exact canonical commands §4 must document. Hardcoding the set (not just
 // the count) closes the silent-drift hole: deleting a real gate while adding
 // a different row would keep the count at 8 but fail here. The deployed-hash
@@ -55,6 +55,7 @@ const EXPECTED_GATES = [
   'node scripts/verify-prod-signin.mjs',
   'node scripts/verify-google-idp.mjs',
   'npm run verify:review-sheet',
+  'npm run verify:deployments',
   'npm run verify:token-health',
   'npm run verify:vercel-env',
   'node scripts/verify-auth-domains.mjs',

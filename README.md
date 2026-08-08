@@ -95,9 +95,9 @@ Data flow at a glance:
 └──────────────────────────────────────────────────────┘
 ```
 
-### The 14 verification gates
+### The 15 verification gates
 
-`npm run verify:all` runs all fourteen against the production URL (or
+`npm run verify:all` runs all fifteen against the production URL (or
 `--app <url>` for a preview) and exits nonzero on any failure. Each gate
 reads its secrets from env, then `.env.local`:
 
@@ -113,6 +113,7 @@ reads its secrets from env, then `.env.local`:
 | prod-signin | `FIREBASE_WEB_API_KEY`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` (+ Chrome) | real sign-in releases into the app and Firestore syncs |
 | google-idp | `FIREBASE_WEB_API_KEY`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | Google IdP record enabled with a classic web client |
 | review-sheet | `FIREBASE_WEB_API_KEY`, `FIREBASE_SERVICE_ACCOUNT`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` (+ Chrome) | deployed Model Comparison prints one review sheet listing every project's AI winner recommendation (both numbered entries + friendly model label) |
+| deployments | `FIREBASE_WEB_API_KEY` | deployed /api/deployments feed: 401 without auth; at least one Firebase Hosting row (SA-minted token, correct host) + one Vercel row (name→id resolution) with HEALTHY health checks |
 | auth-domains-direct | `FIREBASE_WEB_API_KEY` | same as auth-domains via the direct script (reported as covered) |
 | deployed-hash | `VERCEL_TOKEN` | production actually serves the expected commit |
 | import-surface | — | no unused or re-exported imports across scripts/ + lib/ + app/ |
@@ -136,7 +137,7 @@ When each gate runs:
 ```text
    ┌───────────────────────────────────────────────────────────────┐
    │  LOCAL — every git push (.githooks/pre-push)                  │
-   │  runs the 14 verify:all gates + drift guards (timeboxed); a  │
+   │  runs the 15 verify:all gates + drift guards (timeboxed); a  │
    │  hook gates 0.6/0.6b/0.6c/0.6d (lints + render byte gates);   │
    │  dirty tree or any failure ABORTS the push                    │
    └──────────────────────────────┬────────────────────────────────┘

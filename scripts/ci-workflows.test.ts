@@ -154,6 +154,17 @@ describe('.github/workflows/ci.yml · verify-deployed job (post-deploy smoke gat
     expect(verifyDeployedBlock).toContain('Install Chrome for review-sheet CDP');
     expect(verifyDeployedBlock).toContain('CHROME_PATH: ${{ steps.chrome-review-sheet.outputs.chrome-path }}');
   });
+
+  it('still runs the deployments feed gate, gated on FIREBASE_WEB_API_KEY', () => {
+    // The deployments gate (verify-deployments.mjs) proves the deployed
+    // /api/deployments feed returns real Firebase + Vercel rows with HEALTHY
+    // health checks after every deploy — guarding the firebasehosting host
+    // fix and the name→id Vercel resolution. It mints its probe user from
+    // the web API key, so it needs only that one secret.
+    expect(verifyDeployedBlock).toMatch(/run: node scripts\/verify-deployments\.mjs/);
+    expect(verifyDeployedBlock).toContain("if: ${{ env.FIREBASE_WEB_API_KEY != '' }}");
+    expect(verifyDeployedBlock).toContain('FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}');
+  });
 });
 
 describe('.github/workflows/preview-gate.yml · deployment_status preview gate', () => {

@@ -12,11 +12,12 @@ describe('parseCiGateSteps (live repo)', () => {
   const steps = parseCiGateSteps(read('.github/workflows/ci.yml'));
 
   it('finds every gated verify step across the three post-deploy jobs', () => {
-    expect(steps).toHaveLength(7);
+    expect(steps).toHaveLength(8);
     const byRun = new Map(steps.map((s) => [s.run, s]));
     expect([...byRun.keys()].sort()).toEqual([
       'verify-auth-domains.mjs',
       'verify-cron-reports.mjs',
+      'verify-deployments.mjs',
       'verify-firestore-rules.mjs',
       'verify-google-idp.mjs',
       'verify-prod-signin.mjs',
@@ -37,6 +38,9 @@ describe('parseCiGateSteps (live repo)', () => {
     // (web API key + service account); both non-public secrets must be gated
     // so a missing credential skips-not-fails only on forks.
     expect(byRun.get('verify-review-sheet.mjs').gatingSecrets).toEqual(['FIREBASE_WEB_API_KEY', 'FIREBASE_SERVICE_ACCOUNT']);
+    // The deployments feed gate needs only the web API key (to mint the
+    // throwaway probe user that hits the deployed /api/deployments).
+    expect(byRun.get('verify-deployments.mjs').gatingSecrets).toEqual(['FIREBASE_WEB_API_KEY']);
   });
 
   it('does not pick up loud-guard, checkout, or install steps', () => {

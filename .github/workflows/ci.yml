@@ -189,7 +189,7 @@ jobs:
         run: |
           echo "::error::Required GitHub Actions secret(s) missing on main push:"
           [ -z "$CRON_SECRET" ] && echo "  - CRON_SECRET (gates 'Verify deployed cron report bodies')"
-          [ -z "$FIREBASE_WEB_API_KEY" ] && echo "  - FIREBASE_WEB_API_KEY (gates 'Verify deployed Firestore rules' and 'Verify Google sign-in IdP config')"
+          [ -z "$FIREBASE_WEB_API_KEY" ] && echo "  - FIREBASE_WEB_API_KEY (gates 'Verify deployed Firestore rules', 'Verify Google sign-in IdP config', and 'Verify deployed deployments feed')"
           [ -z "$FIREBASE_SERVICE_ACCOUNT" ] && echo "  - FIREBASE_SERVICE_ACCOUNT (gates 'Verify deployed review-sheet print-all contract')"
           [ -z "$VERCEL_TOKEN" ] && echo "  - VERCEL_TOKEN (gates 'Verify Vercel token health')"
           echo "Add them under GitHub -> Settings -> Secrets and variables -> Actions, then re-run this job."
@@ -273,6 +273,18 @@ jobs:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           NEXT_PUBLIC_FIREBASE_PROJECT_ID: portfolio-app-freebuff2
           CHROME_PATH: ${{ steps.chrome-review-sheet.outputs.chrome-path }}
+
+      # Deployments feed contract: mints a throwaway user, hits the deployed
+      # /api/deployments, and asserts at least one Firebase Hosting row AND one
+      # Vercel row are present with HEALTHY health checks — guarding the
+      # firebasehosting.googleapis.com host fix + SA-minted token and the
+      # name→id Vercel resolution. Gated on the web API key (needed to mint
+      # the probe user) so forks / unconfigured repos stay green.
+      - name: Verify deployed deployments feed
+        if: ${{ env.FIREBASE_WEB_API_KEY != '' }}
+        run: node scripts/verify-deployments.mjs
+        env:
+          FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
 
   # Post-deploy authorized-domains smoke test. Mints a throwaway Firebase
   # user, calls the deployed /api/status?project=<domain> and fails the run
