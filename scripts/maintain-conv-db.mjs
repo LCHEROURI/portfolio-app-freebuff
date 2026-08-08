@@ -16,12 +16,13 @@
 // truncated because nothing runs a truncating checkpoint at an idle moment.
 //
 // WHAT THIS DOES: a one-shot maintenance run. When the -wal sidecar exceeds a
-// threshold (default 4 MiB ≈ the 1000-page auto-checkpoint boundary), it runs
-// `PRAGMA wal_checkpoint(TRUNCATE)` — the exact operation that flushes the
-// frames into the main DB and shrinks the -wal file to zero — with a short
-// busy-retry loop (the app's read transaction only blocks momentarily, so an
-// idle gap succeeds). This is the same checkpoint `verify:conv-db` proves;
-// this script is the periodic shrinker that keeps the file bounded.
+// threshold (default 2 MiB — below the 1000-page auto-checkpoint boundary so
+// the file stays small), it runs `PRAGMA wal_checkpoint(TRUNCATE)` — the
+// exact operation that flushes the frames into the main DB and shrinks the
+// -wal file to zero — with a short busy-retry loop (the app's read transaction
+// only blocks momentarily, so an idle gap succeeds). This is the same
+// checkpoint `verify:conv-db` proves; this script is the periodic shrinker
+// that keeps the file bounded.
 //
 // APP-SIDE FIX (recommendation for the Freebuff app maintainer, Aug 2026):
 // The app owns this DB (a live Bun/SQLite connection), so the durable fix
@@ -61,7 +62,7 @@
 // Usage:
 //   npm run maintain:conv-db
 //   CONV_DB_MAINTAIN_THRESHOLD=8388608 node scripts/maintain-conv-db.mjs
-//   node scripts/maintain-conv-db.mjs --db /tmp/other.db --threshold 4194304
+//   node scripts/maintain-conv-db.mjs --db /tmp/other.db --threshold 2097152
 //   node scripts/maintain-conv-db.mjs --retries 5 --retry-delay 3000
 //
 // Exports (for the unit test): parseMaintainArgs, maintainVerdict,
@@ -86,7 +87,7 @@ import {
 } from './verify-conv-db.mjs';
 
 export const DEFAULT_DB_PATH = '.freebuff/desktop-v2.db';
-const DEFAULT_THRESHOLD = 4 * 1024 * 1024; // 4 MiB ≈ the 1000-page boundary
+const DEFAULT_THRESHOLD = 2 * 1024 * 1024; // 2 MiB — keep the WAL small
 const DEFAULT_RETRIES = 3;
 const DEFAULT_RETRY_DELAY_MS = 2000;
 

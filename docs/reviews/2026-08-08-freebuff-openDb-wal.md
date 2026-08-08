@@ -79,7 +79,7 @@ checks. So the WAL is never stuck and never unbounded; it ratchets to
 ## Interim mitigation shipped in this repo
 
 - `npm run maintain:conv-db` — one-shot TRUNCATE checkpoint when the WAL
-  exceeds 4 MiB, with busy-retry (verified PASS, idles when at/below
+  exceeds 2 MiB, with busy-retry (verified PASS, idles when at/below
   threshold).
 - `npm run verify:conv-db` / `npm run verify:conv-db:watch` — write-path proof
   and passive steady-state observation.

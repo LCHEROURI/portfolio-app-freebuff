@@ -6,7 +6,7 @@
 #
 # Schedules `scripts/conv-db-maintain-scheduled.sh` (which runs
 # `maintain:conv-db` — a TRUNCATE checkpoint when the WAL file exceeds the
-# 4 MiB threshold, with busy-retry) every 10 minutes via StartInterval. The
+# 2 MiB threshold, with busy-retry) every 10 minutes via StartInterval. The
 # app's own read transaction blocks the automatic PASSIVE checkpoint from
 # resetting the WAL (confirmed Aug 2026), so an idle-period TRUNCATE is what
 # keeps the file bounded. Default every 600s; override with MAINTAIN_INTERVAL.
@@ -72,7 +72,7 @@ install_agent() {
     launchctl load -w "${PLIST_PATH}"
     echo "Loaded launchd agent ${LABEL} (legacy load)."
   fi
-  echo "Schedule: TRUNCATE checkpoint every ${INTERVAL}s when the WAL exceeds 4 MiB."
+  echo "Schedule: TRUNCATE checkpoint every ${INTERVAL}s when the WAL exceeds 2 MiB."
   echo "Log: ${LOG_FILE}"
   echo
   echo "NOTE: launchd agents cannot read files under ~/Documents by default (TCC), and"

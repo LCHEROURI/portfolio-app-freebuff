@@ -27,10 +27,10 @@ import {
 // ============================================================================
 
 describe('parseMaintainArgs · flags and env', () => {
-  it('defaults to the conversation DB, 4 MiB threshold, 3 retries, 2s backoff', () => {
+  it('defaults to the conversation DB, 2 MiB threshold, 3 retries, 2s backoff', () => {
     expect(parseMaintainArgs([], {})).toEqual({
       dbPath: DEFAULT_DB_PATH,
-      threshold: 4 * 1024 * 1024,
+      threshold: 2 * 1024 * 1024,
       retries: 3,
       retryDelayMs: 2000,
     });
@@ -60,7 +60,7 @@ describe('parseMaintainArgs · flags and env', () => {
 
   it('falls back to defaults on invalid values (zero, negative, non-numeric)', () => {
     for (const bad of ['0', '-5', 'abc']) {
-      expect(parseMaintainArgs(['--threshold', bad], {}).threshold).toBe(4 * 1024 * 1024);
+      expect(parseMaintainArgs(['--threshold', bad], {}).threshold).toBe(2 * 1024 * 1024);
       expect(parseMaintainArgs(['--retries', bad], {}).retries).toBe(3);
     }
   });
