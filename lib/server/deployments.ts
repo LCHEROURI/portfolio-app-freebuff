@@ -104,10 +104,20 @@ export const fetchLiveDeployments = async (userId: string): Promise<Deployment[]
       : repoNames();
     const results = await Promise.allSettled(
       projectNames.map(async (project) => {
-        const qs = new URLSearchParams({ limit: '1' });
+        // /v6/deployments filters by project ID only — the name param is
+        // silently ignored (every row would return the same deployment). So
+        // resolve name → id first; the /v9/projects/{name}/deployments path
+        // 404s, which is why the old call never returned rows.
+        const projRes = await fetch(
+          `https://api.vercel.com/v9/projects/${encodeURIComponent(project)}${teamId ? `?teamId=${encodeURIComponent(teamId)}` : ''}`,
+          { headers: { Authorization: `Bearer ${vercelToken}` }, cache: 'no-store' },
+        );
+        const projBody = (await projRes.json().catch(() => null)) as { id?: string } | null;
+        if (!projRes.ok || !projBody?.id) return null;
+        const qs = new URLSearchParams({ projectId: projBody.id, target: 'production', state: 'READY', limit: '1' });
         if (teamId) qs.set('teamId', teamId);
         const res = await fetch(
-          `https://api.vercel.com/v9/projects/${encodeURIComponent(project)}/deployments?${qs}`,
+          `https://api.vercel.com/v6/deployments?${qs}`,
           { headers: { Authorization: `Bearer ${vercelToken}` }, cache: 'no-store' },
         );
         if (!res.ok) return null;
