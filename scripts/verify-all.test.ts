@@ -103,6 +103,41 @@ describe('parseSubResultMarkers · malformed lines are rejected', () => {
   });
 });
 
+// ── conv-db gate's '(local)' suffix contract ────────────────────────────────
+// The conv-db gate runs the LOCAL WAL maintainer (scripts/maintain-conv-db.mjs),
+// so its wal-* sub-rows must never be mislabeled '(deployed)' — that would
+// claim a local-machine probe ran against the live app. These tests lock the
+// whole chain: the GATES entry declares subSuffix: '(local)', the runner
+// forwards gate.subSuffix into the parser (so dropping the field silently
+// reverts to the '(deployed)' default), and the parser renders wal-* markers
+// with the local suffix.
+
+describe('verify-all.mjs · conv-db gate (local) suffix contract', () => {
+  const src = readFileSync(join(process.cwd(), 'scripts', 'verify-all.mjs'), 'utf8');
+
+  it('declares the conv-db gate with subSuffix (local), not the deployed default', () => {
+    expect(src).toMatch(/name: 'conv-db',[^}]*subSuffix: '\(local\)'/);
+  });
+
+  it('is the only gate carrying a non-default subSuffix today', () => {
+    // A second local-only gate is legitimate but must add its own suffix
+    // deliberately; a future edit that drops conv-db's field makes this list
+    // empty and fails the lock instead of silently relabeling the rows.
+    const gatesBody = src.match(/const GATES = \[([\s\S]*?)\n\];/)?.[1] ?? '';
+    expect([...gatesBody.matchAll(/subSuffix: '([^']+)'/g)].map((m) => m[1])).toEqual(['(local)']);
+  });
+
+  it('forwards gate.subSuffix into parseSubResultMarkers (suffix reaches the parser)', () => {
+    expect(src).toMatch(/parseSubResultMarkers\(captured, gate\.name, undefined, gate\.subSuffix\)/);
+  });
+
+  it('renders wal-* markers with the local suffix instead of (deployed)', () => {
+    expect(parseSubResultMarkers('VERIFY-SUBRESULT|wal-idle|PASS\n', 'conv-db', undefined, '(local)')).toEqual([
+      { name: 'conv-db/wal-idle', label: '  ↳ Conv DB WAL at/below threshold (idle) (local)', pass: true },
+    ]);
+  });
+});
+
 // ── Static companion row: onboarding-doc pipeline-diagram presence ──────────
 // verify-all.mjs reports the pipeline diagram's presence as its own summary
 // row (an inline run of crossCheckPipelineDiagrams, the same pure check the
