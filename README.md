@@ -513,6 +513,18 @@ only need an env change + redeploy to take effect.
    `GITHUB_REPOS` (or set `VERCEL_PROJECTS`).
 4. Flip the matching `NEXT_PUBLIC_LIVE_*` flag to `1` and redeploy.
 
+> **Build-time flag gotcha — set it in the DEPLOYED store, not just `.env.local`.**
+> The `NEXT_PUBLIC_LIVE_*` flags are inlined from the env of the build Vercel
+> runs, so a flag set only in `.env.local` never reaches the deployed app. This
+> exact gap once hid the live Deployments feed: `/api/deployments` returned
+> real rows while the page still rendered demo data, because
+> `NEXT_PUBLIC_LIVE_DEPLOYMENTS` was missing from **Vercel Production env**.
+> Set it there too (`vercel env add NEXT_PUBLIC_LIVE_DEPLOYMENTS production`)
+> and redeploy — the deployed copy is the one that controls the live UI. The
+> gallery's `deployments-feed.png` capture now fails loudly when the live badge
+> is missing, so a re-introduction of this gap is caught instead of silently
+> shipping demo-mode screenshots.
+
 **Connection status panel** — the **Integrations** page live-polls `/api/status`
 (every 30s + manual refresh) and shows, per integration: exactly which env
 vars are set (✓/✗, booleans only — values are never exposed) and a live
