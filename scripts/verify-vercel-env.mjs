@@ -14,7 +14,13 @@
 //     SAME value (compared exactly, never printed — only key names and value
 //     lengths are shown, so a mismatch is diagnosable without leaking secrets).
 //   - Keys in Vercel production that .env.local lacks are reported (Vercel-only
-//     runtime vars like NEXT_PUBLIC_LIVE_* are legitimate) but do NOT fail.
+//     runtime vars are legitimate) but do NOT fail.
+//   - The EXPECTED_LIVE_FLAGS set is a HARD requirement of the deployed store:
+//     each NEXT_PUBLIC_LIVE_* build-time flag must exist in Vercel production
+//     with its enabled value, regardless of .env.local. The drift diff above
+//     only compares the two stores, so a flag missing from BOTH would pass
+//     silently while the deployed app renders demo data — exactly the
+//     NEXT_PUBLIC_LIVE_DEPLOYMENTS incident. This set closes that gap.
 //   - GitHub secrets are listed and classified: CI-only (present in GitHub,
 //     absent from .env.local and Vercel — expected, e.g. VERCEL_ORG_ID,
 //     VERCEL_PROJECT_ID, VERCEL_PROTECTION_BYPASS) vs shared (present in more
@@ -42,9 +48,10 @@
 //   node scripts/verify-vercel-env.mjs
 //
 // Exports (for the unit test): parseEnvFile, diffEnvMaps, parseGhSecretList,
-// classifyGithubSecrets. Token resolution reuses readToken + the invalid-token
-// contract from verify-deployed-hash.mjs (env → .env.local → CLI store), so
-// the credential flow can never drift from the other Vercel gates.
+// classifyGithubSecrets, missingExpectedFlags. Token resolution reuses
+// readToken + the invalid-token contract from verify-deployed-hash.mjs (env →
+// .env.local → CLI store), so the credential flow can never drift from the
+// other Vercel gates.
 //
 // Exit codes: 0 = env matches (drift-free), 1 = drift or verification failed,
 // 2 = VERCEL_TOKEN invalid/revoked (Vercel flagged invalidToken:true) — the
@@ -160,6 +167,42 @@ export function parseGhSecretList(text) {
  * vercelOnly — in GitHub + Vercel but not .env.local (informational; prod-only
  *              runtime vars are legitimate).
  */
+// ── Expected deployed build-time flags ──────────────────────────────────────
+// NEXT_PUBLIC_LIVE_* flags are inlined from the env of the build Vercel runs;
+// they gate whether a live feed renders (vs demo data). A MISSING deployed
+// copy silently hides the feature while the server API still works — the exact
+// NEXT_PUBLIC_LIVE_DEPLOYMENTS incident. The diffEnvMaps drift above only
+// catches flags present in .env.local, so a flag absent from BOTH stores would
+// pass. This set makes each LIVE_* flag a hard requirement of the DEPLOYED
+// store: it must exist with its enabled value ('1'), independent of .env.local.
+// Add a new NEXT_PUBLIC_LIVE_* flag here when one is introduced.
+export const EXPECTED_LIVE_FLAGS = {
+  NEXT_PUBLIC_LIVE_REPOS: '1',
+  NEXT_PUBLIC_LIVE_DEPLOYMENTS: '1',
+};
+
+/**
+ * Check the deployed (Vercel prod) env map against the expected LIVE_* flags.
+ * Returns the flags that are missing or carry a non-enabled value:
+ *   [{ key, status: 'missing' | 'disabled' }]
+ * A MISSING key (absent from the deployed store entirely) is the hidden-feed
+ * bug. A key present with a READABLE non-enabled value ('0') is 'disabled' —
+ * the same demo-mode bug. A key present but pulled EMPTY is a write-only
+ * `sensitive` var (Vercel cannot echo it back; NEXT_PUBLIC vars may be stored
+ * sensitive even though they are inlined at build time): presence is verified
+ * and the value is proven by the deployed build, so it SATISFIES the expected
+ * set — the same presence-check philosophy the .env.local diff uses.
+ */
+export function missingExpectedFlags(expected, vercel) {
+  const out = [];
+  for (const [key, wanted] of Object.entries(expected ?? {})) {
+    const got = vercel?.get(key);
+    if (got === undefined) out.push({ key, status: 'missing' });
+    else if (got !== '' && got !== wanted) out.push({ key, status: 'disabled' });
+  }
+  return out;
+}
+
 export function classifyGithubSecrets(ghNames, local, vercel) {
   const ciOnly = [];
   const shared = [];
@@ -258,6 +301,7 @@ async function main() {
   }
 
   const drift = diffEnvMaps(local, vercel);
+  const expectedMissing = missingExpectedFlags(EXPECTED_LIVE_FLAGS, vercel);
 
   // ── Render the report (names + lengths only — never values) ──────────────
   console.log('\nVercel production env vs .env.local');
@@ -281,6 +325,14 @@ async function main() {
   if (drift.extraInVercel.length > 0) {
     console.log('  · in Vercel only (prod-only runtime vars are legitimate — informational):');
     for (const key of drift.extraInVercel) console.log(`      - ${key}`);
+  }
+  if (expectedMissing.length > 0) {
+    console.error('  ✗ MISSING or DISABLED in Vercel production (expected deployed build-time flags):');
+    for (const { key, status } of expectedMissing) {
+      console.error(`      - ${key} (${status}) — set ${key}=1 in Vercel production env and redeploy`);
+    }
+  } else {
+    console.log('  ✓ every expected NEXT_PUBLIC_LIVE_* build-time flag is present in Vercel production (sensitive vars presence-checked)');
   }
   if (drift.missingInVercel.length === 0 && drift.valueMismatch.length === 0) {
     console.log(`  ✓ every .env.local key exists in Vercel production (readable values identical; sensitive vars presence-checked)`);
@@ -309,7 +361,7 @@ async function main() {
   }
 
   // ── Verdict ───────────────────────────────────────────────────────────────
-  const failures = drift.missingInVercel.length + drift.valueMismatch.length;
+  const failures = drift.missingInVercel.length + drift.valueMismatch.length + expectedMissing.length;
   if (failures > 0) {
     console.error(`\nRESULT: FAIL (${failures} drift item(s))`);
     console.error('Sync .env.local → Vercel production (npm-style: `vercel env add <KEY> production` per key), then redeploy.');

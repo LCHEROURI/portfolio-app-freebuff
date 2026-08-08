@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   classifyGithubSecrets,
   diffEnvMaps,
+  EXPECTED_LIVE_FLAGS,
+  missingExpectedFlags,
   parseEnvFile,
   parseGhSecretList,
 } from './verify-vercel-env.mjs';
@@ -92,6 +94,76 @@ describe('parseGhSecretList', () => {
   it('dedupes and tolerates empty output', () => {
     expect(parseGhSecretList('NAME\nA\nA\n')).toEqual(['A']);
     expect(parseGhSecretList('')).toEqual([]);
+  });
+});
+
+// ── missingExpectedFlags ────────────────────────────────────────────────────
+describe('missingExpectedFlags', () => {
+  const DEPLOYED = parseEnvFile(
+    'NEXT_PUBLIC_LIVE_REPOS=1\nNEXT_PUBLIC_LIVE_DEPLOYMENTS=1\nVERCEL_TOKEN=secret\n',
+  );
+
+  it('returns [] when every expected flag is present + enabled in the deployed store', () => {
+    expect(missingExpectedFlags(EXPECTED_LIVE_FLAGS, DEPLOYED)).toEqual([]);
+  });
+
+  it('flags a flag MISSING from the deployed store (the hidden-feed incident)', () => {
+    // The incident: NEXT_PUBLIC_LIVE_DEPLOYMENTS was absent from Vercel prod
+    // (and .env.local), so the diff-vs-.env.local check passed while the
+    // deployed app rendered demo data. The expected-set check must catch it
+    // regardless of .env.local.
+    const noDeployments = parseEnvFile('NEXT_PUBLIC_LIVE_REPOS=1\nVERCEL_TOKEN=secret\n');
+    expect(missingExpectedFlags(EXPECTED_LIVE_FLAGS, noDeployments)).toEqual([
+      { key: 'NEXT_PUBLIC_LIVE_DEPLOYMENTS', status: 'missing' },
+    ]);
+  });
+
+  it('flags a flag present but DISABLED (readable value 0 is the same demo-mode bug)', () => {
+    const disabled = parseEnvFile(
+      'NEXT_PUBLIC_LIVE_REPOS=1\nNEXT_PUBLIC_LIVE_DEPLOYMENTS=0\nVERCEL_TOKEN=secret\n',
+    );
+    expect(missingExpectedFlags(EXPECTED_LIVE_FLAGS, disabled)).toEqual([
+      { key: 'NEXT_PUBLIC_LIVE_DEPLOYMENTS', status: 'disabled' },
+    ]);
+  });
+
+  it('satisfies the expected set for a present-but-write-only flag (empty pull = sensitive var)', () => {
+    // NEXT_PUBLIC_LIVE_DEPLOYMENTS was created in Vercel prod as type
+    // `sensitive`, so `env pull` returns an empty string even though the
+    // deployed build inlines the real value (the live feed renders). An empty
+    // pull must mean "present, value proven by the build" — NOT disabled —
+    // exactly like the .env.local diff's write-only handling for secrets.
+    // Failing here would false-alarm the gate on the current production env.
+    const sensitive = parseEnvFile(
+      'NEXT_PUBLIC_LIVE_REPOS=1\nNEXT_PUBLIC_LIVE_DEPLOYMENTS=\nVERCEL_TOKEN=secret\n',
+    );
+    expect(missingExpectedFlags(EXPECTED_LIVE_FLAGS, sensitive)).toEqual([]);
+  });
+
+  it('flags every missing flag, sorted in declaration order', () => {
+    const empty = parseEnvFile('VERCEL_TOKEN=secret\n');
+    expect(missingExpectedFlags(EXPECTED_LIVE_FLAGS, empty)).toEqual([
+      { key: 'NEXT_PUBLIC_LIVE_REPOS', status: 'missing' },
+      { key: 'NEXT_PUBLIC_LIVE_DEPLOYMENTS', status: 'missing' },
+    ]);
+  });
+
+  it('treats an empty vercel map / empty expected set as all-missing / all-clean', () => {
+    expect(missingExpectedFlags(EXPECTED_LIVE_FLAGS, parseEnvFile(''))).toHaveLength(2);
+    expect(missingExpectedFlags({}, DEPLOYED)).toEqual([]);
+    expect(missingExpectedFlags(undefined, DEPLOYED)).toEqual([]);
+  });
+
+  it('locks the expected LIVE_* flag set to the two live feeds', () => {
+    // The set is the contract with lib/liveData.ts: repositories + deployments.
+    // A new NEXT_PUBLIC_LIVE_* flag must be added here AND to lib/liveData.ts
+    // together — a silent one-sided addition fails this test.
+    expect(Object.keys(EXPECTED_LIVE_FLAGS).sort()).toEqual([
+      'NEXT_PUBLIC_LIVE_DEPLOYMENTS',
+      'NEXT_PUBLIC_LIVE_REPOS',
+    ]);
+    expect(EXPECTED_LIVE_FLAGS.NEXT_PUBLIC_LIVE_DEPLOYMENTS).toBe('1');
+    expect(EXPECTED_LIVE_FLAGS.NEXT_PUBLIC_LIVE_REPOS).toBe('1');
   });
 });
 
