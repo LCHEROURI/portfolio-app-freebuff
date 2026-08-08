@@ -33,3 +33,6 @@ functions/node_modules
 
 # local scan artifacts
 data/
+
+# Freebuff app local data (conversation DB, tool logs — never commit)
+.freebuff/
