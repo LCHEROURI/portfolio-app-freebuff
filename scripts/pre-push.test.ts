@@ -126,6 +126,78 @@ describe('.githooks/pre-push · deployed-hash gate (gate 0)', () => {
   });
 });
 
+describe('.githooks/pre-push · disk headroom gate (gate 0.05)', () => {
+  it('lists the disk-headroom gate FIRST in the header gate inventory', () => {
+    // Scoped to the header region: the gate block comment ALSO says 'over 90%
+    // full', so a whole-hook toContain would pass even if the inventory line
+    // were dropped. Only asserting inside the header proves the line lives.
+    const header = hook.slice(0, hook.indexOf('# ── 0.05 Disk headroom gate'));
+    expect(header).toContain('0.05 Data-volume headroom');
+    expect(header).toContain('over 90% full');
+    expect(header).toContain('checked FIRST');
+  });
+
+  it('defines the gate block that reads the Data volume use% from df', () => {
+    expect(hook).toContain('# ── 0.05 Disk headroom gate');
+    expect(hook).toContain('df -k /System/Volumes/Data');
+    expect(hook).toContain("awk 'NR==2 {gsub(/%/,\"\",$5); print $5}'");
+  });
+
+  it('falls back to the root mount when the Data volume path is absent', () => {
+    // Non-macOS hosts have no /System/Volumes/Data; the gate must degrade to
+    // `df -k /` rather than treating an empty parse as a pass.
+    expect(hook).toContain('df -k / 2>/dev/null | awk');
+    expect(hook).toContain('Non-macOS fallback');
+  });
+
+  it('fails the push with free-space guidance when the volume is over 90% full', () => {
+    expect(hook).toContain('DISK_PCT" -gt "$DISK_LIMIT_PCT"');
+    expect(hook).toContain('a full disk causes SQLite I/O errors');
+    expect(hook).toContain('Free space (clear caches / empty Trash');
+    expect(hook).toContain('SKIP_VERIFY_SIGNIN=1 to override');
+  });
+
+  it('honors a DISK_LIMIT_PCT env override with a 90 default', () => {
+    expect(hook).toContain('DISK_LIMIT_PCT="${DISK_LIMIT_PCT:-90}"');
+  });
+
+  it('rejects a non-numeric DISK_LIMIT_PCT by falling back to the 90 default', () => {
+    // A non-numeric override would make the `-gt` comparison error inside the
+    // if condition (treated as false), silently disabling the gate while it
+    // printed 'headroom OK'. The case guard must keep the gate armed.
+    expect(hook).toMatch(/case "\$DISK_LIMIT_PCT" in ''\|\*\[!0-9\]\*\) DISK_LIMIT_PCT=90;; esac/);
+  });
+
+  it('prints a passed line when the volume has headroom', () => {
+    expect(hook).toContain('disk headroom OK');
+  });
+
+  it('skips with a notice (never fails) when df is unavailable', () => {
+    // The unavailable branch must be an echo-and-continue, not a failure: a
+    // machine without df cannot know its headroom, so the push proceeds with
+    // a notice instead of blocking (same skip-not-fail contract as every
+    // missing-secret gate). Scoped to the gate block so a bare mention
+    // elsewhere cannot satisfy the test.
+    const gateBlock = hook.slice(
+      hook.indexOf('# ── 0.05 Disk headroom gate'),
+      hook.indexOf('# ── 0. Deployed-hash gate'),
+    );
+    expect(gateBlock).toContain('df unavailable — skipping disk headroom check');
+    // The 'never fails' half of the contract: nothing after the skip echo may
+    // exit nonzero. A future edit adding `exit 1` after the skip notice would
+    // flip a machine without df into a hard blocker — this catches it.
+    const afterSkip = gateBlock.slice(gateBlock.indexOf('df unavailable'));
+    expect(afterSkip).not.toMatch(/exit 1/);
+  });
+
+  it('runs BEFORE the deployed-hash gate (0) so a full disk aborts fast', () => {
+    const gate005 = hook.indexOf('# ── 0.05 Disk headroom gate');
+    const gate0 = hook.indexOf('# ── 0. Deployed-hash gate');
+    expect(gate005).toBeGreaterThan(-1);
+    expect(gate0).toBeGreaterThan(gate005);
+  });
+});
+
 describe('.githooks/pre-push · ship:ready capstone gate (gate 4)', () => {
   it('defines gate 4 as the ship:ready final capstone', () => {
     expect(hook).toContain('4. ship:ready final capstone gate');
