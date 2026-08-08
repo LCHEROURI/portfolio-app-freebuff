@@ -286,8 +286,12 @@ recovered ~48Gi on 2026-08-08 (90% → 67%).
 
 **After freeing space** — re-run `npm run verify:disk-headroom` until it prints
 `RESULT: PASS` (a `⚠ WARNING` at/above 85% still passes — it is the heads-up
-to free space before the hard 90% line), then push; the gate runs itself on
-the way out.
+to free space before the hard 90% line), then `npm run verify:conv-db` to
+prove the conversation DB's write path (scratch write → WAL checkpoint →
+integrity) is clean again. `verify:conv-db` is a manual one-shot (it checks the
+Freebuff app's local store, so it is deliberately not in the pre-push hook or
+CI); `verify:disk-headroom` runs again on the way out and will block the push
+if the disk has refilled.
 
 ## 5. Go-live checklist (order matters)
 
