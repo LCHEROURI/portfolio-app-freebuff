@@ -2,27 +2,112 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 // ============================================================================
-// scripts/pre-push.test.ts — lock the ship:ready capstone gate contract.
+// scripts/pre-push.test.ts — lock the pre-push hook's gate contracts.
 //
 // Reads the REAL .githooks/pre-push hook from disk (never a fixture): the
-// whole point is that a future edit which drops, reorders, or weakens gate 4
+// whole point is that a future edit which drops, reorders, or weakens a gate
 // fails here instead of silently letting a push leave the machine without the
 // one-command go-live verdict. A missing hook file THROWS loudly rather than
 // passing vacuously — a repo without the hook has nothing to lock.
 //
-// The assertions target distinctive substrings (not the full comment lines)
-// so they stay robust to surrounding prose edits while still pinning the
-// load-bearing parts: the gate's existence, its 1200s budget (vs the 90s
-// per-verifier timebox), its exit-code branches (142 timeout, 2 dirty tree,
-// generic failure), the FORWARDED exit code (exit $ship_rc, so the push's
-// status carries ship:ready's own 1/2/3/142 verdict instead of a bare 1),
-// the SKIP_VERIFY_SIGNIN early-exit that bypasses the capstone, the
-// missing-file skip, and its position as the FINAL gate before the success
-// line.
+// The retry-once-after-30s pattern lives ONCE in the shared `run_with_retry`
+// helper (mirroring the deployed-hash gate's retry), and every Chrome /
+// live-app gate (0.6c docs-render, 0.6d review-sheet, 3 sign-in, 3b
+// profile-walkthrough) routes through it with its own budget, failure
+// message, and transient descriptor. The assertions pin: the helper's
+// structure (timebox primitive, 142-timeout abort, FATAL_RC no-retry path,
+// 30s retry, on-retry success line, second-failure exit), each gate's call
+// site (budget + label + command with the load-bearing flags), the 1200s
+// ship:ready capstone with its FORWARDED exit code (exit $ship_rc, so the
+// push's status carries 1/2/3/142 instead of a bare 1) and its deliberate
+// exclusion from run_with_retry, the SKIP_VERIFY_SIGNIN early-exit that
+// bypasses the capstone, the missing-file skips, and gate ordering.
 // ============================================================================
 
 const HOOK_PATH = '.githooks/pre-push';
 const hook = readFileSync(HOOK_PATH, 'utf8');
+
+describe('.githooks/pre-push · shared verifier runners', () => {
+  it('defines timebox as the single perl-alarm budget primitive', () => {
+    expect(hook).toMatch(/^\s*timebox\(\) \{\s*$/m);
+    expect(hook).toMatch(/^\s*perl -e 'alarm shift; exec @ARGV' "\$@"\s*$/m);
+  });
+
+  it('runs the plain run_verify through timebox with the fixed 90s budget', () => {
+    expect(hook).toMatch(/^\s*if timebox 90 node "\$script" "\$@"; then$/m);
+  });
+
+  it('defines run_with_retry taking budget/label/fail-msg/transient then the command', () => {
+    expect(hook).toMatch(/^\s*run_with_retry\(\) \{\s*$/m);
+    expect(hook).toContain('local budget="$1" label="$2" fail_msg="$3" transient="$4"');
+    expect(hook).toContain('shift 4');
+  });
+
+  it('runs the retried command through timebox with the per-gate budget', () => {
+    expect(hook).toMatch(/^\s*if timebox "\$budget" "\$@"; then$/m);
+  });
+
+  it('aborts immediately on the 142 alarm timeout (never retries a budget blowout)', () => {
+    expect(hook).toMatch(/\$label exceeded \$\{budget\}s — too slow, run CI instead/);
+    expect(hook).toMatch(/\$rc" -eq 142/);
+    expect(hook).toContain('SKIP_VERIFY_SIGNIN=1 to override');
+  });
+
+  it('honors a FATAL_RC (no retry — the revoked-token contract)', () => {
+    expect(hook).toContain('if [ -n "${FATAL_RC:-}" ] && [ "$rc" -eq "$FATAL_RC" ]; then');
+  });
+
+  it('retries ONCE after a 30s backoff and re-invokes the SAME command', () => {
+    expect(hook).toContain('sleep 30');
+    expect(hook).toMatch(/waiting 30s and retrying once \(transient \$transient\?\)/);
+    expect(hook).toContain('passed ✓ (on retry)');
+  });
+
+  it('prints the per-gate failure message on the second failure and exits 1', () => {
+    expect(hook).toMatch(/\$label FAILED — \$fail_msg/);
+    const helperTail = hook.slice(hook.indexOf('run_with_retry() {'));
+    expect(helperTail).toMatch(/exit 1\s*$/m);
+  });
+});
+
+describe('.githooks/pre-push · deployed-hash gate (gate 0)', () => {
+  it('lists the deployed-hash gate in the header gate inventory', () => {
+    expect(hook).toContain('0. scripts/verify-deployed-hash.mjs');
+    expect(hook).toContain('serves the last PUSHED commit');
+  });
+
+  it('routes the hash check through run_with_retry with the 90s budget', () => {
+    expect(hook).toMatch(/^\s*run_with_retry 90 "production deployed-hash matches origin\/main/m);
+  });
+
+  it('passes FATAL_RC=2 so a revoked token aborts WITHOUT the wasted 30s retry', () => {
+    // Start-anchored on purpose: the env-prefix line continues into the
+    // run_with_retry call, so a bare toContain('FATAL_RC=2') could match a
+    // comment. The prefix is load-bearing — dropping it would silently
+    // reintroduce the revoked-token wasted-retry bug with no test catching
+    // it.
+    expect(hook).toMatch(/^\s*FATAL_RC=2 FATAL_MSG=/m);
+    expect(hook).toContain('paste a fresh token from https://vercel.com/account/tokens');
+  });
+
+  it('asserts the canonical URL serves the pushed remote tip (line-anchored exec)', () => {
+    // Line-anchored: the exec must carry --url with the canonical production
+    // URL and --expect with the remote tip — the gate's whole purpose. A
+    // regression that dropped either flag would fail here.
+    expect(hook).toMatch(/^\s*node scripts\/verify-deployed-hash\.mjs --url "\$PRODUCTION_URL" --expect "\$REMOTE_MAIN_SHA"\s*$/m);
+  });
+
+  it('keeps the first-push skip (all-zeros remote tip has nothing to verify)', () => {
+    expect(hook).toContain('first push to main (no previous remote commit)');
+  });
+
+  it('sits before the token-health gate (0.5) in the run order', () => {
+    const gate0 = hook.indexOf('# ── 0. Deployed-hash gate');
+    const gate05 = hook.indexOf('# ── 0.5 Token-health gate');
+    expect(gate0).toBeGreaterThan(-1);
+    expect(gate05).toBeGreaterThan(gate0);
+  });
+});
 
 describe('.githooks/pre-push · ship:ready capstone gate (gate 4)', () => {
   it('defines gate 4 as the ship:ready final capstone', () => {
@@ -34,8 +119,13 @@ describe('.githooks/pre-push · ship:ready capstone gate (gate 4)', () => {
     expect(hook).toContain('#   4. scripts/ship-ready.mjs');
   });
 
-  it('runs ship-ready.mjs under the 1200s budget, not the 90s per-verifier timebox', () => {
-    expect(hook).toContain("perl -e 'alarm shift; exec @ARGV' 1200 node scripts/ship-ready.mjs");
+  it('runs ship-ready.mjs under the 1200s budget via timebox, NOT run_with_retry', () => {
+    // Line-anchored on purpose: the capstone deliberately bypasses the retry
+    // helper (its failures are never transient) but must still go through the
+    // shared timebox for the 1200s budget.
+    expect(hook).toMatch(/^\s*if timebox 1200 node scripts\/ship-ready\.mjs; then$/m);
+    const gate4Tail = hook.slice(hook.indexOf('# ── 4. ship:ready final capstone gate'));
+    expect(gate4Tail).toContain('Deliberately NOT run_with_retry');
   });
 
   it('captures the exit code so each branch can name its reason', () => {
@@ -116,40 +206,21 @@ describe('.githooks/pre-push · onboarding-docs render diff gate (gate 0.6c)', (
     expect(hook).toContain('committed onboarding PNGs would change');
   });
 
-  it('defines the gate block that runs capture-docs.mjs --check', () => {
+  it('defines the gate block that routes capture-docs.mjs --check through run_with_retry', () => {
     expect(hook).toContain('# ── 0.6c Onboarding-docs render diff gate');
-    expect(hook).toContain('node scripts/capture-docs.mjs --check');
+    expect(hook).toContain('run_with_retry 90 "onboarding-docs render diff"');
   });
 
-  it('runs capture-docs.mjs --check through the gate\'s OWN exec line, not WRITE mode', () => {
-    // Line-anchored: the exec must be a plain line inside the gate's own
-    // function (never routed through run_verify's 90s wrapper, never wrapped
-    // in an `if ...; then` that would break the retry structure) and MUST
-    // carry --check — without it the gate would run capture-docs.mjs in WRITE
-    // mode and rewrite the committed PNGs on every push instead of comparing
-    // them.
-    expect(hook).toMatch(/^\s*perl -e 'alarm shift; exec @ARGV' 90 node scripts\/capture-docs\.mjs --check\s*$/m);
+  it('carries the re-capture guidance as the second-failure message', () => {
+    expect(hook).toContain('"run npm run capture:docs and commit"');
   });
 
-  it('wraps the gate in a named function so it can be retried, mirroring the deployed-hash gate', () => {
-    expect(hook).toContain('run_docs_gate() {');
-    expect(hook).toMatch(/^\s*if run_docs_gate; then$/m);
-  });
-
-  it('retries ONCE after a 30s backoff before failing the push', () => {
-    expect(hook).toContain('sleep 30');
-    expect(hook).toContain('if run_docs_gate; then');
-    expect(hook).toContain('onboarding-docs render diff passed ✓ (on retry)');
-    expect(hook).toContain('transient Chrome failure?');
-    // The second failure branch must not be followed by a hardcoded exit 1
-    // that would swallow the real rc into a bare 1.
-    const gateTail = hook.slice(hook.indexOf('onboarding-docs render diff FAILED'));
-    expect(gateTail).toMatch(/exit 1\s*$/m);
-  });
-
-  it('names the 142 alarm timeout and the re-capture failure reason', () => {
-    expect(hook).toContain('exceeded 90s');
-    expect(hook).toContain('run npm run capture:docs and commit');
+  it('keeps --check on the exec line so the gate COMPARES instead of writing', () => {
+    // Line-anchored on purpose: the forward must be the real exec line, not a
+    // comment mention. Without it, the gate would run capture-docs.mjs in
+    // WRITE mode and rewrite the committed PNGs on every push instead of
+    // comparing them.
+    expect(hook).toMatch(/^\s*node scripts\/capture-docs\.mjs --check\s*$/m);
   });
 
   it('skips with a notice when Chrome is missing, matching gates 3/3b', () => {
@@ -166,36 +237,56 @@ describe('.githooks/pre-push · onboarding-docs render diff gate (gate 0.6c)', (
   });
 });
 
+describe('.githooks/pre-push · review-sheet byte gate (gate 0.6d)', () => {
+  it('lists the review-sheet byte gate in the header gate inventory', () => {
+    expect(hook).toContain('0.6d scripts/verify-review-sheet.mjs --check');
+    expect(hook).toContain('deterministically and FAILS if the committed pair');
+  });
+
+  it('defines the gate block that routes verify-review-sheet.mjs --check through run_with_retry', () => {
+    expect(hook).toContain('# ── 0.6d Review-sheet byte gate');
+    expect(hook).toContain('run_with_retry 420 "review-sheet byte gate (deterministic capture)"');
+  });
+
+  it('timeboxes the gate with its OWN budget (420s), not the 90s run_verify timebox', () => {
+    // The driver drives the LIVE app with two AI round-trips (up to ~90s
+    // each), so running it under run_verify's 90s budget would always alarm
+    // out. The gate must pass 420 into run_with_retry (same treatment as the
+    // 1200s ship:ready capstone), never the plain run_verify function.
+    expect(hook).toMatch(/^\s*run_with_retry 420 "review-sheet byte gate \(deterministic capture\)"/m);
+    expect(hook).toMatch(/^\s*node scripts\/verify-review-sheet\.mjs --check --out \/tmp\/review-sheet-bytecheck\s*$/m);
+  });
+
+  it('gates on the web API key AND Chrome, skipping with notices when either is missing', () => {
+    expect(hook).toContain('[ -n "$KEY" ] && [ -f scripts/verify-review-sheet.mjs ]');
+    expect(hook).toContain('Chrome not found — skipping review-sheet byte gate');
+    expect(hook).toContain('FIREBASE_WEB_API_KEY not set — skipping review-sheet byte gate');
+  });
+
+  it('names the re-capture failure reason', () => {
+    expect(hook).toContain('"re-capture and commit the PNGs"');
+  });
+
+  it('sits after the docs-render gate (0.6c) and before the vercel-env gate (0.7)', () => {
+    const gate06d = hook.indexOf('# ── 0.6d Review-sheet byte gate');
+    const gate06c = hook.indexOf('# ── 0.6c Onboarding-docs render diff gate');
+    const gate07 = hook.indexOf('# ── 0.7 Vercel-env drift gate');
+    expect(gate06d).toBeGreaterThan(gate06c);
+    expect(gate06d).toBeGreaterThan(-1);
+    expect(gate07).toBeGreaterThan(gate06d);
+  });
+});
+
 describe('.githooks/pre-push · production sign-in + Firestore sync gate (gate 3)', () => {
   it('lists the sign-in gate in the header gate inventory', () => {
     expect(hook).toContain('3. scripts/verify-prod-signin.mjs');
     expect(hook).toContain('needs FIREBASE_WEB_API_KEY + Chrome');
   });
 
-  it('defines the gate block that runs verify-prod-signin.mjs', () => {
+  it('defines the gate block that routes verify-prod-signin.mjs through run_with_retry', () => {
     expect(hook).toContain('# ── 3. Sign-in + Firestore sync gate');
-    expect(hook).toContain('node scripts/verify-prod-signin.mjs');
-  });
-
-  it('wraps the gate in a named function so it can be retried, mirroring the deployed-hash gate', () => {
-    expect(hook).toContain('run_signin_gate() {');
-    expect(hook).toMatch(/^\s*if run_signin_gate; then$/m);
-  });
-
-  it('retries ONCE after a 30s backoff before failing the push', () => {
-    expect(hook).toContain('sleep 30');
-    expect(hook).toContain('if run_signin_gate; then');
-    expect(hook).toContain('production sign-in + Firestore sync passed ✓ (on retry)');
-    expect(hook).toContain('transient live-app failure?');
-    // The second failure branch must not be followed by a hardcoded exit 1
-    // that would swallow the real rc into a bare 1.
-    const gateTail = hook.slice(hook.indexOf('production sign-in + Firestore sync FAILED'));
-    expect(gateTail).toMatch(/exit 1\s*$/m);
-  });
-
-  it('names the 142 alarm timeout and the fix-before-pushing failure reason', () => {
-    expect(hook).toContain('production sign-in + Firestore sync exceeded 90s');
-    expect(hook).toContain('fix before pushing');
+    expect(hook).toMatch(/^\s*run_with_retry 90 "production sign-in \+ Firestore sync"/m);
+    expect(hook).toMatch(/^\s*node scripts\/verify-prod-signin\.mjs\s*$/m);
   });
 
   it('gates on the web API key AND Chrome, skipping with notices when either is missing', () => {
@@ -220,30 +311,10 @@ describe('.githooks/pre-push · profile no-email walkthrough gate (gate 3b)', ()
     expect(hook).toContain('needs FIREBASE_WEB_API_KEY + Chrome');
   });
 
-  it('defines the gate block that runs verify-profile-no-email.mjs', () => {
+  it('defines the gate block that routes verify-profile-no-email.mjs through run_with_retry', () => {
     expect(hook).toContain('# ── 3b. Profile no-email gate');
-    expect(hook).toContain('node scripts/verify-profile-no-email.mjs');
-  });
-
-  it('wraps the gate in a named function so it can be retried, mirroring the deployed-hash gate', () => {
-    expect(hook).toContain('run_profile_gate() {');
-    expect(hook).toMatch(/^\s*if run_profile_gate; then$/m);
-  });
-
-  it('retries ONCE after a 30s backoff before failing the push', () => {
-    expect(hook).toContain('sleep 30');
-    expect(hook).toContain('if run_profile_gate; then');
-    expect(hook).toContain('profile no-email walkthrough passed ✓ (on retry)');
-    expect(hook).toContain('transient live-app failure?');
-    // The second failure branch must not be followed by a hardcoded exit 1
-    // that would swallow the real rc into a bare 1.
-    const gateTail = hook.slice(hook.indexOf('profile no-email walkthrough FAILED'));
-    expect(gateTail).toMatch(/exit 1\s*$/m);
-  });
-
-  it('names the 142 alarm timeout and the fix-before-pushing failure reason', () => {
-    expect(hook).toContain('profile no-email walkthrough exceeded 90s');
-    expect(hook).toContain('fix before pushing');
+    expect(hook).toMatch(/^\s*run_with_retry 90 "profile no-email walkthrough"/m);
+    expect(hook).toMatch(/^\s*node scripts\/verify-profile-no-email\.mjs\s*$/m);
   });
 
   it('gates on the web API key AND Chrome, skipping with notices when either is missing', () => {
@@ -259,74 +330,5 @@ describe('.githooks/pre-push · profile no-email walkthrough gate (gate 3b)', ()
     expect(gate3b).toBeGreaterThan(gate3);
     expect(gate3b).toBeGreaterThan(-1);
     expect(gate4).toBeGreaterThan(gate3b);
-  });
-});
-
-describe('.githooks/pre-push · review-sheet byte gate (gate 0.6d)', () => {
-  it('lists the review-sheet byte gate in the header gate inventory', () => {
-    expect(hook).toContain('0.6d scripts/verify-review-sheet.mjs --check');
-    expect(hook).toContain('deterministically and FAILS if the committed pair');
-  });
-
-  it('defines the gate block that runs verify-review-sheet.mjs --check', () => {
-    expect(hook).toContain('# ── 0.6d Review-sheet byte gate');
-    expect(hook).toContain('verify-review-sheet.mjs --check --out /tmp/review-sheet-bytecheck');
-  });
-
-  it('timeboxes the gate with its OWN budget, not the 90s run_verify timebox', () => {
-    // The driver drives the LIVE app with two AI round-trips (up to ~90s
-    // each), so running it under run_verify's 90s budget would always alarm
-    // out. The gate must use a dedicated perl alarm (same treatment as the
-    // 1200s ship:ready capstone), NOT the run_verify function.
-    expect(hook).toContain("perl -e 'alarm shift; exec @ARGV' 420 node scripts/verify-review-sheet.mjs --check");
-    // Line-anchored: the exec must be a plain line inside the gate's own
-    // function (never routed through run_verify's 90s wrapper, never wrapped
-    // in an `if ...; then` that would break the retry structure).
-    expect(hook).toMatch(/^\s*perl -e 'alarm shift; exec @ARGV' 420 node scripts\/verify-review-sheet\.mjs --check --out \/tmp\/review-sheet-bytecheck\s*$/m);
-  });
-
-  it('wraps the gate in a named function so it can be retried, mirroring the deployed-hash gate', () => {
-    // The driver drives the LIVE app: transient failures (sign-in network
-    // blips, slow AI round-trips, an interception that did not attach on the
-    // first run) have been observed. The gate must define a reusable function
-    // and invoke it via `if run_review_sheet_gate; then` so the retry branch
-    // below can call the SAME wrapped invocation a second time.
-    expect(hook).toContain('run_review_sheet_gate() {');
-    expect(hook).toMatch(/^\s*if run_review_sheet_gate; then$/m);
-  });
-
-  it('retries ONCE after a 30s backoff before failing the push', () => {
-    // Mirror of the deployed-hash gate's retry: a transient clears on the
-    // retry and the push proceeds; a genuine stale pair fails both attempts
-    // and aborts. The retry must sleep before re-invoking the SAME function
-    // and must have a distinct on-retry success line.
-    expect(hook).toContain('sleep 30');
-    expect(hook).toContain('if run_review_sheet_gate; then');
-    expect(hook).toContain('review-sheet byte gate passed ✓ (on retry)');
-    expect(hook).toContain('transient live-app failure?');
-    // The second failure branch must not be followed by a hardcoded exit 1
-    // that would swallow the real rc into a bare 1.
-    const gateTail = hook.slice(hook.indexOf('review-sheet byte gate FAILED'));
-    expect(gateTail).toMatch(/exit 1\s*$/m);
-  });
-
-  it('gates on the web API key AND Chrome, skipping with notices when either is missing', () => {
-    expect(hook).toContain('[ -n "$KEY" ] && [ -f scripts/verify-review-sheet.mjs ]');
-    expect(hook).toContain('Chrome not found — skipping review-sheet byte gate');
-    expect(hook).toContain('FIREBASE_WEB_API_KEY not set — skipping review-sheet byte gate');
-  });
-
-  it('names the 142 alarm timeout and the re-capture failure reason', () => {
-    expect(hook).toContain('exceeded 420s');
-    expect(hook).toContain('re-capture and commit the PNGs');
-  });
-
-  it('sits after the docs-render gate (0.6c) and before the vercel-env gate (0.7)', () => {
-    const gate06d = hook.indexOf('# ── 0.6d Review-sheet byte gate');
-    const gate06c = hook.indexOf('# ── 0.6c Onboarding-docs render diff gate');
-    const gate07 = hook.indexOf('# ── 0.7 Vercel-env drift gate');
-    expect(gate06d).toBeGreaterThan(gate06c);
-    expect(gate06d).toBeGreaterThan(-1);
-    expect(gate07).toBeGreaterThan(gate06d);
   });
 });

@@ -95,14 +95,23 @@ read_env() { # $1=var name -> echoes value or empty
   printf '%s' "$v"
 }
 
-# ─── 90s-timeboxed verifier runner ──────────────────────────────────────────
-# $1 = friendly label, $2 = script path (relative to repo root). Aborts the
-# push on failure OR on timeout (perl alarm delivers SIGALRM -> exit 142).
+# ─── Timeboxed verifier runners ─────────────────────────────────────────────
+# timebox <budget> <command...> — run <command> under a perl alarm (SIGALRM
+# delivers exit 142; no `timeout` binary required). The single source of the
+# timebox contract: every verifier invocation below goes through it.
+timebox() {
+  perl -e 'alarm shift; exec @ARGV' "$@"
+}
+
+# run_verify <label> <script> [args...] — the plain, non-retrying verifier for
+# the cheap, deterministic gates (lints, token health, env drift, authorized
+# domains, cron reports): a fixed 90s timebox that aborts the push on failure
+# OR on timeout.
 run_verify() {
   local label="$1" script="$2"
   shift 2  # remaining args (if any) are forwarded to the script
   echo "pre-push: verifying $label…"
-  if perl -e 'alarm shift; exec @ARGV' 90 node "$script" "$@"; then
+  if timebox 90 node "$script" "$@"; then
     echo "pre-push: $label passed ✓"
   else
     local rc=$?
@@ -113,6 +122,54 @@ run_verify() {
     fi
     exit 1
   fi
+}
+
+# run_with_retry <budget> <label> <fail_msg> <transient> <command...> — the
+# shared wrapper for gates that drive the LIVE app or headless Chrome, where
+# transient first-attempt failures (sign-in network blips, slow AI
+# round-trips, Chrome startup) have been observed. $1 = budget (seconds), $2 =
+# friendly label, $3 = failure message printed when BOTH attempts fail, $4 =
+# transient descriptor for the retry notice; the remaining args are the
+# command to run (script + args). A 142 (alarm timeout) aborts immediately —
+# no point retrying a run that already used its whole budget. An optional
+# FATAL_RC (+ FATAL_MSG) env makes that exit code abort immediately WITHOUT
+# retry (deployed-hash's revoked-token rc=2: waiting cannot revive a revoked
+# token). Any other failure sleeps 30s and re-runs the SAME command once; a
+# pass on retry prints '(on retry)', a second failure prints $3 and aborts.
+# Never returns nonzero: success returns 0, every failure path exits — so it
+# is safe to call as a bare statement under `set -e`.
+run_with_retry() {
+  local budget="$1" label="$2" fail_msg="$3" transient="$4"
+  shift 4
+  echo "pre-push: verifying $label…"
+  if timebox "$budget" "$@"; then
+    echo "pre-push: $label passed ✓"
+    return 0
+  fi
+  local rc=$?
+  if [ "$rc" -eq 142 ]; then
+    echo "pre-push: $label exceeded ${budget}s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+    exit 1
+  fi
+  if [ -n "${FATAL_RC:-}" ] && [ "$rc" -eq "$FATAL_RC" ]; then
+    echo "pre-push: $label aborted — ${FATAL_MSG:-fatal rc=$rc} (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+    exit 1
+  fi
+  echo "pre-push: $label failed (rc=$rc) — waiting 30s and retrying once (transient $transient?)…" >&2
+  sleep 30
+  if timebox "$budget" "$@"; then
+    echo "pre-push: $label passed ✓ (on retry)"
+    return 0
+  fi
+  local rc2=$?
+  if [ "$rc2" -eq 142 ]; then
+    echo "pre-push: $label exceeded ${budget}s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+  elif [ -n "${FATAL_RC:-}" ] && [ "$rc2" -eq "$FATAL_RC" ]; then
+    echo "pre-push: $label aborted — ${FATAL_MSG:-fatal rc=$rc2} (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+  else
+    echo "pre-push: $label FAILED — $fail_msg (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+  fi
+  exit 1
 }
 
 KEY="$(read_env FIREBASE_WEB_API_KEY)"
@@ -145,7 +202,6 @@ if [ -f scripts/verify-deployed-hash.mjs ]; then
   elif [ "${REMOTE_MAIN_SHA//0/}" = "" ]; then
     echo "pre-push: first push to main (no previous remote commit) — skipping deployed-hash proof"
   else
-    echo "pre-push: verifying production serves the last pushed commit (${REMOTE_MAIN_SHA:0:12}…)…"
     # The hash gate resolves the CANONICAL production URL directly via the v13
     # by-host lookup (with a bare unscoped fallback) and asserts it serves the
     # pushed commit. Targeting the canonical URL also subsumes the old
@@ -156,45 +212,17 @@ if [ -f scripts/verify-deployed-hash.mjs ]; then
     # used to hit). CI's verify-deployed-hash.yml still runs the
     # deployment-specific-vs-canonical drift watch, where both URLs are known.
     # Note: right after a deploy the alias can TRANSIENTLY lag propagation
-    # (tens of seconds), so the check retries once after a 30s backoff — a
-    # transient lag clears on the retry and the push proceeds, a genuine
-    # mismatch fails both attempts and aborts.
-    run_hash_gate() {
-      perl -e 'alarm shift; exec @ARGV' 90 node scripts/verify-deployed-hash.mjs --url "$PRODUCTION_URL" --expect "$REMOTE_MAIN_SHA"
-    }
-    if run_hash_gate; then
-      echo "pre-push: production deployed-hash matches origin/main ✓"
-    else
-      first_rc=$?
-      if [ "$first_rc" -eq 142 ]; then
-        echo "pre-push: deployed-hash check exceeded 90s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
-        exit 1
-      fi
-      # Exit code 2 = VERCEL_TOKEN invalid/revoked (Vercel flagged
-      # invalidToken:true — the script already printed the targeted guidance).
-      # Waiting cannot revive a revoked token, so skip the 30s retry and abort
-      # with the paste-a-fresh-token message instead of the generic
-      # deploy-failed error.
-      if [ "$first_rc" -eq 2 ]; then
-        echo "pre-push: VERCEL_TOKEN is invalid or revoked — paste a fresh token from https://vercel.com/account/tokens into .env.local, then re-push (SKIP_VERIFY_SIGNIN=1 to override)" >&2
-        exit 1
-      fi
-      echo "pre-push: deployed-hash gate failed (rc=$first_rc) — waiting 30s and retrying once (transient alias propagation?)…" >&2
-      sleep 30
-      if run_hash_gate; then
-        echo "pre-push: production deployed-hash matches origin/main ✓ (on retry)"
-      else
-        local_rc=$?
-        if [ "$local_rc" -eq 142 ]; then
-          echo "pre-push: deployed-hash check exceeded 90s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
-        elif [ "$local_rc" -eq 2 ]; then
-          echo "pre-push: VERCEL_TOKEN is invalid or revoked — paste a fresh token from https://vercel.com/account/tokens into .env.local, then re-push (SKIP_VERIFY_SIGNIN=1 to override)" >&2
-        else
-          echo "pre-push: production is NOT serving the last pushed commit — the deploy may have failed, is still in progress, or the canonical alias routes elsewhere. Fix or wait, then re-push (SKIP_VERIFY_SIGNIN=1 to override)" >&2
-        fi
-        exit 1
-      fi
-    fi
+    # (tens of seconds), so run_with_retry retries once after a 30s backoff —
+    # a transient lag clears on the retry and the push proceeds, a genuine
+    # mismatch fails both attempts and aborts. rc=2 (Vercel flagged
+    # invalidToken:true) is FATAL: waiting cannot revive a revoked token, so
+    # the gate aborts with the paste-a-fresh-token message instead of the
+    # generic deploy-failed error.
+    FATAL_RC=2 FATAL_MSG="VERCEL_TOKEN is invalid or revoked — paste a fresh token from https://vercel.com/account/tokens into .env.local, then re-push" \
+    run_with_retry 90 "production deployed-hash matches origin/main (${REMOTE_MAIN_SHA:0:12}…)" \
+      "production is NOT serving the last pushed commit — the deploy may have failed, is still in progress, or the canonical alias routes elsewhere. Fix or wait, then re-push" \
+      "alias propagation" \
+      node scripts/verify-deployed-hash.mjs --url "$PRODUCTION_URL" --expect "$REMOTE_MAIN_SHA"
   fi
 else
   echo "pre-push: verify suite not present — skipping deployed-hash proof"
@@ -249,35 +277,14 @@ if [ -f scripts/capture-docs.mjs ]; then
   CHROME="${CHROME_PATH:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
   if [ -x "$CHROME" ]; then
     # The docs render boots headless Chrome and may hit transient startup
-    # failures, so the gate retries ONCE after a 30s backoff before failing the
-    # push — a transient clears on the retry, a genuinely stale PNG pair fails
-    # both attempts and aborts (mirroring the deployed-hash gate's retry).
-    run_docs_gate() {
-      perl -e 'alarm shift; exec @ARGV' 90 node scripts/capture-docs.mjs --check
-    }
-    echo "pre-push: verifying onboarding-docs render diff…"
-    if run_docs_gate; then
-      echo "pre-push: onboarding-docs render diff passed ✓"
-    else
-      docs_rc=$?
-      if [ "$docs_rc" -eq 142 ]; then
-        echo "pre-push: onboarding-docs render diff exceeded 90s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
-        exit 1
-      fi
-      echo "pre-push: onboarding-docs render diff failed (rc=$docs_rc) — waiting 30s and retrying once (transient Chrome failure?)…" >&2
-      sleep 30
-      if run_docs_gate; then
-        echo "pre-push: onboarding-docs render diff passed ✓ (on retry)"
-      else
-        local_rc=$?
-        if [ "$local_rc" -eq 142 ]; then
-          echo "pre-push: onboarding-docs render diff exceeded 90s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
-        else
-          echo "pre-push: onboarding-docs render diff FAILED — run npm run capture:docs and commit (SKIP_VERIFY_SIGNIN=1 to override)" >&2
-        fi
-        exit 1
-      fi
-    fi
+    # failures, so run_with_retry retries ONCE after a 30s backoff before
+    # failing the push — a transient clears on the retry, a genuinely stale
+    # PNG pair fails both attempts and aborts (mirroring the deployed-hash
+    # gate's retry).
+    run_with_retry 90 "onboarding-docs render diff" \
+      "run npm run capture:docs and commit" \
+      "Chrome failure" \
+      node scripts/capture-docs.mjs --check
   else
     echo "pre-push: Chrome not found — skipping onboarding-docs render diff"
   fi
@@ -301,36 +308,13 @@ if [ -n "$KEY" ] && [ -f scripts/verify-review-sheet.mjs ]; then
   if [ -x "$CHROME" ]; then
     # The driver drives the LIVE app: transient failures (sign-in network
     # blips, a slow AI round-trip, an interception that did not attach on the
-    # first run) have been observed, so the gate retries ONCE after a 30s
-    # backoff before failing the push — a transient clears on the retry, a
-    # genuine stale pair fails both attempts and aborts (mirroring the
-    # deployed-hash gate's retry).
-    run_review_sheet_gate() {
-      perl -e 'alarm shift; exec @ARGV' 420 node scripts/verify-review-sheet.mjs --check --out /tmp/review-sheet-bytecheck
-    }
-    echo "pre-push: verifying review-sheet byte gate (deterministic capture)…"
-    if run_review_sheet_gate; then
-      echo "pre-push: review-sheet byte gate passed ✓"
-    else
-      rs_rc=$?
-      if [ "$rs_rc" -eq 142 ]; then
-        echo "pre-push: review-sheet byte gate exceeded 420s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
-        exit 1
-      fi
-      echo "pre-push: review-sheet byte gate failed (rc=$rs_rc) — waiting 30s and retrying once (transient live-app failure?)…" >&2
-      sleep 30
-      if run_review_sheet_gate; then
-        echo "pre-push: review-sheet byte gate passed ✓ (on retry)"
-      else
-        local_rc=$?
-        if [ "$local_rc" -eq 142 ]; then
-          echo "pre-push: review-sheet byte gate exceeded 420s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
-        else
-          echo "pre-push: review-sheet byte gate FAILED — re-capture and commit the PNGs (SKIP_VERIFY_SIGNIN=1 to override)" >&2
-        fi
-        exit 1
-      fi
-    fi
+    # first run) have been observed, so run_with_retry retries ONCE after a
+    # 30s backoff before failing the push — a transient clears on the retry,
+    # a genuine stale pair fails both attempts and aborts.
+    run_with_retry 420 "review-sheet byte gate (deterministic capture)" \
+      "re-capture and commit the PNGs" \
+      "live-app failure" \
+      node scripts/verify-review-sheet.mjs --check --out /tmp/review-sheet-bytecheck
   else
     echo "pre-push: Chrome not found — skipping review-sheet byte gate"
   fi
@@ -380,35 +364,13 @@ if [ -n "$KEY" ] && [ -f scripts/verify-prod-signin.mjs ]; then
   if [ -x "$CHROME" ]; then
     # The sign-in proof drives the LIVE app: transient first-attempt failures
     # (auth/network-request-failed, a slow Firestore sync) have been observed,
-    # so the gate retries ONCE after a 30s backoff before failing the push —
-    # a transient clears on the retry, a genuine regression fails both
-    # attempts and aborts (mirroring the deployed-hash gate's retry).
-    run_signin_gate() {
-      perl -e 'alarm shift; exec @ARGV' 90 node scripts/verify-prod-signin.mjs
-    }
-    echo "pre-push: verifying production sign-in + Firestore sync…"
-    if run_signin_gate; then
-      echo "pre-push: production sign-in + Firestore sync passed ✓"
-    else
-      signin_rc=$?
-      if [ "$signin_rc" -eq 142 ]; then
-        echo "pre-push: production sign-in + Firestore sync exceeded 90s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
-        exit 1
-      fi
-      echo "pre-push: production sign-in + Firestore sync failed (rc=$signin_rc) — waiting 30s and retrying once (transient live-app failure?)…" >&2
-      sleep 30
-      if run_signin_gate; then
-        echo "pre-push: production sign-in + Firestore sync passed ✓ (on retry)"
-      else
-        local_rc=$?
-        if [ "$local_rc" -eq 142 ]; then
-          echo "pre-push: production sign-in + Firestore sync exceeded 90s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
-        else
-          echo "pre-push: production sign-in + Firestore sync FAILED — fix before pushing (SKIP_VERIFY_SIGNIN=1 to override)" >&2
-        fi
-        exit 1
-      fi
-    fi
+    # so run_with_retry retries ONCE after a 30s backoff before failing the
+    # push — a transient clears on the retry, a genuine regression fails both
+    # attempts and aborts.
+    run_with_retry 90 "production sign-in + Firestore sync" \
+      "fix before pushing" \
+      "live-app failure" \
+      node scripts/verify-prod-signin.mjs
   else
     echo "pre-push: Chrome not found — skipping sign-in proof"
   fi
@@ -427,35 +389,12 @@ if [ -n "$KEY" ] && [ -f scripts/verify-profile-no-email.mjs ]; then
   CHROME="${CHROME_PATH:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
   if [ -x "$CHROME" ]; then
     # The walkthrough drives the LIVE app with the same transient first-attempt
-    # profile as gate 3 (sign-in network blips, slow page loads), so the gate
-    # retries ONCE after a 30s backoff before failing the push (mirroring the
-    # deployed-hash gate's retry).
-    run_profile_gate() {
-      perl -e 'alarm shift; exec @ARGV' 90 node scripts/verify-profile-no-email.mjs
-    }
-    echo "pre-push: verifying profile no-email walkthrough…"
-    if run_profile_gate; then
-      echo "pre-push: profile no-email walkthrough passed ✓"
-    else
-      prof_rc=$?
-      if [ "$prof_rc" -eq 142 ]; then
-        echo "pre-push: profile no-email walkthrough exceeded 90s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
-        exit 1
-      fi
-      echo "pre-push: profile no-email walkthrough failed (rc=$prof_rc) — waiting 30s and retrying once (transient live-app failure?)…" >&2
-      sleep 30
-      if run_profile_gate; then
-        echo "pre-push: profile no-email walkthrough passed ✓ (on retry)"
-      else
-        local_rc=$?
-        if [ "$local_rc" -eq 142 ]; then
-          echo "pre-push: profile no-email walkthrough exceeded 90s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
-        else
-          echo "pre-push: profile no-email walkthrough FAILED — fix before pushing (SKIP_VERIFY_SIGNIN=1 to override)" >&2
-        fi
-        exit 1
-      fi
-    fi
+    # profile as gate 3 (sign-in network blips, slow page loads), so
+    # run_with_retry retries ONCE after a 30s backoff before failing the push.
+    run_with_retry 90 "profile no-email walkthrough" \
+      "fix before pushing" \
+      "live-app failure" \
+      node scripts/verify-profile-no-email.mjs
   else
     echo "pre-push: Chrome not found — skipping profile no-email proof"
   fi
@@ -477,9 +416,13 @@ fi
 # script file is present — no secret gates it, because verify:all's own gates
 # skip-not-fail internally on missing secrets and the summary's REQUIRES
 # column makes the skips visible.
-if [ -f scripts/ship-ready.mjs ]; then
-  echo "pre-push: running final ship:ready verdict (clean tree + full verify:all suite)…"
-  if perl -e 'alarm shift; exec @ARGV' 1200 node scripts/ship-ready.mjs; then
+if [ -f scripts/ship-ready.mjs ]; then    echo "pre-push: running final ship:ready verdict (clean tree + full verify:all suite)…"
+  # Deliberately NOT run_with_retry: ship:ready's failures are never transient
+  # (dirty tree, a verify:all gate failure) and it must FORWARD its own exit
+  # code (1/2/3/142) so the caller sees the exact verdict — a retry wrapper
+  # would collapse every failure to a bare 1. It still uses the shared timebox
+  # for its 1200s budget.
+  if timebox 1200 node scripts/ship-ready.mjs; then
     echo "pre-push: ship:ready passed ✓"
   else
     ship_rc=$?
