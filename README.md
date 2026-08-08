@@ -37,7 +37,7 @@ deep detail; when they disagree, the deeper prose wins.
 
 > **Going live?** The operational go-live companion lives in
 > [**docs/launch.md**](docs/launch.md) — project identity, env vars across the
-> three secret stores, and the exact commands behind the 11 verification
+> three secret stores, and the exact commands behind the 13 verification
 > gates. This section is the overview; that checklist is the drill-down.
 
 ### Architecture in one paragraph
@@ -222,6 +222,56 @@ gallery workflow re-renders on every run:
 > mode — REVIEW_SHEET_DETERMINISTIC pins the AI note and winner, so the pair
 > is byte-stable — and fails until the re-captured PNGs are committed with
 > the edit, the same byte-gate contract the docs PNGs get from gate 0.6c.
+
+### Disk headroom
+
+A full boot disk is what caused the Freebuff app's SQLite "disk I/O error" on
+button clicks (the conversation DB writes on every click), so every push
+checks the machine's Data volume via `df`. The gate (`scripts/verify-disk-
+headroom.mjs`) runs as **pre-push gate 0.05**, as the **first row of
+`verify:all`**, and standalone:
+
+```bash
+npm run verify:disk-headroom                        # default: warn 85 / fail 90
+DISK_LIMIT_PCT=80 node scripts/verify-disk-headroom.mjs   # fail earlier
+DISK_WARN_PCT=80  node scripts/verify-disk-headroom.mjs   # warn earlier
+```
+
+Two tiers guard the writes:
+
+- **Warn at 85%** (`DISK_WARN_PCT`) — non-blocking: the gate prints a warning
+  and still passes, so a creeping disk is surfaced before it becomes an
+  emergency.
+- **Fail at 90%** (`DISK_LIMIT_PCT`) — blocks the push with free-space
+  guidance.
+
+The gate reads `df -k /System/Volumes/Data` (root-mount fallback on
+non-macOS), **skips-not-fails** when `df` is unavailable, and both thresholds
+are numeric-guarded so a typo'd override can't silently disarm them. It is
+deliberately **local-only** (a CI runner's disk is not the developer's), so it
+never runs in CI.
+
+**What to clear when it warns** — all regenerable, none of it your data
+(clearing the list below recovered ~48Gi on 2026-08-08, taking the volume from
+90% to 67%):
+
+- `~/.npm/_cacache` (6.7G) — `npm cache clean --force`; re-downloads on demand
+- `~/Library/Application Support/com.google.AIEdgeEloquent` (9.6G) — Chrome's
+  on-device AI model store; Chrome re-downloads it
+- `~/Library/Containers/com.docker.docker` + `com.docker.install` (11G) —
+  Docker VM + installer data; wipes images/containers — only when you're not
+  using Docker
+- `~/Library/Application Support/com.apple.wallpaper` (1.9G) — macOS wallpaper
+  assets
+- `~/go/pkg/mod` (594M), `~/Library/Caches/ms-playwright` (554M), the
+  Antigravity updater caches (`com.google.antigravity*`, ~1G), `icloudmailagent`
+  (313M), `Codex` (256M), `pnpm` (153M), `pip` (60M), `~/Library/Logs` (79M) —
+  all regenerable
+- **Never touch:** `~/Library/Application Support/Google` (your real Chrome
+  profile — history, passwords, extensions) or app data such as Discord and
+  the Freebuff store itself
+
+Check the volume by hand with `df -h /System/Volumes/Data`.
 
 ## Screenshots
 
