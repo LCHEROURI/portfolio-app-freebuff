@@ -315,6 +315,31 @@ jobs:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           REPORT_OWNER_ID: ${{ secrets.REPORT_OWNER_ID }}
 
+      # Reports-page Download PDF UI contract: drives the DEPLOYED /reports
+      # page in headless Chrome as the REAL OWNER (same custom-token session
+      # as the deployed-pdf gate), clicks the actual "Download PDF" button on
+      # a saved report row, and captures the browser download via CDP — the
+      # full UI path (button → auth facade → route → blob → file), not just
+      # the API. Needs Chrome on the Linux runner (the /Applications fallback
+      # does not exist), installed here like the review-sheet step — note the
+      # step id is chrome-reports-pdf (NOT chrome or chrome-review-sheet):
+      # steps.* references cannot cross jobs or reuse ids, and this job
+      # already owns chrome-review-sheet.
+      - name: Install Chrome for reports-pdf CDP
+        id: chrome-reports-pdf
+        uses: browser-actions/setup-chrome@v2
+        with:
+          chrome-version: stable
+
+      - name: Verify Reports Download PDF (full UI click-through)
+        if: ${{ env.FIREBASE_WEB_API_KEY != '' && env.FIREBASE_SERVICE_ACCOUNT != '' && env.REPORT_OWNER_ID != '' }}
+        run: node scripts/verify-reports-pdf-flow.mjs
+        env:
+          FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          REPORT_OWNER_ID: ${{ secrets.REPORT_OWNER_ID }}
+          CHROME_PATH: ${{ steps.chrome-reports-pdf.outputs.chrome-path }}
+
   # Post-deploy authorized-domains smoke test. Mints a throwaway Firebase
   # user, calls the deployed /api/status?project=<domain> and fails the run
   # when the validated domain is NOT in the project's authorized list — so an

@@ -187,6 +187,19 @@ describe('.github/workflows/ci.yml · verify-deployed job (post-deploy smoke gat
     expect(verifyDeployedBlock).toContain('REPORT_OWNER_ID: ${{ secrets.REPORT_OWNER_ID }}');
   });
 
+  it('still runs the Reports Download PDF UI gate, gated on the trio + Chrome', () => {
+    // The reports-pdf-flow gate (verify-reports-pdf-flow.mjs) drives the
+    // DEPLOYED /reports page in headless Chrome as the REAL OWNER, clicks the
+    // actual Download PDF button, and captures the browser download via CDP —
+    // the full UI path (button → auth facade → route → blob → file), not just
+    // the API. It needs the same owner-session trio as deployed-pdf PLUS a
+    // Chrome binary (the Linux runner has no /Applications fallback).
+    expect(verifyDeployedBlock).toMatch(/run: node scripts\/verify-reports-pdf-flow\.mjs/);
+    expect(verifyDeployedBlock).toContain("if: ${{ env.FIREBASE_WEB_API_KEY != '' && env.FIREBASE_SERVICE_ACCOUNT != '' && env.REPORT_OWNER_ID != '' }}");
+    expect(verifyDeployedBlock).toContain('Install Chrome for reports-pdf CDP');
+    expect(verifyDeployedBlock).toContain('CHROME_PATH: ${{ steps.chrome-reports-pdf.outputs.chrome-path }}');
+  });
+
   it('wires the full EXPECTED_LIVE_FLAGS set into the verify-deployed job env', () => {
     // The deployed-store LIVE-flag set (source of truth: EXPECTED_LIVE_FLAGS
     // in verify-vercel-env.mjs) must be declared in this job's env so the

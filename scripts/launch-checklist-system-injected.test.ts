@@ -140,7 +140,7 @@ describe('crossCheckSystemInjectedVars (fixture)', () => {
   ].join('\n');
   // The README table keys rows by bare gate name (no npm run prefix).
   const FIXTURE_README = [
-    '### The 16 verification gates',
+    '### The 17 verification gates',
     '| Gate | Requires | Proves |',
     '| --- | --- | --- |',
     '| vercel-env | `VERCEL_TOKEN` (+ Vercel CLI) | Vercel prod env matches `.env.local` (system-injected build vars like `VERCEL_OIDC_TOKEN` are exempted as informational; real project vars stay value-compared) |',

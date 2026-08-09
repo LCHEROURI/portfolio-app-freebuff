@@ -12,7 +12,7 @@ describe('parseCiGateSteps (live repo)', () => {
   const steps = parseCiGateSteps(read('.github/workflows/ci.yml'));
 
   it('finds every gated verify step across the three post-deploy jobs', () => {
-    expect(steps).toHaveLength(9);
+    expect(steps).toHaveLength(10);
     const byRun = new Map(steps.map((s) => [s.run, s]));
     expect([...byRun.keys()].sort()).toEqual([
       'verify-auth-domains.mjs',
@@ -22,6 +22,7 @@ describe('parseCiGateSteps (live repo)', () => {
       'verify-firestore-rules.mjs',
       'verify-google-idp.mjs',
       'verify-prod-signin.mjs',
+      'verify-reports-pdf-flow.mjs',
       'verify-review-sheet.mjs',
       'verify-token-health.mjs',
     ]);
@@ -47,6 +48,9 @@ describe('parseCiGateSteps (live repo)', () => {
     // uid (the session's subject). All three are gated so a missing
     // credential skips-not-fails only on forks.
     expect(byRun.get('verify-deployed-pdf.mjs').gatingSecrets).toEqual(['FIREBASE_WEB_API_KEY', 'FIREBASE_SERVICE_ACCOUNT', 'REPORT_OWNER_ID']);
+    // The reports-pdf-flow UI gate needs the SAME owner-session trio (the
+    // session it injects into headless Chrome to click the real button).
+    expect(byRun.get('verify-reports-pdf-flow.mjs').gatingSecrets).toEqual(['FIREBASE_WEB_API_KEY', 'FIREBASE_SERVICE_ACCOUNT', 'REPORT_OWNER_ID']);
   });
 
   it('does not pick up loud-guard, checkout, or install steps', () => {

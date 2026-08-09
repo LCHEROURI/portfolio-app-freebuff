@@ -6,7 +6,7 @@
 // against production (or an --app override), so the go-live checklist is
 // executable in a single command:
 //
-//   npm run verify:all                       # all sixteen gates, production URL
+//   npm run verify:all                       # all seventeen gates, production URL
 //   node scripts/verify-all.mjs --app http://localhost:3000
 //   node scripts/verify-all.mjs --only prod-signin,google-idp
 //   node scripts/verify-all.mjs --skip prod-signin --timeout 900
@@ -60,7 +60,7 @@ const PRODUCTION_URL = 'https://portfolio-app-freebuff.vercel.app';
 const ONLY = onlyArg ? onlyArg.split(',').map((s) => s.trim()).filter(Boolean) : [];
 const SKIP = skipArg ? skipArg.split(',').map((s) => s.trim()).filter(Boolean) : [];
 
-const GATE_NAMES = ['disk-headroom', 'conv-db', 'token-health', 'vercel-env', 'cron-reports', 'firestore-rules', 'auth-domains', 'prod-signin', 'google-idp', 'review-sheet', 'deployments', 'deployed-pdf', 'auth-domains-direct', 'deployed-hash', 'import-surface', 'dead-words'];
+const GATE_NAMES = ['disk-headroom', 'conv-db', 'token-health', 'vercel-env', 'cron-reports', 'firestore-rules', 'auth-domains', 'prod-signin', 'google-idp', 'review-sheet', 'deployments', 'deployed-pdf', 'reports-pdf-flow', 'auth-domains-direct', 'deployed-hash', 'import-surface', 'dead-words'];
 const unknownOnly = ONLY.filter((n) => !GATE_NAMES.includes(n));
 const unknownSkip = SKIP.filter((n) => !GATE_NAMES.includes(n));
 if (unknownOnly.length > 0 || unknownSkip.length > 0) {
@@ -169,6 +169,14 @@ const GATES = [
   // owner session needs the SA (custom-token mint) + web API key (exchange)
   // + the owner uid, so all three are declared secrets.
   { name: 'deployed-pdf', label: 'Deployed PDF route (serverless Chromium)', script: 'verify:deployed-pdf', appFlag: '--app', secrets: ['FIREBASE_WEB_API_KEY', 'FIREBASE_SERVICE_ACCOUNT', 'REPORT_OWNER_ID'], capture: true },
+  // The reports-pdf-flow gate proves the FULL UI download path (not just the
+  // API): the owner session is injected into headless Chrome, /reports
+  // renders, the REAL "Download PDF" button is clicked, and the browser-level
+  // download is captured via CDP and asserted to be a real %PDF- file — so a
+  // regression in the button wiring, the auth facade, or the blob/anchor save
+  // fails CI even though the API is healthy. Needs Chrome (Linux runner
+  // installs it) + the same owner-session trio as deployed-pdf.
+  { name: 'reports-pdf-flow', label: 'Reports Download PDF (full UI click-through)', script: 'verify:reports-pdf-flow', appFlag: '--app', secrets: ['FIREBASE_WEB_API_KEY', 'FIREBASE_SERVICE_ACCOUNT', 'REPORT_OWNER_ID'], capture: true },
   { name: 'auth-domains-direct', label: 'Authorized domains (direct script)', file: 'scripts/verify-auth-domains.mjs', appFlag: '--app', duplicateOf: 'auth-domains', secrets: ['FIREBASE_WEB_API_KEY'] },
   { name: 'deployed-hash', label: 'Deployed commit matches expected', script: 'verify:deployed-hash', expectFlag: '--expect', url: PRODUCTION_URL, secrets: ['VERCEL_TOKEN'], capture: true },
   // Pure static lint over scripts/ + lib/ + app/: re-exported or unused
@@ -185,8 +193,8 @@ const GATES = [
   { name: 'dead-words', label: 'Dead-feature lint (report-email + removed integrations)', script: 'verify:dead-words' },
 ];
 
-// ── Self-check: the 15-gate contract must hold before anything runs ─────────
-// The launch-checklist contract promises EXACTLY sixteen gates — the same
+// ── Self-check: the 17-gate contract must hold before anything runs ─────────
+// The launch-checklist contract promises EXACTLY seventeen gates — the same
 // EXPECTED_GATE_COUNT verify-launch-checklist.mjs hardcodes. If a future gate
 // is added to GATE_NAMES (or a GATES entry to the table) without the full
 // contract update — the §4 row + Requires cell, the README/launch.md pipeline
@@ -196,7 +204,7 @@ const GATES = [
 // off a contract that no longer holds. The preflight drift guard would also
 // catch the mismatch, but only after spawning a child process; this is
 // instant and names the exact source of truth.
-const EXPECTED_GATE_COUNT = 16;
+const EXPECTED_GATE_COUNT = 17;
 if (GATE_NAMES.length !== EXPECTED_GATE_COUNT || GATES.length !== GATE_NAMES.length) {
   console.error(`✗ FAIL: gate contract — GATE_NAMES has ${GATE_NAMES.length}, GATES has ${GATES.length}, but the launch-checklist contract promises ${EXPECTED_GATE_COUNT}.`);    console.error('  A gate was added without the full contract update:');
     console.error('    - scripts/verify-launch-checklist.mjs  EXPECTED_GATE_COUNT');
