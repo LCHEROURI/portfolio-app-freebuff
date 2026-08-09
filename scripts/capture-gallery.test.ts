@@ -240,6 +240,29 @@ describe('scripts/capture-gallery.mjs · headless Chrome spawn flags', () => {
     // its own flags and this count would catch the split.
     expect(DRIVER.match(/spawn\(CHROME, \[/g)).toHaveLength(1);
   });
+
+  it('passes the text-rendering determinism trio as real array entries (not just comment prose)', () => {
+    // The dark cells used to churn by a few pixels of sub-glyph anti-aliasing
+    // on small semibold text run to run on the Linux runner while light cells
+    // stayed byte-identical. The fix pins Chrome's process-level text state:
+    // --disable-lcd-text (grayscale AA, no subpixel jitter),
+    // --font-render-hinting=none (glyph shapes independent of the runner's
+    // FreeType hinting state), --force-color-profile=srgb (no display/color
+    // state leaks into rasterization). Same comment-stripping discipline as
+    // the sandbox flags: they must be ACTUAL args, not prose.
+    const argsWithoutComments = chromeArgsBlock
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('//'))
+      .join('\n');
+    expect(argsWithoutComments).toContain("'--disable-lcd-text'");
+    expect(argsWithoutComments).toContain("'--font-render-hinting=none'");
+    expect(argsWithoutComments).toContain("'--force-color-profile=srgb'");
+    // Comma-anchored forms guard against a partial edit that drops the flag
+    // while leaving a quoted mention in a comment elsewhere.
+    expect(argsWithoutComments).toMatch(/'--disable-lcd-text',/);
+    expect(argsWithoutComments).toMatch(/'--font-render-hinting=none',/);
+    expect(argsWithoutComments).toMatch(/'--force-color-profile=srgb',/);
+  });
 });
 
 describe('scripts/capture-gallery.mjs · per-run Chrome profile (--user-data-dir)', () => {

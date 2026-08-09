@@ -131,6 +131,18 @@ const chrome = spawn(CHROME, [
   // drivers (verify-review-sheet, verify-prod-signin) already pass.
   '--no-sandbox',
   '--disable-dev-shm-usage',
+  // Byte-stable captures across gallery runs: the dark cells used to churn
+  // by a few pixels of sub-glyph anti-aliasing on the small semibold "Copy"
+  // text (sidebar VarCopyButton + setup-checklist buttons) run to run on the
+  // Linux runner, while their light twins were byte-identical. The glyph AA
+  // depends on Chrome's process-level text state — LCD subpixel mode, font
+  // hinting, and the color pipeline — so pin all three: force grayscale AA,
+  // disable hinting (deterministic glyph shapes regardless of the runner's
+  // FreeType state), and force the sRGB profile so no display/color state
+  // leaks into rasterization. Light cells stay byte-identical with these on.
+  '--disable-lcd-text',
+  '--font-render-hinting=none',
+  '--force-color-profile=srgb',
   `--remote-debugging-port=${PORT}`,
   `--user-data-dir=${USER_DATA_DIR}`,
   'about:blank',
