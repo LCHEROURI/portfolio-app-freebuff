@@ -29,7 +29,7 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { crossCheckCiGates, crossCheckDeploymentStatusGates, crossCheckPipelineDiagrams, crossCheckVerifyAllGates, crossCheckVerifyAllSecrets, parseLaunchChecklistTable } from './launch-checklist-gates.mjs';
+import { crossCheckCiGates, crossCheckDeploymentStatusGates, crossCheckPipelineDiagrams, crossCheckSystemInjectedVars, crossCheckVerifyAllGates, crossCheckVerifyAllSecrets, parseLaunchChecklistTable } from './launch-checklist-gates.mjs';
 
 const ROOT = process.cwd();
 
@@ -274,6 +274,23 @@ const diagramFailures = crossCheckPipelineDiagrams({
 for (const msg of diagramFailures) fail(msg);
 if (diagramFailures.length === 0) {
   ok('README.md and docs/launch.md both carry the "When each gate runs:" pipeline diagram');
+}
+
+// The vercel-env gate's expectations contract extends beyond credentials to
+// the pull-format exemption: its SYSTEM_INJECTED_VARS set (the vars `vercel
+// env pull` injects per build — OIDC token, deploy URL, git metadata — whose
+// values rotate every commit/deploy) must match the canonical list exactly,
+// must never exempt a real project var (VERCEL_TOKEN / VERCEL_TEAM_ID share
+// the prefix but stay value-compared), and the §4 vercel-env row must
+// document the exemption so the checklist can't silently lose the note.
+console.log('\n[3f/4] Cross-referencing verify-vercel-env system-injected-vars exemption');
+const systemInjectedFailures = crossCheckSystemInjectedVars({
+  vercelEnvSrc: read('scripts/verify-vercel-env.mjs'),
+  launchDoc: doc,
+});
+for (const msg of systemInjectedFailures) fail(msg);
+if (systemInjectedFailures.length === 0) {
+  ok('verify-vercel-env.mjs SYSTEM_INJECTED_VARS matches the canonical set and the §4 row documents the exemption');
 }
 
 console.log('\n[4/4] Summary');

@@ -9,7 +9,7 @@
 // the doc and package.json can stay perfectly runnable while the runner and
 // the checklist disagree about what exists.
 //
-// This module closes that gap with four pure cross-checks (no file I/O, no
+// This module closes that gap with five pure cross-checks (no file I/O, no
 // network, no secrets — they take the parsed inputs, the raw
 // verify-all.mjs source, and package.json scripts as arguments and return an
 // array of human-readable failure strings; empty = consistent):
@@ -44,11 +44,19 @@
 //     runs:" pipeline-diagram section — the marker line AND a non-empty
 //     fenced diagram body after it — so the picture itself is contract-locked
 //     in CI, not just in the vitest suite that asserts its content.
+//   crossCheckSystemInjectedVars — asserts verify-vercel-env.mjs's
+//     SYSTEM_INJECTED_VARS exemption matches the canonical Vercel
+//     system-injected build-var set EXACTLY (a var dropped, added, or typo'd
+//     fails), never exempts a real project var (VERCEL_TOKEN, VERCEL_TEAM_ID
+//     share the prefix but must stay value-compared), and that the §4
+//     vercel-env row documents the exemption — so the gate's
+//     secrets/expectations contract covers the pull-format handling, not just
+//     the credentials.
 //
-// The four gate checks share one GATES parser and one command→gate resolver,
-// so the name, doc-secrets, CI-gating, and deployment-status checks can never
-// disagree about what a gate is. The diagram-presence check is independent of
-// both (it parses no gate source at all).
+// The gate checks share one GATES parser and one command→gate resolver, so
+// the name, doc-secrets, CI-gating, and deployment-status checks can never
+// disagree about what a gate is. The diagram-presence and system-injected
+// checks are independent of both (they parse no gate source at all).
 //
 // Resolution rules (mirror the runner's own gate table):
 //   - `npm run verify:X [args…]`  → gate name X (args after the script name,
@@ -553,6 +561,114 @@ export function crossCheckPipelineDiagrams({ readmeSrc, launchSrc }) {
       );
     }
   }
+  return failures;
+}
+
+// The canonical Vercel system-injected build-var set — the source of truth
+// for verify-vercel-env.mjs's SYSTEM_INJECTED_VARS exemption. `vercel env
+// pull` writes these alongside the project env (OIDC token, deploy URL, git
+// metadata, env labels) with values that ROTATE every build/deploy/commit, so
+// the gate exempts exactly this set from the drift diff and surfaces it
+// informationally. Real project vars that merely share the prefix
+// (VERCEL_TOKEN, VERCEL_TEAM_ID) are deliberately NOT exempt and must never
+// appear here. Kept in lockstep with the Set literal in verify-vercel-env.mjs
+// by crossCheckSystemInjectedVars below — a one-sided change fails the drift
+// guard, not just the unit suite.
+export const CANONICAL_SYSTEM_INJECTED_VARS = new Set([
+  'VERCEL',
+  'VERCEL_ENV',
+  'VERCEL_GIT_COMMIT_AUTHOR_LOGIN',
+  'VERCEL_GIT_COMMIT_AUTHOR_NAME',
+  'VERCEL_GIT_COMMIT_MESSAGE',
+  'VERCEL_GIT_COMMIT_REF',
+  'VERCEL_GIT_COMMIT_SHA',
+  'VERCEL_GIT_PREVIOUS_SHA',
+  'VERCEL_GIT_PROVIDER',
+  'VERCEL_GIT_PULL_REQUEST_ID',
+  'VERCEL_GIT_REPO_ID',
+  'VERCEL_GIT_REPO_OWNER',
+  'VERCEL_GIT_REPO_SLUG',
+  'VERCEL_OIDC_TOKEN',
+  'VERCEL_TARGET_ENV',
+  'VERCEL_URL',
+]);
+
+// The SYSTEM_INJECTED_VARS literal: `const SYSTEM_INJECTED_VARS = new Set([...]);`
+const SYSTEM_INJECTED_VARS_RE = /const SYSTEM_INJECTED_VARS = new Set\(\[([^\]]*)\]\);/;
+// Real project vars that share the VERCEL_ prefix and must never be exempted.
+const REAL_VERCEL_PROJECT_VARS = ['VERCEL_TOKEN', 'VERCEL_TEAM_ID'];
+// The §4 vercel-env row must document the exemption in plain words.
+const SYSTEM_INJECTED_DOC_MARKER_RE = /system-injected/i;
+
+/**
+ * Find a §4 gate-table row by its backticked command, bounded to the
+ * verification-gates section (a matching table added later in the doc can
+ * never be misread as the gate row). Returns the full row text or null.
+ * Pure: reads nothing itself.
+ */
+function findLaunchRow(doc, command) {
+  const lines = String(doc ?? '').split('\n');
+  const startIdx = lines.findIndex((l) => /^## \d+\. The verification gates/.test(l.trim()));
+  if (startIdx < 0) return null;
+  const nextSection = lines.slice(startIdx + 1).findIndex((l) => /^## /.test(l));
+  const sectionLines = nextSection >= 0
+    ? lines.slice(startIdx + 1, startIdx + 1 + nextSection)
+    : lines.slice(startIdx + 1);
+  return sectionLines.find((l) => l.includes(`\`${command}\``)) ?? null;
+}
+
+/**
+ * Cross-check verify-vercel-env.mjs's SYSTEM_INJECTED_VARS exemption against
+ * the canonical Vercel system-injected build-var list AND the §4 doc row.
+ * Returns an array of failure strings — empty means the gate's
+ * expectations contract holds:
+ *   - the Set literal exists and matches the canonical set EXACTLY (a var
+ *     dropped, added, or typo'd fails — the same bidirectional lock the unit
+ *     suite applies to the exported set, enforced here from source);
+ *   - no real project var (VERCEL_TOKEN, VERCEL_TEAM_ID) is exempted — they
+ *     share the prefix but must stay value-compared;
+ *   - docs/launch.md §4's vercel-env row documents the system-injected
+ *     exemption, so the operational checklist can't silently lose the note.
+ * Pure: reads nothing itself.
+ *
+ * @param {{ vercelEnvSrc: string, launchDoc: string }} args
+ */
+export function crossCheckSystemInjectedVars({ vercelEnvSrc, launchDoc }) {
+  const failures = [];
+  const match = String(vercelEnvSrc ?? '').match(SYSTEM_INJECTED_VARS_RE);
+  if (!match) {
+    failures.push('verify-vercel-env.mjs has no SYSTEM_INJECTED_VARS Set literal — a rename or restructure broke the exemption.');
+    return failures;
+  }
+  const declared = [...match[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
+  const canonical = [...CANONICAL_SYSTEM_INJECTED_VARS];
+
+  const missing = canonical.filter((k) => !declared.includes(k));
+  const extra = declared.filter((k) => !canonical.includes(k));
+  if (missing.length > 0) {
+    failures.push(`verify-vercel-env.mjs SYSTEM_INJECTED_VARS omits canonical system-injected var(s): ${missing.join(', ')}`);
+  }
+  if (extra.length > 0) {
+    failures.push(`verify-vercel-env.mjs SYSTEM_INJECTED_VARS declares non-canonical var(s): ${extra.join(', ')}`);
+  }
+
+  for (const real of REAL_VERCEL_PROJECT_VARS) {
+    if (declared.includes(real)) {
+      failures.push(
+        `verify-vercel-env.mjs SYSTEM_INJECTED_VARS exempts ${real} — a real project var that must stay value-compared. Remove it from the set.`,
+      );
+    }
+  }
+
+  const row = findLaunchRow(launchDoc, 'npm run verify:vercel-env');
+  if (!row) {
+    failures.push('docs/launch.md §4 has no vercel-env gate row — the system-injected exemption cannot be documented.');
+  } else if (!SYSTEM_INJECTED_DOC_MARKER_RE.test(row)) {
+    failures.push(
+      'docs/launch.md §4 vercel-env row does not document the system-injected-vars exemption — add the note so the doc and the gate agree.',
+    );
+  }
+
   return failures;
 }
 
