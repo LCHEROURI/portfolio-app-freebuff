@@ -147,3 +147,45 @@ describe('scripts/verify-review-sheet.mjs · headless Chrome spawn flags', () =>
     expect(script.match(/spawn\(CHROME, \[/g)).toHaveLength(1);
   });
 });
+
+describe('scripts/verify-review-sheet.mjs · per-run Chrome profile (--user-data-dir)', () => {
+  // Same spawn-args slice the flags describe uses — scoped here because the
+  // other describe's const is closed over its own block.
+  const profileArgsBlock = script.slice(
+    script.indexOf('spawn(CHROME, ['),
+    script.indexOf("], { stdio: 'ignore' })"),
+  );
+
+  it('defines USER_DATA_DIR as a unique per-run path (pid + timestamp, never fixed)', () => {
+    // A FIXED profile dir would make two runs on the same machine share one
+    // Chrome profile and its SingletonLock — the second run can't start or
+    // reuses stale state. The shared per-run pattern (pid + Date.now) makes
+    // every launch isolated.
+    expect(script).toMatch(/const USER_DATA_DIR = `\/tmp\/review-sheet-chrome-\$\{process\.pid\}-\$\{Date\.now\(\)\}`/);
+    // The fixed-profile literal must not survive anywhere in the driver.
+    expect(script).not.toContain("'--user-data-dir=/tmp/");
+    expect(script).not.toContain('--user-data-dir=/tmp/review-sheet-chrome');
+  });
+
+  it('passes the per-run profile to the Chrome spawn (template-literal reference)', () => {
+    // The constant must actually reach the spawn as the --user-data-dir
+    // ARGUMENT — a constant defined but never used would silently keep the
+    // driver on whatever path it falls back to.
+    expect(profileArgsBlock).toContain('`--user-data-dir=${USER_DATA_DIR}`');
+    expect(profileArgsBlock).toMatch(/--user-data-dir=\$\{USER_DATA_DIR\}/);
+  });
+
+  it('cleans the per-run profile up on every signal and at end of main', () => {
+    // A per-run dir that is never removed still leaks /tmp profiles. Unlike
+    // capture-gallery, this driver's exit handler only kills Chrome — the
+    // profile is removed on every interrupt signal (dropProfile) AND
+    // explicitly at end of main, so the rmSync body must appear twice (the
+    // dropProfile definition + the end-of-main call), never once.
+    expect(script).toMatch(/const dropProfile = \(\) => \{ try \{ rmSync\(USER_DATA_DIR, \{ recursive: true, force: true \}\);/);
+    for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+      expect(script).toContain(`process.on(sig, () => { killChrome(); dropProfile(); process.exit(130); })`);
+    }
+    const cleanupCalls = script.split('try { rmSync(USER_DATA_DIR, { recursive: true, force: true }); } catch { /* best-effort */ }').length - 1;
+    expect(cleanupCalls).toBe(2);
+  });
+});
