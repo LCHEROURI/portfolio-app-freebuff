@@ -99,21 +99,6 @@ const res = await fetch(`${APP}/api/status?project=${encodeURIComponent(DOMAIN)}
 const body = await res.json().catch(() => null);
 const authDomains = body?.integrations?.find((i) => i.id === 'firebase')?.authDomains;
 
-// Demo-mode deployment (no Firebase client SDK configured on it): the app's
-// own /api/status answers 401 { ok:false, error:'Authentication required.' }
-// because there is no Firebase project to verify ANY ID token against — so
-// there is no sign-in surface for this check to protect. Skip-not-fail (the
-// repo's documented philosophy for absent capabilities): a demo-mode preview
-// cannot be 'unauthorized', it simply has no auth. A 401 from Vercel's SSO
-// wall is NOT this case (its body is not this JSON), so a protection or
-// network failure still fails loudly in the block below.
-if (res.status === 401 && body?.ok === false && body?.error === 'Authentication required.') {
-  console.log(`NOTE: ${APP} serves no Firebase auth (demo mode) — /api/status answered 401 'Authentication required.'.`);
-  console.log('  Auth-domains check skipped: a demo-mode deployment has no sign-in surface to protect.');
-  console.log('RESULT: SKIP (demo mode)');
-  process.exit(0);
-}
-
 if (!authDomains) {
   console.error(`✗ FAIL: /api/status returned no firebase.authDomains (HTTP ${res.status}). `
     + 'Is the client SDK configured on the deployment, and is the ?project= override deployed?');
