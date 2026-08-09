@@ -34,7 +34,7 @@
 //     .env.local would otherwise false-alarm as value drift. They are exempt
 //     from comparison and surfaced as informational (lengths only). Real
 //     project vars that merely share the prefix (VERCEL_TOKEN, VERCEL_TEAM_ID)
-//     are NOT exempt — they stay compared exactly.
+//     are NOT exempt — they stay value-compared exactly.
 //
 // Values are pulled from Vercel via `vercel env pull` (the CLI writes the
 // decrypted values to a temp file; the REST API exposes key names + type but

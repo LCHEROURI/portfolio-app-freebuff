@@ -76,6 +76,27 @@ describe('crossCheckSystemInjectedVars (live repo)', () => {
     expect(failures.join('\n')).toContain('omits the exemption phrase');
   });
 
+  it('SYSTEM_INJECTED_WORDING_PHRASES matches the exemption wording in verify-vercel-env.mjs', () => {
+    // The exported phrase list is the doc contract — it must be grounded in
+    // the gate source's own vocabulary, so a future refactor that rewords the
+    // exemption (e.g. renames system-injected → build-injected) forces the
+    // phrase list to update too, keeping the docs aligned with what the gate
+    // actually says. Case-insensitive: the source capitalizes "Real project
+    // vars" while the docs use lowercase. Comment-prefixed lines are joined
+    // with a space, so a phrase wrapped across comment lines (with the
+    // trailing // or leading * marker between the words) still matches.
+    const src = vercelEnvSrc
+      .split('\n')
+      .map((line) => line.replace(/^\s*\/\/\s?/, '').replace(/^\s*\*\s?/, '').trim())
+      .join(' ')
+      .toLowerCase();
+    for (const phrase of SYSTEM_INJECTED_WORDING_PHRASES) {
+      expect(src, `verify-vercel-env.mjs must carry the exemption phrase: ${phrase}`).toContain(
+        phrase.toLowerCase(),
+      );
+    }
+  });
+
   it('README and launch.md vercel-env rows share the same exemption wording', () => {
     // The two onboarding surfaces must tell the same story: system-injected
     // build vars are exempted, real project vars stay value-compared. Each
