@@ -41,6 +41,11 @@ export const SUBRESULT_LABELS = {
   'token-active': 'Vercel token resolves + valid',
   'expiry-verdict': 'Token expiry verdict',
   'alias-drift': 'Alias-routing drift watch',
+  // Emitted by scripts/verify-gallery-stability.mjs, the scheduled
+  // double-capture byte-stability gate (not a verify:all row; labels exist so
+  // the repo-wide marker contract in verify-all.test.ts stays bidirectional).
+  'demo-cells': 'Demo cells byte-identical across captures',
+  'file-set': 'Capture file sets match',
   'expect-match': 'Deployed sha matches --expect',
   'check-local': 'Local HEAD matches deployed',
   'wal-idle': 'Conv DB WAL at/below threshold (idle)',

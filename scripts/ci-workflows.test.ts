@@ -27,6 +27,7 @@ const CI = readFileSync('.github/workflows/ci.yml', 'utf8');
 const PREVIEW_GATE = readFileSync('.github/workflows/preview-gate.yml', 'utf8');
 const DEPLOYED_HASH = readFileSync('.github/workflows/verify-deployed-hash.yml', 'utf8');
 const GALLERY = readFileSync('.github/workflows/gallery.yml', 'utf8');
+const GALLERY_STABILITY = readFileSync('.github/workflows/gallery-stability.yml', 'utf8');
 
 // The gallery capture job gates its Deploy / Wait / Capture steps on the
 // same env trio; each of the three steps must carry it, so a drop on any
@@ -417,5 +418,99 @@ describe('.github/workflows/verify-deployed-hash.yml · deployment_status deploy
     for (const [key, value] of Object.entries(EXPECTED_LIVE_FLAGS)) {
       expect(DEPLOYED_HASH).toContain(`${key}: '${value}'`);
     }
+  });
+});
+
+describe('.github/workflows/gallery-stability.yml · scheduled double-capture byte-stability', () => {
+  it('triggers on a nightly schedule and workflow_dispatch', () => {
+    // The determinism enforcement runs unattended on a cron (quiet hour,
+    // away from push-time gallery runs) and stays manually dispatchable so a
+    // suspected regression can be re-proven on demand.
+    expect(GALLERY_STABILITY).toMatch(/^on:\s*\n\s*schedule:/m);
+    expect(GALLERY_STABILITY).toContain("cron: '17 4 * * *'");
+    expect(GALLERY_STABILITY).toContain('workflow_dispatch:');
+  });
+
+  it('still installs Chrome and wires CHROME_PATH to both captures', () => {
+    expect(GALLERY_STABILITY).toMatch(/uses: browser-actions\/setup-chrome@v2/);
+    expect(GALLERY_STABILITY).toMatch(/chrome-version: stable/);
+    expect(GALLERY_STABILITY).toContain('CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}');
+  });
+
+  it('captures the SAME preview twice into distinct out dirs', () => {
+    // The two captures must share one preview URL (deployed once, above) so
+    // the route cells are byte-stable by construction — a second deploy step
+    // would let a mid-run rebuild masquerade as determinism. The out dirs
+    // must be distinct or run 2 would overwrite run 1 and the diff would
+    // vacuously pass.
+    expect(GALLERY_STABILITY).toContain('--out /tmp/gallery-stability-1');
+    expect(GALLERY_STABILITY).toContain('--out /tmp/gallery-stability-2');
+    expect(GALLERY_STABILITY.match(/npm run capture:screenshots -- "\$\{args\[@\]\}"/g)).toHaveLength(2);
+    expect(GALLERY_STABILITY.indexOf('id: deploy')).toBeLessThan(GALLERY_STABILITY.indexOf('--out /tmp/gallery-stability-1'));
+    expect(GALLERY_STABILITY.indexOf('--out /tmp/gallery-stability-1')).toBeLessThan(GALLERY_STABILITY.indexOf('--out /tmp/gallery-stability-2'));
+  });
+
+  it('runs the byte-diff gate AFTER both captures, referencing both dirs', () => {
+    // The gate is the whole point of the workflow: it must run after the
+    // second capture (index order) and must compare the two dirs. A future
+    // edit that drops the gate — or points it at one dir — fails here.
+    const a = GALLERY_STABILITY.indexOf('--out /tmp/gallery-stability-1');
+    const b = GALLERY_STABILITY.indexOf('--out /tmp/gallery-stability-2');
+    // Anchored on the `node …` invocation, not the bare script name: the
+    // workflow's top comment references the script too, so a bare search
+    // would match the prose at the top and the order assertion would pass
+    // vacuously.
+    const gate = GALLERY_STABILITY.indexOf('node scripts/verify-gallery-stability.mjs');
+    expect(a).toBeGreaterThan(-1);
+    expect(b).toBeGreaterThan(-1);
+    expect(gate).toBeGreaterThan(b);
+    expect(GALLERY_STABILITY).toContain('node scripts/verify-gallery-stability.mjs --a /tmp/gallery-stability-1 --b /tmp/gallery-stability-2');
+  });
+
+  it('gates the Deploy/Wait/Capture/diff steps on the Vercel env trio (5 steps)', () => {
+    // Same skip-not-fail philosophy as gallery.yml, applied to every step that
+    // needs the preview: Deploy, Wait, Capture 1, Capture 2, and the diff.
+    // Counting occurrences (not a bare toContain) catches a gate dropped on
+    // any ONE step — an ungated capture would silently hit the production
+    // URL default and churn every live cell.
+    expect(GALLERY_STABILITY.match(new RegExp(GALLERY_ENV_TRIO.replace(/[$\{\}]/g, '\\$&'), 'g'))).toHaveLength(5);
+  });
+
+  it('wires the Firebase env trio so the review-sheet + feed cells re-render', () => {
+    // capture-gallery.mjs runs the shared review-sheet + deployments-feed
+    // drivers when the Firebase env is present; without the trio those two
+    // cells skip (NOTE) and the diff loses its coverage of them.
+    expect(GALLERY_STABILITY).toContain('FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}');
+    expect(GALLERY_STABILITY).toContain('FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}');
+    expect(GALLERY_STABILITY).toContain('NEXT_PUBLIC_FIREBASE_PROJECT_ID: portfolio-app-freebuff2');
+  });
+
+  it('wires the full EXPECTED_LIVE_FLAGS set into the stability job env', () => {
+    // Same contract as the other four workflows: the deployed-store LIVE-flag
+    // set must be declared here so this scheduled workflow stays locked to
+    // the same set the local gate asserts.
+    expect(Object.keys(EXPECTED_LIVE_FLAGS).length).toBeGreaterThan(0);
+    for (const [key, value] of Object.entries(EXPECTED_LIVE_FLAGS)) {
+      expect(GALLERY_STABILITY).toContain(`${key}: '${value}'`);
+    }
+  });
+
+  it('keeps the run-safety envelope (concurrency, 45-minute budget, Node 22)', () => {
+    // Two full gallery captures + preview deploy need more than the single
+    // gallery job's 25-minute budget; a regression to a smaller timeout would
+    // kill the run mid-capture and red the schedule.
+    expect(GALLERY_STABILITY).toContain('group: gallery-stability');
+    expect(GALLERY_STABILITY).toContain('cancel-in-progress: true');
+    expect(GALLERY_STABILITY).toContain('timeout-minutes: 45');
+    expect(GALLERY_STABILITY).toMatch(/node-version: 22/);
+  });
+
+  it('still uploads both captures for debugging when the diff fails', () => {
+    // The upload must run on always() (so a failed diff still ships both
+    // captures for pixel-level inspection) and must keep ignore-no-files.
+    expect(GALLERY_STABILITY).toContain('if: always()');
+    expect(GALLERY_STABILITY).toMatch(/uses: actions\/upload-artifact@v6/);
+    expect(GALLERY_STABILITY).toContain('name: gallery-stability-captures');
+    expect(GALLERY_STABILITY).toContain('if-no-files-found: ignore');
   });
 });
