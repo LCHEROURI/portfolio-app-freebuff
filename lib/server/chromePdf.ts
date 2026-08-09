@@ -121,6 +121,9 @@ process.on('exit', () => {
 export const renderHtmlToPdf = async (html: string): Promise<Buffer> => {
   const profileDir = await mkdtemp(join(tmpdir(), 'print-pdf-chrome-'));
   const { path: chromePath, bundled, args: bundledArgs } = await resolveChromeBinary();
+  if (bundled) {
+    console.log(`chromePdf: launching bundled Chromium at ${chromePath} (${bundledArgs?.length ?? 0} serverless args)`);
+  }
 
   // The bundled headless shell takes the package's curated serverless args
   // (--no-sandbox, --single-process, --headless='shell' …) — it does NOT
@@ -136,7 +139,7 @@ export const renderHtmlToPdf = async (html: string): Promise<Buffer> => {
     'about:blank',
   ];
 
-  const chrome = spawn(chromePath, chromeArgs, { stdio: ['ignore', 'ignore', 'pipe'] });
+  const chrome = spawn(chromePath, chromeArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
   activeChromes.add(chrome);
 
   // Hoisted so cleanup can close the DevTools socket on every exit path.
@@ -149,7 +152,15 @@ export const renderHtmlToPdf = async (html: string): Promise<Buffer> => {
   };
 
   let stderrBuf = '';
+  let stdoutBuf = '';
   chrome.stderr?.on('data', (chunk) => { stderrBuf += String(chunk); });
+  chrome.stdout?.on('data', (chunk) => { stdoutBuf += String(chunk); });
+  // When the DevTools line never appears, the captured output tells us why
+  // (a missing shared library, an unsupported flag, a crash).
+  const chromeOutput = () => {
+    const tail = `${stdoutBuf}${stderrBuf}`.replace(/\s+/g, ' ').trim().slice(-600);
+    return tail ? ` Chrome output: ${tail}` : '';
+  };
 
   // Missing/broken Chrome binary: spawn emits 'error' instead of a clean exit.
   // Surface a targeted message (CI wires setup-chrome's CHROME_PATH; the
@@ -169,13 +180,13 @@ export const renderHtmlToPdf = async (html: string): Promise<Buffer> => {
   const waitForPort = (async () => {
     for (let i = 0; i < 80; i++) {
       if (chrome.exitCode !== null) {
-        throw new ChromePdfUnavailableError('Chrome exited before reporting a debugging port.');
+        throw new ChromePdfUnavailableError(`Chrome exited (code ${chrome.exitCode}) before reporting a debugging port.${chromeOutput()}`);
       }
       const parsed = parseDevToolsPort(stderrBuf);
       if (parsed) return parsed;
       await sleep(250);
     }
-    throw new ChromePdfUnavailableError('Chrome DevTools never reported a debugging port.');
+    throw new ChromePdfUnavailableError(`Chrome DevTools never reported a debugging port.${chromeOutput()}`);
   })();
   waitForPort.catch(() => { /* the race outcome decides; never unhandled */ });
 
