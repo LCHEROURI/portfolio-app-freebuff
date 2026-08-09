@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
+import { PIPELINE_DIAGRAM_KEY_NAMES } from './launch-checklist-gates.mjs';
+
 // ============================================================================
 // scripts/readme-pipeline.test.ts — lock the README pipeline diagram to the
 // workflows it depicts, and to the twin diagram in docs/launch.md.
@@ -175,6 +177,22 @@ describe('README pipeline diagram contract', () => {
       expect(actual).toBe(expected);
       expect(normalizedDiagram).toContain(norm(actual));
     }
+  });
+
+  it('PIPELINE_DIAGRAM_KEY_NAMES matches the live workflow display names', () => {
+    // The exported key-names list is the drift guard's source of truth — it
+    // must equal the display names read live from ci.yml and the three
+    // deployment_status files, so a job/workflow rename that updates the
+    // diagram but forgets the list (or vice versa) fails here, keeping the
+    // runtime check honest about what the gate inventory actually is.
+    const liveNames = [
+      ...CI_JOB_KEYS.map((key) => jobDisplayName(CI, key)),
+      ...DEPLOYMENT_WORKFLOWS.map(({ src }) => workflowDisplayName(src)),
+    ];
+    // Ground-truth sanity: none may resolve to '' — a renamed job key would
+    // silently produce an empty stub and still pass a naive equality.
+    expect(liveNames).not.toContain('');
+    expect(PIPELINE_DIAGRAM_KEY_NAMES).toEqual(liveNames);
   });
 
   it('shows exactly five ci jobs and three deployment gates (no dropped rows)', () => {
