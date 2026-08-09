@@ -96,3 +96,54 @@ describe('scripts/verify-review-sheet.mjs · --check byte gate', () => {
     expect(script).toContain('review-sheet byte gate PASS');
   });
 });
+
+describe('scripts/verify-review-sheet.mjs · headless Chrome spawn flags', () => {
+  // The Chrome spawn args live between `spawn(CHROME, [` and `], { stdio:
+  // 'ignore' })`. Scoping to that block keeps every assertion honest: a flag
+  // mentioned only in a comment anywhere else in the driver cannot satisfy
+  // them (comment lines inside the array are stripped below).
+  const chromeArgsBlock = script.slice(
+    script.indexOf('spawn(CHROME, ['),
+    script.indexOf("], { stdio: 'ignore' })"),
+  );
+
+  it('has a non-empty Chrome spawn args block (spawn call intact)', () => {
+    // A non-empty block guard: if the spawn call is ever rewritten so the
+    // slice resolves to '', every assertion below would fail confusingly.
+    expect(chromeArgsBlock.length).toBeGreaterThan(0);
+    expect(script).toContain('spawn(CHROME, [');
+    expect(script).toContain("], { stdio: 'ignore' })");
+  });
+
+  it('passes --no-sandbox and --disable-dev-shm-usage as real array entries (not comment prose)', () => {
+    // The Linux CI runner requires both flags: without --no-sandbox Chrome's
+    // sandbox cannot initialize inside the container, and without
+    // --disable-dev-shm-usage the shared /dev/shm runs out — either way
+    // DevTools never comes up and the driver dies. Stripping `//` comment
+    // lines proves the flags are ACTUAL args, not prose.
+    const argsWithoutComments = chromeArgsBlock
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('//'))
+      .join('\n');
+    expect(argsWithoutComments).toContain("'--no-sandbox'");
+    expect(argsWithoutComments).toContain("'--disable-dev-shm-usage'");
+    expect(argsWithoutComments).toMatch(/'--no-sandbox',/);
+    expect(argsWithoutComments).toMatch(/'--disable-dev-shm-usage',/);
+  });
+
+  it('keeps the flags in the single capture Chrome spawn before --remote-debugging-port', () => {
+    // The flags must live in THE Chrome spawn this driver uses, not a
+    // second/vestigial spawn — asserting they appear before the
+    // --remote-debugging-port element proves they are part of the real
+    // capture Chrome, and the spawn count of one catches a duplicated spawn
+    // that could smuggle a missing flag set.
+    const noSandboxIdx = chromeArgsBlock.indexOf("'--no-sandbox'");
+    const shmIdx = chromeArgsBlock.indexOf("'--disable-dev-shm-usage'");
+    const portIdx = chromeArgsBlock.indexOf('--remote-debugging-port=');
+    expect(noSandboxIdx).toBeGreaterThan(-1);
+    expect(shmIdx).toBeGreaterThan(-1);
+    expect(portIdx).toBeGreaterThan(shmIdx);
+    expect(portIdx).toBeGreaterThan(noSandboxIdx);
+    expect(script.match(/spawn\(CHROME, \[/g)).toHaveLength(1);
+  });
+});

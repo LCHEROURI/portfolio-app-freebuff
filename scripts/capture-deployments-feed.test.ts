@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 import { classifyFeedPage, MIN_ROWS } from './capture-deployments-feed.mjs';
@@ -119,5 +120,52 @@ describe('classifyFeedPage', () => {
     // show the full real grid, so a change to the monitored repo set must
     // update this number deliberately, and the classifier test with it.
     expect(MIN_ROWS).toBe(8);
+  });
+});
+
+// ============================================================================
+// headless Chrome spawn flags — the same Linux-runner lock capture-gallery
+// and verify-review-sheet carry. The driver is importable (it exports the
+// classifier behind a main guard), so the source is read from disk here and
+// the spawn args block extracted between `spawn(CHROME, [` and `], { stdio:
+// 'ignore' })`.
+// ============================================================================
+
+const feedDriver = readFileSync('scripts/capture-deployments-feed.mjs', 'utf8');
+
+describe('scripts/capture-deployments-feed.mjs · headless Chrome spawn flags', () => {
+  const chromeArgsBlock = feedDriver.slice(
+    feedDriver.indexOf('spawn(CHROME, ['),
+    feedDriver.indexOf("], { stdio: 'ignore' })"),
+  );
+
+  it('has a non-empty Chrome spawn args block (spawn call intact)', () => {
+    expect(chromeArgsBlock.length).toBeGreaterThan(0);
+    expect(feedDriver).toContain('spawn(CHROME, [');
+    expect(feedDriver).toContain("], { stdio: 'ignore' })");
+  });
+
+  it('passes --no-sandbox and --disable-dev-shm-usage as real array entries (not comment prose)', () => {
+    // The Linux CI runner requires both flags; comment-stripping proves they
+    // are ACTUAL args, not prose mentioned in an explanatory comment.
+    const argsWithoutComments = chromeArgsBlock
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('//'))
+      .join('\n');
+    expect(argsWithoutComments).toContain("'--no-sandbox'");
+    expect(argsWithoutComments).toContain("'--disable-dev-shm-usage'");
+    expect(argsWithoutComments).toMatch(/'--no-sandbox',/);
+    expect(argsWithoutComments).toMatch(/'--disable-dev-shm-usage',/);
+  });
+
+  it('keeps the flags in the single capture Chrome spawn before --remote-debugging-port', () => {
+    const noSandboxIdx = chromeArgsBlock.indexOf("'--no-sandbox'");
+    const shmIdx = chromeArgsBlock.indexOf("'--disable-dev-shm-usage'");
+    const portIdx = chromeArgsBlock.indexOf('--remote-debugging-port=');
+    expect(noSandboxIdx).toBeGreaterThan(-1);
+    expect(shmIdx).toBeGreaterThan(-1);
+    expect(portIdx).toBeGreaterThan(shmIdx);
+    expect(portIdx).toBeGreaterThan(noSandboxIdx);
+    expect(feedDriver.match(/spawn\(CHROME, \[/g)).toHaveLength(1);
   });
 });
