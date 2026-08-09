@@ -16,11 +16,12 @@
 //   - Keys in Vercel production that .env.local lacks are reported (Vercel-only
 //     runtime vars are legitimate) but do NOT fail.
 //   - The EXPECTED_LIVE_FLAGS set is a HARD requirement of the deployed store:
-//     each NEXT_PUBLIC_LIVE_* build-time flag must exist in Vercel production
-//     with its enabled value, regardless of .env.local. The drift diff above
-//     only compares the two stores, so a flag missing from BOTH would pass
-//     silently while the deployed app renders demo data — exactly the
-//     NEXT_PUBLIC_LIVE_DEPLOYMENTS incident. This set closes that gap.
+//     each NEXT_PUBLIC_LIVE_* / NEXT_PUBLIC_ENABLE_* build-time feature toggle
+//     must exist in Vercel production with its enabled value, regardless of
+//     .env.local. The drift diff above only compares the two stores, so a flag
+//     missing from BOTH would pass silently while the deployed app renders
+//     demo data — exactly the NEXT_PUBLIC_LIVE_DEPLOYMENTS incident. This set
+//     closes that gap.
 //   - GitHub secrets are listed and classified: CI-only (present in GitHub,
 //     absent from .env.local and Vercel — expected, e.g. VERCEL_ORG_ID,
 //     VERCEL_PROJECT_ID, VERCEL_PROTECTION_BYPASS) vs shared (present in more
@@ -168,17 +169,20 @@ export function parseGhSecretList(text) {
  *              runtime vars are legitimate).
  */
 // ── Expected deployed build-time flags ──────────────────────────────────────
-// NEXT_PUBLIC_LIVE_* flags are inlined from the env of the build Vercel runs;
-// they gate whether a live feed renders (vs demo data). A MISSING deployed
-// copy silently hides the feature while the server API still works — the exact
-// NEXT_PUBLIC_LIVE_DEPLOYMENTS incident. The diffEnvMaps drift above only
-// catches flags present in .env.local, so a flag absent from BOTH stores would
-// pass. This set makes each LIVE_* flag a hard requirement of the DEPLOYED
-// store: it must exist with its enabled value ('1'), independent of .env.local.
-// Add a new NEXT_PUBLIC_LIVE_* flag here when one is introduced.
+// NEXT_PUBLIC_* feature toggles are inlined from the env of the build Vercel
+// runs; they gate whether a live feed renders (vs demo data) or the AI
+// briefing auto-fires. A MISSING deployed copy silently hides the feature
+// while the server API still works — the exact NEXT_PUBLIC_LIVE_DEPLOYMENTS
+// incident. The diffEnvMaps drift above only catches flags present in
+// .env.local, so a flag absent from BOTH stores would pass. This set makes
+// each feature toggle a hard requirement of the DEPLOYED store: it must exist
+// with its enabled value ('1'), independent of .env.local. Add a new
+// NEXT_PUBLIC_LIVE_* / NEXT_PUBLIC_ENABLE_* feature toggle here when one is
+// introduced.
 export const EXPECTED_LIVE_FLAGS = {
   NEXT_PUBLIC_LIVE_REPOS: '1',
   NEXT_PUBLIC_LIVE_DEPLOYMENTS: '1',
+  NEXT_PUBLIC_ENABLE_AI_BRIEFINGS: '1',
 };
 
 /**
@@ -332,7 +336,7 @@ async function main() {
       console.error(`      - ${key} (${status}) — set ${key}=1 in Vercel production env and redeploy`);
     }
   } else {
-    console.log('  ✓ every expected NEXT_PUBLIC_LIVE_* build-time flag is present in Vercel production (sensitive vars presence-checked)');
+    console.log('  ✓ every expected NEXT_PUBLIC_* feature toggle (LIVE feeds + AI briefings) is present in Vercel production (sensitive vars presence-checked)');
   }
   if (drift.missingInVercel.length === 0 && drift.valueMismatch.length === 0) {
     console.log(`  ✓ every .env.local key exists in Vercel production (readable values identical; sensitive vars presence-checked)`);

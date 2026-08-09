@@ -48,6 +48,7 @@ jobs:
       # ever drift apart.
       NEXT_PUBLIC_LIVE_REPOS: '1'
       NEXT_PUBLIC_LIVE_DEPLOYMENTS: '1'
+      NEXT_PUBLIC_ENABLE_AI_BRIEFINGS: '1'
 
     steps:
       - name: Check out repository

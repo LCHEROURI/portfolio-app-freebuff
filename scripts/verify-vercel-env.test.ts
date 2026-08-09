@@ -100,7 +100,7 @@ describe('parseGhSecretList', () => {
 // ── missingExpectedFlags ────────────────────────────────────────────────────
 describe('missingExpectedFlags', () => {
   const DEPLOYED = parseEnvFile(
-    'NEXT_PUBLIC_LIVE_REPOS=1\nNEXT_PUBLIC_LIVE_DEPLOYMENTS=1\nVERCEL_TOKEN=secret\n',
+    'NEXT_PUBLIC_LIVE_REPOS=1\nNEXT_PUBLIC_LIVE_DEPLOYMENTS=1\nNEXT_PUBLIC_ENABLE_AI_BRIEFINGS=1\nVERCEL_TOKEN=secret\n',
   );
 
   it('returns [] when every expected flag is present + enabled in the deployed store', () => {
@@ -112,7 +112,7 @@ describe('missingExpectedFlags', () => {
     // (and .env.local), so the diff-vs-.env.local check passed while the
     // deployed app rendered demo data. The expected-set check must catch it
     // regardless of .env.local.
-    const noDeployments = parseEnvFile('NEXT_PUBLIC_LIVE_REPOS=1\nVERCEL_TOKEN=secret\n');
+    const noDeployments = parseEnvFile('NEXT_PUBLIC_LIVE_REPOS=1\nNEXT_PUBLIC_ENABLE_AI_BRIEFINGS=1\nVERCEL_TOKEN=secret\n');
     expect(missingExpectedFlags(EXPECTED_LIVE_FLAGS, noDeployments)).toEqual([
       { key: 'NEXT_PUBLIC_LIVE_DEPLOYMENTS', status: 'missing' },
     ]);
@@ -120,7 +120,7 @@ describe('missingExpectedFlags', () => {
 
   it('flags a flag present but DISABLED (readable value 0 is the same demo-mode bug)', () => {
     const disabled = parseEnvFile(
-      'NEXT_PUBLIC_LIVE_REPOS=1\nNEXT_PUBLIC_LIVE_DEPLOYMENTS=0\nVERCEL_TOKEN=secret\n',
+      'NEXT_PUBLIC_LIVE_REPOS=1\nNEXT_PUBLIC_LIVE_DEPLOYMENTS=0\nNEXT_PUBLIC_ENABLE_AI_BRIEFINGS=1\nVERCEL_TOKEN=secret\n',
     );
     expect(missingExpectedFlags(EXPECTED_LIVE_FLAGS, disabled)).toEqual([
       { key: 'NEXT_PUBLIC_LIVE_DEPLOYMENTS', status: 'disabled' },
@@ -135,7 +135,7 @@ describe('missingExpectedFlags', () => {
     // exactly like the .env.local diff's write-only handling for secrets.
     // Failing here would false-alarm the gate on the current production env.
     const sensitive = parseEnvFile(
-      'NEXT_PUBLIC_LIVE_REPOS=1\nNEXT_PUBLIC_LIVE_DEPLOYMENTS=\nVERCEL_TOKEN=secret\n',
+      'NEXT_PUBLIC_LIVE_REPOS=1\nNEXT_PUBLIC_LIVE_DEPLOYMENTS=\nNEXT_PUBLIC_ENABLE_AI_BRIEFINGS=1\nVERCEL_TOKEN=secret\n',
     );
     expect(missingExpectedFlags(EXPECTED_LIVE_FLAGS, sensitive)).toEqual([]);
   });
@@ -145,25 +145,29 @@ describe('missingExpectedFlags', () => {
     expect(missingExpectedFlags(EXPECTED_LIVE_FLAGS, empty)).toEqual([
       { key: 'NEXT_PUBLIC_LIVE_REPOS', status: 'missing' },
       { key: 'NEXT_PUBLIC_LIVE_DEPLOYMENTS', status: 'missing' },
+      { key: 'NEXT_PUBLIC_ENABLE_AI_BRIEFINGS', status: 'missing' },
     ]);
   });
 
   it('treats an empty vercel map / empty expected set as all-missing / all-clean', () => {
-    expect(missingExpectedFlags(EXPECTED_LIVE_FLAGS, parseEnvFile(''))).toHaveLength(2);
+    expect(missingExpectedFlags(EXPECTED_LIVE_FLAGS, parseEnvFile(''))).toHaveLength(3);
     expect(missingExpectedFlags({}, DEPLOYED)).toEqual([]);
     expect(missingExpectedFlags(undefined, DEPLOYED)).toEqual([]);
   });
 
-  it('locks the expected LIVE_* flag set to the two live feeds', () => {
-    // The set is the contract with lib/liveData.ts: repositories + deployments.
-    // A new NEXT_PUBLIC_LIVE_* flag must be added here AND to lib/liveData.ts
-    // together — a silent one-sided addition fails this test.
+  it('locks the expected feature-toggle set to the three build-time flags', () => {
+    // The set is the contract with lib/liveData.ts: repositories, deployments,
+    // and the AI-briefing auto-fire toggle. A new NEXT_PUBLIC_LIVE_* or
+    // NEXT_PUBLIC_ENABLE_* feature toggle must be added here AND to
+    // lib/liveData.ts together — a silent one-sided addition fails this test.
     expect(Object.keys(EXPECTED_LIVE_FLAGS).sort()).toEqual([
+      'NEXT_PUBLIC_ENABLE_AI_BRIEFINGS',
       'NEXT_PUBLIC_LIVE_DEPLOYMENTS',
       'NEXT_PUBLIC_LIVE_REPOS',
     ]);
     expect(EXPECTED_LIVE_FLAGS.NEXT_PUBLIC_LIVE_DEPLOYMENTS).toBe('1');
     expect(EXPECTED_LIVE_FLAGS.NEXT_PUBLIC_LIVE_REPOS).toBe('1');
+    expect(EXPECTED_LIVE_FLAGS.NEXT_PUBLIC_ENABLE_AI_BRIEFINGS).toBe('1');
   });
 });
 
