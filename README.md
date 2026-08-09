@@ -106,7 +106,7 @@ reads its secrets from env, then `.env.local`:
 | disk-headroom | — | Local Data-volume headroom: the machine's Data volume stays under `DISK_LIMIT_PCT` (default 90) via `df`, with a non-blocking warning once it crosses `DISK_WARN_PCT` (default 85) — a full disk caused the SQLite "disk I/O error" on button clicks. Skip-not-fail when `df` is unavailable. Also pre-push gate 0.05 |
 | conv-db | — | Local WAL maintenance on the machine's conversation DB: TRUNCATE checkpoint when the `-wal` sidecar exceeds 2 MiB (busy-retry), idles at/below the threshold, skips-not-fail when sqlite3/DB absent. Emits `wal-idle`/`wal-truncated`/`wal-busy`/`wal-error` sub-rows (local suffix). Local-only like disk-headroom, never in CI |
 | token-health | `VERCEL_TOKEN` | the stored Vercel token is alive (name + expiry) |
-| vercel-env | `VERCEL_TOKEN` (+ Vercel CLI) | Vercel prod env matches `.env.local` |
+| vercel-env | `VERCEL_TOKEN` (+ Vercel CLI) | Vercel prod env matches `.env.local` (Vercel's system-injected build vars like `VERCEL_OIDC_TOKEN` rotate every deploy and are exempted as informational; real project vars like `VERCEL_TOKEN`/`VERCEL_TEAM_ID` stay value-compared) |
 | cron-reports | `CRON_SECRET` | deployed cron 401s without auth; daily/weekly report bodies carry the friendly model heading + raw-id footer; no report send envelope |
 | firestore-rules | `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `FIREBASE_WEB_API_KEY` | user-isolated rules: own-uid write/read, cross-user denied |
 | auth-domains | `FIREBASE_WEB_API_KEY` | shipping domain is in the Firebase authorized list |
