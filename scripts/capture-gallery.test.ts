@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 
 // ============================================================================
 // scripts/capture-gallery.test.ts — lock the review-sheet AND deployments-feed
-// steps inside the gallery capture driver.
+// steps inside the gallery capture driver, plus the headless Chrome spawn
+// flags the Linux CI runner requires.
 //
 // capture-gallery.mjs re-renders the two Model Comparison review-sheet PNGs
 // (review-sheet-panels.png / review-sheet-preview.png) and the live
@@ -14,6 +15,10 @@ import { describe, expect, it } from 'vitest';
 // already locked by ci-workflows.test.ts; this test locks the DRIVER side, so
 // a future edit that silently drops either step from capture-gallery.mjs fails
 // here instead of shipping a gallery whose cells quietly stop updating.
+// It also locks --no-sandbox + --disable-dev-shm-usage in the Chrome spawn:
+// without them Chrome's sandbox cannot initialize inside the Actions Linux
+// container and DevTools never comes up ('Chrome DevTools did not come up'),
+// which failed every gallery run before 2a966b8.
 //
 // Scope discipline (mirroring ci-workflows.test.ts): the NOTE-vs-SKIP and
 // spawn assertions are scoped to each step's BLOCK (from the section header to
@@ -175,5 +180,64 @@ describe('scripts/capture-gallery.mjs · deployments-feed re-capture step', () =
     const sheetIdx = DRIVER.indexOf('await writeFile(`${outArg}/screenshots.html`, sheet)');
     expect(copyIdx).toBeGreaterThan(-1);
     expect(sheetIdx).toBeGreaterThan(copyIdx);
+  });
+});
+
+describe('scripts/capture-gallery.mjs · headless Chrome spawn flags', () => {
+  // The Chrome spawn args live between `spawn(CHROME, [` and `], { stdio:
+  // 'ignore' })`. Scoping to that block keeps every assertion honest: a flag
+  // mentioned only in a comment anywhere else in the driver cannot satisfy
+  // them (the comment INSIDE the array is stripped by the comment-filter
+  // assertion below, so a flag that only appears in prose fails).
+  const chromeArgsBlock = DRIVER.slice(
+    DRIVER.indexOf('spawn(CHROME, ['),
+    DRIVER.indexOf("], { stdio: 'ignore' })"),
+  );
+
+  it('has a non-empty Chrome spawn args block (spawn call intact)', () => {
+    // A non-empty block guard: if the spawn call is ever rewritten so the
+    // slice resolves to '', every assertion below would fail confusingly
+    // instead of pointing at the missing block.
+    expect(chromeArgsBlock.length).toBeGreaterThan(0);
+    expect(DRIVER).toContain('spawn(CHROME, [');
+    expect(DRIVER).toContain("], { stdio: 'ignore' })");
+  });
+
+  it('passes --no-sandbox and --disable-dev-shm-usage as real array entries (not just comment prose)', () => {
+    // The Linux CI runner requires both flags: without --no-sandbox Chrome's
+    // sandbox cannot initialize inside the container, and without
+    // --disable-dev-shm-usage the shared /dev/shm runs out — either way
+    // DevTools never comes up and every cell skips ('Chrome DevTools did not
+    // come up'). Stripping `//` comment lines proves the flags are ACTUAL
+    // args, not prose: a future edit that moves them into the explanatory
+    // comment while dropping them from the array fails the second assertion.
+    const argsWithoutComments = chromeArgsBlock
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('//'))
+      .join('\n');
+    expect(argsWithoutComments).toContain("'--no-sandbox'");
+    expect(argsWithoutComments).toContain("'--disable-dev-shm-usage'");
+    // The comma-anchored form guards against a partial edit that drops one
+    // flag's element while leaving a quoted mention behind elsewhere.
+    expect(argsWithoutComments).toMatch(/'--no-sandbox',/);
+    expect(argsWithoutComments).toMatch(/'--disable-dev-shm-usage',/);
+  });
+
+  it('keeps the two flags alongside the remote-debugging-port entry (single Chrome spawn)', () => {
+    // The flags must live in THE Chrome spawn this driver uses for capture
+    // (port 9444), not some second/vestigial spawn — asserting they appear
+    // before the --remote-debugging-port element in the same block proves
+    // they are part of the real capture Chrome. It also keeps the spawn count
+    // at one, so a duplicated Chrome spawn can't smuggle one flag set.
+    const noSandboxIdx = chromeArgsBlock.indexOf("'--no-sandbox'");
+    const shmIdx = chromeArgsBlock.indexOf("'--disable-dev-shm-usage'");
+    const portIdx = chromeArgsBlock.indexOf('--remote-debugging-port=');
+    expect(noSandboxIdx).toBeGreaterThan(-1);
+    expect(shmIdx).toBeGreaterThan(-1);
+    expect(portIdx).toBeGreaterThan(shmIdx);
+    expect(portIdx).toBeGreaterThan(noSandboxIdx);
+    // Exactly one Chrome spawn in the whole driver — a second one would need
+    // its own flags and this count would catch the split.
+    expect(DRIVER.match(/spawn\(CHROME, \[/g)).toHaveLength(1);
   });
 });
