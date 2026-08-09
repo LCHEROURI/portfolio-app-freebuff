@@ -193,10 +193,12 @@ const handleEvent = async (msg) => {
         .map((h) => ({ name: h.name.toLowerCase(), value: h.value })),
       body: pinned,
     });
+    console.log('deterministic: pinned /api/status response (checkedAt, latencies, rate-limit counts)');
   } catch {
     // A paused request must NEVER hang the run: any interception hiccup
     // (non-JSON body, CDP error) continues the request unmodified. Live
     // latencies rendering once is fine; a stalled page is not.
+    console.log('deterministic: interception hiccup — continued /api/status unmodified');
     try { await send('Fetch.continueRequest', { requestId }); } catch { /* gone */ }
   }
 };
