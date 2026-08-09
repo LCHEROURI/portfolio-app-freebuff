@@ -13,9 +13,10 @@ const read = (p) => readFileSync(resolve(ROOT, p), 'utf8');
 describe('crossCheckSystemInjectedVars (live repo)', () => {
   const vercelEnvSrc = read('scripts/verify-vercel-env.mjs');
   const launchDoc = read('docs/launch.md');
+  const readmeDoc = read('README.md');
 
-  it('passes on the live repo: exemption matches canonical + doc documents it', () => {
-    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc, launchDoc });
+  it('passes on the live repo: exemption matches canonical + both docs document it', () => {
+    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc, launchDoc, readmeDoc });
     expect(failures).toEqual([]);
   });
 
@@ -23,14 +24,14 @@ describe('crossCheckSystemInjectedVars (live repo)', () => {
     // Remove the VERCEL_OIDC_TOKEN entry — the exact incident that motivated
     // the exemption. The drift guard must fail, not just the unit suite.
     const mutated = vercelEnvSrc.replace(/\n  'VERCEL_OIDC_TOKEN',/, '\n');
-    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc: mutated, launchDoc });
+    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc: mutated, launchDoc, readmeDoc });
     expect(failures.join('\n')).toContain('VERCEL_OIDC_TOKEN');
     expect(failures.join('\n')).toContain('omits canonical');
   });
 
   it('catches a non-canonical var added to the set', () => {
     const mutated = vercelEnvSrc.replace("  'VERCEL_URL',\n", "  'VERCEL_URL',\n  'VERCEL_NEW_ONE',\n");
-    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc: mutated, launchDoc });
+    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc: mutated, launchDoc, readmeDoc });
     expect(failures.join('\n')).toContain('VERCEL_NEW_ONE');
     expect(failures.join('\n')).toContain('non-canonical');
   });
@@ -39,7 +40,7 @@ describe('crossCheckSystemInjectedVars (live repo)', () => {
     // VERCEL_TOKEN shares the prefix but is a genuine project credential in
     // all three stores — exempting it would silently stop comparing it.
     const mutated = vercelEnvSrc.replace("  'VERCEL_URL',\n", "  'VERCEL_URL',\n  'VERCEL_TOKEN',\n");
-    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc: mutated, launchDoc });
+    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc: mutated, launchDoc, readmeDoc });
     expect(failures.join('\n')).toContain('VERCEL_TOKEN');
     expect(failures.join('\n')).toContain('real project var');
   });
@@ -49,14 +50,23 @@ describe('crossCheckSystemInjectedVars (live repo)', () => {
     // fail — the operational checklist can't silently stop documenting the
     // exemption while the gate still applies it.
     const mutated = launchDoc.replace(/system-injected/gi, 'build-injected');
-    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc, launchDoc: mutated });
+    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc, launchDoc: mutated, readmeDoc });
+    expect(failures.join('\n')).toContain('does not document');
+    expect(failures.join('\n')).toContain('system-injected');
+  });
+
+  it('catches the README handoff vercel-env row losing the exemption note', () => {
+    // Same contract on the second onboarding surface — renaming the marker in
+    // the README row must fail even though launch.md still documents it.
+    const mutated = readmeDoc.replace(/system-injected/gi, 'build-injected');
+    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc, launchDoc, readmeDoc: mutated });
     expect(failures.join('\n')).toContain('does not document');
     expect(failures.join('\n')).toContain('system-injected');
   });
 
   it('catches a missing SYSTEM_INJECTED_VARS literal', () => {
     const mutated = vercelEnvSrc.replace(/export const SYSTEM_INJECTED_VARS = new Set\(\[[\s\S]*?\n\]\);\n/, '');
-    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc: mutated, launchDoc });
+    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc: mutated, launchDoc, readmeDoc });
     expect(failures.join('\n')).toContain('no SYSTEM_INJECTED_VARS Set literal');
   });
 });
@@ -75,27 +85,34 @@ describe('crossCheckSystemInjectedVars (fixture)', () => {
     '| --- | --- | --- |',
     '| `npm run verify:vercel-env` | `VERCEL_TOKEN` | Vercel production env matches `.env.local`. Vercel system-injected build vars are exempted from comparison. |',
   ].join('\n');
+  // The README table keys rows by bare gate name (no npm run prefix).
+  const FIXTURE_README = [
+    '### The 15 verification gates',
+    '| Gate | Requires | Proves |',
+    '| --- | --- | --- |',
+    '| vercel-env | `VERCEL_TOKEN` (+ Vercel CLI) | Vercel prod env matches `.env.local` (system-injected build vars are exempted as informational) |',
+  ].join('\n');
 
-  it('passes when the set matches the canonical list and the doc documents the exemption', () => {
-    expect(crossCheckSystemInjectedVars({ vercelEnvSrc: FIXTURE_SRC, launchDoc: FIXTURE_DOC })).toEqual([]);
+  it('passes when the set matches the canonical list and BOTH docs document the exemption', () => {
+    expect(crossCheckSystemInjectedVars({ vercelEnvSrc: FIXTURE_SRC, launchDoc: FIXTURE_DOC, readmeDoc: FIXTURE_README })).toEqual([]);
   });
 
   it('flags a non-canonical var in the set', () => {
     const src = FIXTURE_SRC.replace("  'VERCEL_URL',\n", "  'VERCEL_URL',\n  'VERCEL_GHOST',\n");
-    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc: src, launchDoc: FIXTURE_DOC });
+    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc: src, launchDoc: FIXTURE_DOC, readmeDoc: FIXTURE_README });
     expect(failures.join('\n')).toContain('VERCEL_GHOST');
     expect(failures.join('\n')).toContain('non-canonical');
   });
 
   it('flags a real project var exempted in the set', () => {
     const src = FIXTURE_SRC.replace("  'VERCEL_URL',\n", "  'VERCEL_URL',\n  'VERCEL_TEAM_ID',\n");
-    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc: src, launchDoc: FIXTURE_DOC });
+    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc: src, launchDoc: FIXTURE_DOC, readmeDoc: FIXTURE_README });
     expect(failures.join('\n')).toContain('VERCEL_TEAM_ID');
     expect(failures.join('\n')).toContain('real project var');
   });
 
   it('fails cleanly when the Set literal is missing entirely', () => {
-    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc: 'const x = 1;\n', launchDoc: FIXTURE_DOC });
+    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc: 'const x = 1;\n', launchDoc: FIXTURE_DOC, readmeDoc: FIXTURE_README });
     expect(failures).toEqual([
       'verify-vercel-env.mjs has no SYSTEM_INJECTED_VARS Set literal — a rename or restructure broke the exemption.',
     ]);
@@ -103,14 +120,26 @@ describe('crossCheckSystemInjectedVars (fixture)', () => {
 
   it('fails when the doc row does not document the exemption', () => {
     const doc = FIXTURE_DOC.replace(/system-injected/i, 'injected');
-    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc: FIXTURE_SRC, launchDoc: doc });
+    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc: FIXTURE_SRC, launchDoc: doc, readmeDoc: FIXTURE_README });
+    expect(failures.join('\n')).toContain('does not document');
+  });
+
+  it('fails when the README row does not document the exemption', () => {
+    const readme = FIXTURE_README.replace(/system-injected/i, 'injected');
+    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc: FIXTURE_SRC, launchDoc: FIXTURE_DOC, readmeDoc: readme });
     expect(failures.join('\n')).toContain('does not document');
   });
 
   it('fails when the doc has no vercel-env row at all', () => {
     const doc = FIXTURE_DOC.replace('| `npm run verify:vercel-env` | `VERCEL_TOKEN` |', '| `npm run verify:other` | — |');
-    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc: FIXTURE_SRC, launchDoc: doc });
+    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc: FIXTURE_SRC, launchDoc: doc, readmeDoc: FIXTURE_README });
     expect(failures.join('\n')).toContain('no vercel-env gate row');
+  });
+
+  it('fails when the README has no vercel-env row at all', () => {
+    const readme = FIXTURE_README.replace('| vercel-env |', '| other-gate |');
+    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc: FIXTURE_SRC, launchDoc: FIXTURE_DOC, readmeDoc: readme });
+    expect(failures.join('\n')).toContain('no vercel-env row');
   });
 
   it('ignores a vercel-env row outside the verification-gates section', () => {
@@ -119,8 +148,17 @@ describe('crossCheckSystemInjectedVars (fixture)', () => {
     // guard's parsing, so the appendix row cannot rescue a missing §4 row.
     const doc = FIXTURE_DOC.replace('| `npm run verify:vercel-env` | `VERCEL_TOKEN` |', '| `npm run verify:other` | — |')
       + '\n\n## 9. Appendix\n| `npm run verify:vercel-env` | system-injected exemption note |\n';
-    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc: FIXTURE_SRC, launchDoc: doc });
+    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc: FIXTURE_SRC, launchDoc: doc, readmeDoc: FIXTURE_README });
     expect(failures.join('\n')).toContain('no vercel-env gate row');
+  });
+
+  it('ignores a README vercel-env row outside the verification-gates section', () => {
+    // Same bounding rule on the README side: a row in a later section must not
+    // satisfy the requirement — only the handoff gate table counts.
+    const readme = FIXTURE_README.replace('| vercel-env |', '| other-gate |')
+      + '\n\n### Some other section\n| vercel-env | system-injected exemption note |\n';
+    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc: FIXTURE_SRC, launchDoc: FIXTURE_DOC, readmeDoc: readme });
+    expect(failures.join('\n')).toContain('no vercel-env row');
   });
 
   it('locks the canonical set to the 16 Vercel-injected build vars', () => {
@@ -166,10 +204,11 @@ describe('scripts/verify-launch-checklist.mjs · [3f/4] system-injected-vars ste
     expect(driftGuard).toMatch(/import \{[^}]*crossCheckSystemInjectedVars[^}]*\} from '\.\/launch-checklist-gates\.mjs';/);
   });
 
-  it('invokes the helper with the vercel-env source + doc and routes failures through fail()', () => {
+  it('invokes the helper with the vercel-env source + BOTH docs and routes failures through fail()', () => {
     expect(driftGuard).toContain('const systemInjectedFailures = crossCheckSystemInjectedVars({');
     expect(driftGuard).toContain("vercelEnvSrc: read('scripts/verify-vercel-env.mjs'),");
     expect(driftGuard).toContain('launchDoc: doc,');
+    expect(driftGuard).toContain("readmeDoc: read('README.md'),");
     expect(driftGuard).toContain('for (const msg of systemInjectedFailures) fail(msg);');
   });
 

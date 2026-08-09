@@ -627,13 +627,14 @@ function findLaunchRow(doc, command) {
  *     suite applies to the exported set, enforced here from source);
  *   - no real project var (VERCEL_TOKEN, VERCEL_TEAM_ID) is exempted — they
  *     share the prefix but must stay value-compared;
- *   - docs/launch.md §4's vercel-env row documents the system-injected
- *     exemption, so the operational checklist can't silently lose the note.
+ *   - docs/launch.md §4's vercel-env row AND the README handoff gate-table
+ *     row both document the system-injected exemption, so neither onboarding
+ *     surface can silently lose the note.
  * Pure: reads nothing itself.
  *
- * @param {{ vercelEnvSrc: string, launchDoc: string }} args
+ * @param {{ vercelEnvSrc: string, launchDoc: string, readmeDoc: string }} args
  */
-export function crossCheckSystemInjectedVars({ vercelEnvSrc, launchDoc }) {
+export function crossCheckSystemInjectedVars({ vercelEnvSrc, launchDoc, readmeDoc }) {
   const failures = [];
   const match = String(vercelEnvSrc ?? '').match(SYSTEM_INJECTED_VARS_RE);
   if (!match) {
@@ -669,7 +670,37 @@ export function crossCheckSystemInjectedVars({ vercelEnvSrc, launchDoc }) {
     );
   }
 
+  // The README handoff gate table must document the same exemption, so both
+  // onboarding surfaces stay in lockstep — a note added to one doc alone is
+  // not enough.
+  const readmeRow = findReadmeGateRow(readmeDoc, 'vercel-env');
+  if (!readmeRow) {
+    failures.push('README handoff gate table has no vercel-env row — the system-injected exemption cannot be documented.');
+  } else if (!SYSTEM_INJECTED_DOC_MARKER_RE.test(readmeRow)) {
+    failures.push(
+      'README handoff vercel-env row does not document the system-injected-vars exemption — add the note so the doc and the gate agree.',
+    );
+  }
+
   return failures;
+}
+
+/**
+ * Find a README handoff gate-table row by its leading gate name (the README
+ * table keys rows by bare gate name, unlike launch.md's backticked commands),
+ * bounded to the verification-gates section (a matching row in a later
+ * section can never be misread as the gate row). Returns the full row text
+ * or null. Pure: reads nothing itself.
+ */
+function findReadmeGateRow(readmeDoc, gateName) {
+  const lines = String(readmeDoc ?? '').split('\n');
+  const startIdx = lines.findIndex((l) => /^### The \d+ verification gates/.test(l.trim()));
+  if (startIdx < 0) return null;
+  const nextSection = lines.slice(startIdx + 1).findIndex((l) => /^#{1,6} /.test(l));
+  const sectionLines = nextSection >= 0
+    ? lines.slice(startIdx + 1, startIdx + 1 + nextSection)
+    : lines.slice(startIdx + 1);
+  return sectionLines.find((l) => l.startsWith(`| ${gateName} |`)) ?? null;
 }
 
 /**

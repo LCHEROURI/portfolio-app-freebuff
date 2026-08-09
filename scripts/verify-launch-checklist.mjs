@@ -287,6 +287,7 @@ console.log('\n[3f/4] Cross-referencing verify-vercel-env system-injected-vars e
 const systemInjectedFailures = crossCheckSystemInjectedVars({
   vercelEnvSrc: read('scripts/verify-vercel-env.mjs'),
   launchDoc: doc,
+  readmeDoc: read('README.md'),
 });
 for (const msg of systemInjectedFailures) fail(msg);
 if (systemInjectedFailures.length === 0) {
