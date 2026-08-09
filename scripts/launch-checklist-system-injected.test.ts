@@ -64,6 +64,24 @@ describe('crossCheckSystemInjectedVars (live repo)', () => {
     expect(failures.join('\n')).toContain('system-injected');
   });
 
+  it('README and launch.md vercel-env rows share the same exemption wording', () => {
+    // The two onboarding surfaces must tell the same story: system-injected
+    // build vars are exempted, real project vars stay value-compared. Each
+    // core phrase must appear in BOTH rows — a doc that softens or drops any
+    // part of the contract fails even if the /system-injected/i marker
+    // survives. The rows are deliberately not byte-identical (launch.md is
+    // the verbose operational row, README the terse onboarding one), so the
+    // lock is on the shared semantic phrases, not full-text parity.
+    const launchRow = launchDoc.split('\n').find((l) => l.includes('| `npm run verify:vercel-env` |')) ?? '';
+    const readmeRow = readmeDoc.split('\n').find((l) => l.startsWith('| vercel-env |')) ?? '';
+    expect(launchRow, 'launch.md §4 must have a vercel-env row').not.toBe('');
+    expect(readmeRow, 'README must have a vercel-env row').not.toBe('');
+    for (const phrase of ['system-injected', 'VERCEL_OIDC_TOKEN', 'real project vars', 'stay value-compared']) {
+      expect(launchRow, `launch.md §4 row must carry the phrase: ${phrase}`).toContain(phrase);
+      expect(readmeRow, `README row must carry the phrase: ${phrase}`).toContain(phrase);
+    }
+  });
+
   it('catches a missing SYSTEM_INJECTED_VARS literal', () => {
     const mutated = vercelEnvSrc.replace(/export const SYSTEM_INJECTED_VARS = new Set\(\[[\s\S]*?\n\]\);\n/, '');
     const failures = crossCheckSystemInjectedVars({ vercelEnvSrc: mutated, launchDoc, readmeDoc });
