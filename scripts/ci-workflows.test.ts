@@ -266,6 +266,29 @@ describe('.github/workflows/gallery.yml · PR/dispatch gallery capture', () => {
     expect(GALLERY).toContain('VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}');
   });
 
+  it('keeps the remote-build deploy path (no local `vercel build` step, no `--prebuilt`)', () => {
+    // The prebuilt flow was broken from the gallery's first commit: it
+    // uploaded only source + .vercel/output, but every serverless function's
+    // .vc-config.json filePathMap references ROOT node_modules (styled-jsx,
+    // react, next/dist ...) that the upload excludes, so Vercel's "Deploying
+    // outputs" phase died with ENOENT lstat node_modules/styled-jsx/index.js
+    // and the preview never rendered. The fix (cfaa753) dropped the local
+    // `vercel build` + `--prebuilt` and lets Vercel run the remote build —
+    // the proven production path. This lock keeps BOTH regressions out: a
+    // reintroduced local build step or a `vercel deploy --prebuilt` command
+    // fails here before it can red the gallery again. Command-form precise on
+    // purpose: the deploy-step comment legitimately says "NOT `--prebuilt`"
+    // to document the fix, so a bare-flag sweep would false-fail on prose.
+    expect(GALLERY).not.toMatch(/vercel build/);
+    expect(GALLERY).not.toMatch(/vercel deploy --prebuilt/);
+    // The remote-build invocation must be the one and only deploy command…
+    expect(GALLERY).toMatch(/npx --yes vercel deploy --yes --token=/);
+    // …and the preview URL must be extracted from the deploy output (the
+    // CLI's final line is the "run vercel --prod" hint, not the URL, so
+    // tail -1 would grab the wrong line).
+    expect(GALLERY).toContain('grep -oE');
+  });
+
   it('still waits for the preview to answer HTTP 200 before capturing', () => {
     // The readiness loop must exist and must probe the live preview URL on the
     // command-center route, gated on the same env trio so it skips-not-fails
