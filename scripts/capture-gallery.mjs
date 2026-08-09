@@ -88,6 +88,13 @@ const chrome = spawn(CHROME, [
   '--disable-gpu',
   '--hide-scrollbars',
   '--no-first-run',
+  // Required on the Linux CI runner (and harmless on macOS): without these,
+  // Chrome's sandbox cannot initialize inside the container and DevTools
+  // never comes up — the gallery has failed every recent CI run on exactly
+  // this ('Chrome DevTools did not come up'). Same flags the other CDP
+  // drivers (verify-review-sheet, verify-prod-signin) already pass.
+  '--no-sandbox',
+  '--disable-dev-shm-usage',
   `--remote-debugging-port=${PORT}`,
   '--user-data-dir=/tmp/gallery-capture-chrome',
   'about:blank',
