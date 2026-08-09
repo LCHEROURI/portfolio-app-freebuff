@@ -125,7 +125,12 @@ if (useFixedCredentials) {
   console.log(`  ✓ test user minted (${uid})`);
 }
 
+// Idempotency guard: the exit paths (exitWith + signal handlers) can each
+// fire cleanup as the process unwinds — the first call wins, later ones no-op.
+let cleanupRan = false;
 const cleanup = async () => {
+  if (cleanupRan) return;
+  cleanupRan = true;
   if (useFixedCredentials) return;
   if (FS && probeDoc) {
     try { await fetch(`${FS}/projects/${probeDoc}`, { method: 'DELETE', headers: { authorization: `Bearer ${token}` } }); } catch { /* best-effort */ }
@@ -139,7 +144,18 @@ const cleanup = async () => {
     console.log('  ↳ throwaway user deleted');
   } catch { /* best-effort */ }
 };
-process.on('exit', () => void cleanup());
+
+// Every exit path goes through `exitWith`, which AWAITS the deletes before the
+// process dies. The old `process.on('exit', () => void cleanup())` was
+// fire-and-forget: exit handlers cannot await, so the DELETE fetch raced
+// process teardown and each sign-in probe leaked its projects/{probe-signin-*}
+// doc into Firestore (~350 leaked docs across ~298 uids by Aug 2026). The
+// no-API-key and mint-failure exits happen before cleanup is defined and stay
+// plain process.exit — there is no user to delete on those paths.
+const exitWith = async (code) => {
+  await cleanup();
+  process.exit(code);
+};
 
 // ── 2. Launch headless Chrome ────────────────────────────────────────────────
 console.log(`\n[2/5] Launching headless Chrome (CDP :${PORT})`);
@@ -163,7 +179,7 @@ const killChrome = () => { try { chrome.kill('SIGKILL'); } catch { /* already go
 const dropProfile = () => { try { rmSync(USER_DATA_DIR, { recursive: true, force: true }); } catch { /* best-effort */ } };
 process.on('exit', killChrome);
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-  process.on(sig, () => { killChrome(); dropProfile(); process.exit(130); });
+  process.on(sig, () => { killChrome(); dropProfile(); void cleanup().finally(() => process.exit(130)); });
 }
 
 const fetchJson = async (url) => {
@@ -182,7 +198,7 @@ for (let i = 0; i < 40 && !wsUrl; i++) {
 if (!wsUrl) {
   console.error('✗ FAIL: Chrome DevTools did not come up.');
   chrome.kill();
-  process.exit(1);
+  await exitWith(1);
 }
 
 const ws = new WebSocket(wsUrl);
@@ -241,7 +257,7 @@ if (!gateVisible) {
   fail(`AuthGate never became visible. Page text: ${text.replace(/\s+/g, ' ').slice(0, 200)}`, 'authgate');
   ws.close(); chrome.kill();
   console.error(`\nRESULT: FAIL (${failures})`);
-  process.exit(1);
+  await exitWith(1);
 }
 ok('AuthGate rendered (sign-in gate visible)');
 
@@ -346,7 +362,7 @@ if (typed !== 'typed') {
   fail(`could not fill the sign-in form (${typed})`);
   ws.close(); chrome.kill();
   console.error(`\nRESULT: FAIL (${failures})`);
-  process.exit(1);
+  await exitWith(1);
 }
 await sleepMs(300);
 await evaluate(`(() => {
@@ -381,7 +397,7 @@ if (!shell) {
   fail(`Command Center never rendered after sign-in. Page: ${state?.text?.replace(/\s+/g, ' ').slice(0, 220)}`, 'release');
   ws.close(); chrome.kill();
   console.error(`\nRESULT: FAIL (${failures})`);
-  process.exit(1);
+  await exitWith(1);
 }
 ok('sign-in gate released — Command Center shell rendered');
 if (shell.error) fail('store surfaced "Failed to load data"', 'release');
@@ -443,4 +459,4 @@ if (FS && !useFixedCredentials) {
   console.log(`VERIFY-SUBRESULT|firestore-sync|${(sectionFails.sync ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
 }
 console.error(`\nRESULT: ${failures === 0 ? 'PASS' : `FAIL (${failures})`}`);
-process.exit(failures === 0 ? 0 : 1);
+await exitWith(failures === 0 ? 0 : 1);

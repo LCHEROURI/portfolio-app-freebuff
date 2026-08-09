@@ -106,9 +106,91 @@ describe('scripts/verify-prod-signin.mjs · per-run Chrome profile (--user-data-
     // dropProfile definition + the end-of-main call), never once.
     expect(script).toMatch(/const dropProfile = \(\) => \{ try \{ rmSync\(USER_DATA_DIR, \{ recursive: true, force: true \}\);/);
     for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-      expect(script).toContain(`process.on(sig, () => { killChrome(); dropProfile(); process.exit(130); })`);
+      expect(script).toContain(`process.on(sig, () => { killChrome(); dropProfile(); void cleanup().finally(() => process.exit(130)); })`);
     }
     const cleanupCalls = script.split('try { rmSync(USER_DATA_DIR, { recursive: true, force: true }); } catch { /* best-effort */ }').length - 1;
     expect(cleanupCalls).toBe(2);
+  });
+});
+
+describe('scripts/verify-prod-signin.mjs · awaited probe cleanup on every exit path', () => {
+  // The Aug-2026 leak: cleanup ran through `process.on('exit', () => void
+  // cleanup())` — exit handlers CANNOT await, so the DELETE fetch raced
+  // process teardown and every sign-in probe leaked its projects/probe-*
+  // doc into Firestore (~350 leaked docs across ~298 uids). The fix routes
+  // every post-mint exit through exitWith, which awaits cleanup() before
+  // process.exit. This describe locks that contract so the fire-and-forget
+  // pattern cannot silently return.
+
+  it('exitWith awaits cleanup() before process.exit', () => {
+    const exitWith = script.slice(
+      script.indexOf('const exitWith = async (code) => {'),
+      script.indexOf('// ── 2. Launch headless Chrome'),
+    );
+    expect(exitWith).toContain('await cleanup();');
+    expect(exitWith).toContain('process.exit(code);');
+    // Order matters: the await must come BEFORE the exit, or the deletes
+    // still race.
+    expect(exitWith.indexOf('await cleanup();')).toBeLessThan(exitWith.indexOf('process.exit(code);'));
+  });
+
+  it('bans the fire-and-forget exit-handler cleanup pattern', () => {
+    // Strip `//` comment lines first — the driver's header documents the OLD
+    // buggy pattern verbatim, so the ban must prove no live CODE carries it
+    // (same comment-stripping discipline as the spawn-flags describe above).
+    const codeOnly = script
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('//'))
+      .join('\n');
+    expect(codeOnly).not.toContain('() => void cleanup()');
+    expect(codeOnly).not.toContain("process.on('exit', () => void");
+    // The only remaining process.on('exit') is the synchronous killChrome
+    // hook — killing a child process is fine in an exit handler; awaiting a
+    // fetch is not.
+    expect(script).toContain("process.on('exit', killChrome);");
+  });
+
+  it('routes every post-mint exit path through awaited exitWith (5 call sites)', () => {
+    // Chrome-DevTools timeout, AuthGate never visible, form-fill failure,
+    // shell never rendered, and the normal completion — all five must await
+    // exitWith so the probe doc + throwaway user are deleted on each. A new
+    // bare `process.exit` after cleanup is defined would leak again.
+    const exitWithCalls = script.split('await exitWith(').length - 1;
+    expect(exitWithCalls).toBe(5);
+    // The two plain process.exit(1) guards (no API key / mint failure) must
+    // stay BEFORE cleanup is defined — on those paths there is no user or
+    // probe doc to delete, and an exitWith call there would crash on the
+    // undefined cleanup reference.
+    const cleanupDefIdx = script.indexOf('const cleanup = async () => {');
+    const firstEarlyExit = script.indexOf('process.exit(1);');
+    const secondEarlyExit = script.indexOf('process.exit(1);', firstEarlyExit + 1);
+    expect(firstEarlyExit).toBeGreaterThan(-1);
+    expect(secondEarlyExit).toBeGreaterThan(firstEarlyExit);
+    expect(secondEarlyExit).toBeLessThan(cleanupDefIdx);
+    // No bare process.exit can appear between cleanup's definition and the
+    // end of the file (all of those would bypass the awaited deletes).
+    const tail = script.slice(cleanupDefIdx);
+    const bareExits = tail.split('process.exit(').length - 1;
+    // exitWith's own process.exit(code) + the signal-handler exit(130).
+    expect(bareExits).toBe(2);
+  });
+
+  it('signal handlers wait for cleanup before exiting (no void-race)', () => {
+    for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+      expect(script).toContain(`process.on(sig, () => { killChrome(); dropProfile(); void cleanup().finally(() => process.exit(130)); })`);
+    }
+    // The .finally on the cleanup promise means process.exit(130) fires only
+    // AFTER the DELETE + accounts:delete fetches settle — the awaited
+    // counterpart of exitWith for the signal path.
+  });
+
+  it('keeps the cleanup idempotency guard (first call wins, later no-ops)', () => {
+    // Exit paths can each fire cleanup as the process unwinds; without the
+    // guard, a second call would DELETE a doc twice (harmless) but also
+    // re-run accounts:delete with a consumed token (noisy failure). The
+    // guard makes concurrent exit paths safe.
+    expect(script).toContain('let cleanupRan = false;');
+    expect(script).toContain('if (cleanupRan) return;');
+    expect(script).toContain('cleanupRan = true;');
   });
 });
