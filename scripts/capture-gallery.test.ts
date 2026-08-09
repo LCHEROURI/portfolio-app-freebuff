@@ -241,3 +241,42 @@ describe('scripts/capture-gallery.mjs · headless Chrome spawn flags', () => {
     expect(DRIVER.match(/spawn\(CHROME, \[/g)).toHaveLength(1);
   });
 });
+
+describe('scripts/capture-gallery.mjs · per-run Chrome profile (--user-data-dir)', () => {
+  // Same spawn-args slice the flags describe uses — scoped here because the
+  // other describe's const is closed over its own block.
+  const chromeArgsBlock = DRIVER.slice(
+    DRIVER.indexOf('spawn(CHROME, ['),
+    DRIVER.indexOf("], { stdio: 'ignore' })"),
+  );
+
+  it('defines USER_DATA_DIR as a unique per-run path (pid + timestamp, never fixed)', () => {
+    // A FIXED profile dir (the old '/tmp/gallery-capture-chrome') means two
+    // gallery runs on the same machine share one Chrome profile and its
+    // SingletonLock — the second run can't start or reuses stale state. The
+    // shared per-run pattern (pid + Date.now) makes every launch isolated.
+    expect(DRIVER).toMatch(/const USER_DATA_DIR = `\/tmp\/gallery-capture-chrome-\$\{process\.pid\}-\$\{Date\.now\(\)\}`/);
+    // The fixed-profile literal must not survive anywhere in the driver.
+    expect(DRIVER).not.toContain("'--user-data-dir=/tmp/");
+    expect(DRIVER).not.toContain('--user-data-dir=/tmp/gallery-capture-chrome');
+  });
+
+  it('passes the per-run profile to the Chrome spawn (template-literal reference)', () => {
+    // The constant must actually reach the spawn as the --user-data-dir
+    // ARGUMENT — a constant defined but never used would silently keep the
+    // driver on whatever path it falls back to.
+    expect(chromeArgsBlock).toContain('`--user-data-dir=${USER_DATA_DIR}`');
+    expect(chromeArgsBlock).toMatch(/--user-data-dir=\$\{USER_DATA_DIR\}/);
+  });
+
+  it('cleans the per-run profile up on exit and on every signal (dropProfile)', () => {
+    // A per-run dir that is never removed still leaks /tmp profiles; the
+    // cleanup must be wired to normal exit AND to every interrupt signal so
+    // no run leaves its profile behind.
+    expect(DRIVER).toMatch(/const dropProfile = \(\) => \{ try \{ rmSync\(USER_DATA_DIR, \{ recursive: true, force: true \}\);/);
+    expect(DRIVER).toContain("process.on('exit', () => { killChrome(); dropProfile(); })");
+    for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+      expect(DRIVER).toContain(`process.on(sig, () => { killChrome(); dropProfile(); process.exit(130); })`);
+    }
+  });
+});

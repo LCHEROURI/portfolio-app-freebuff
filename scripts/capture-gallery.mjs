@@ -22,7 +22,7 @@
  *     --header 'x-vercel-protection-bypass: <secret>'   # repeatable; sent on every request
  */
 import { spawn } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, rmSync } from 'node:fs';
 import { copyFile, mkdir, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -36,6 +36,11 @@ const CHROME = process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Conte
 const PORT = 9444;
 const VIEWPORT_W = 1440;
 const VIEWPORT_H = 1000;
+// Per-run Chrome profile (never a fixed path): pid + timestamp make the dir
+// unique so parallel gallery runs on the same machine can never collide on
+// the same profile/lock — same pattern the other CDP drivers use. Cleaned up
+// on exit below (dropProfile).
+const USER_DATA_DIR = `/tmp/gallery-capture-chrome-${process.pid}-${Date.now()}`;
 // Overridable so quick smoke tests (and CI) don't pay the full settle time.
 const WAIT_MS = Number(process.env.CAPTURE_WAIT_MS ?? 12000);
 
@@ -96,17 +101,20 @@ const chrome = spawn(CHROME, [
   '--no-sandbox',
   '--disable-dev-shm-usage',
   `--remote-debugging-port=${PORT}`,
-  '--user-data-dir=/tmp/gallery-capture-chrome',
+  `--user-data-dir=${USER_DATA_DIR}`,
   'about:blank',
 ], { stdio: 'ignore' });
 
-// Self-cleanup: never leave the headless Chrome behind, even when this driver
-// is interrupted by a signal or dies mid-run (a leaked instance holds port
-// 9444 and its /tmp profile until the next reboot).
+// Self-cleanup: never leave the headless Chrome (or its per-run profile)
+// behind, even when this driver is interrupted by a signal or dies mid-run
+// (a leaked instance holds port 9444 and its /tmp profile until the next
+// reboot). The profile dir is unique per run, so cleanup never touches
+// another run's data.
 const killChrome = () => { try { chrome.kill('SIGKILL'); } catch { /* already gone */ } };
-process.on('exit', killChrome);
+const dropProfile = () => { try { rmSync(USER_DATA_DIR, { recursive: true, force: true }); } catch { /* best-effort */ } };
+process.on('exit', () => { killChrome(); dropProfile(); });
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-  process.on(sig, () => process.exit(130));
+  process.on(sig, () => { killChrome(); dropProfile(); process.exit(130); });
 }
 
 const fetchJson = async (url) => (await fetch(url)).json();
