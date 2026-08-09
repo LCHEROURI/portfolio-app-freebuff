@@ -108,6 +108,9 @@ const checkFirestore = async (): Promise<IntegrationStatus> => {
       // data layer itself worked fine (the cron reads through the SAME
       // :runQuery call below). Query a non-existent collection: HTTP 200 with
       // an empty result set means the database + service account are healthy.
+      // The collection id must NOT be a reserved form — Firestore rejects
+      // ids wrapped in double underscores (__…__) with HTTP 400 — so the
+      // probe uses a plain, never-created name.
       const r = await cachedPing(
         'firestore',
         `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents:runQuery`,
@@ -115,7 +118,7 @@ const checkFirestore = async (): Promise<IntegrationStatus> => {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            structuredQuery: { from: [{ collectionId: '__firestore_health_probe__' }], limit: 1 },
+            structuredQuery: { from: [{ collectionId: 'zzz-health-probe' }], limit: 1 },
           }),
         },
       );

@@ -218,10 +218,10 @@ describe('checkIntegrations — authorized-domains override', () => {
 describe('checkIntegrations — Firestore probe (runQuery, not the documents GET)', () => {
   it('reports healthy and pings :runQuery when the service account is configured', async () => {
     stubAdminEnv();
-    const calls: Array<{ url: string; method?: string }> = [];
+    const calls: Array<{ url: string; method?: string; body?: string }> = [];
     const firestoreMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      calls.push({ url, method: init?.method });
+      calls.push({ url, method: init?.method, body: String(init?.body ?? '') });
       if (url.includes('firestore.googleapis.com')) return jsonResponse([]); // runQuery → []
       if (url.includes('api.github.com')) {
         return jsonResponse({ resources: { core: { remaining: 10, limit: 60 } } });
@@ -248,6 +248,11 @@ describe('checkIntegrations — Firestore probe (runQuery, not the documents GET
     expect(probe!.url).toContain('/documents:runQuery');
     expect(probe!.url).not.toContain('/documents?pageSize=1');
     expect(probe!.method).toBe('POST');
+    // The probe collection id must not be a reserved Firestore form (ids
+    // wrapped in double underscores are rejected with HTTP 400), so the exact
+    // non-reserved name is locked here.
+    expect(probe!.body).toContain('zzz-health-probe');
+    expect(probe!.body).not.toContain('__');
   });
 
   it('reports a 401/403 as lacking access (a failed probe is a real signal)', async () => {
