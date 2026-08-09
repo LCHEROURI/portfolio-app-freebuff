@@ -21,9 +21,9 @@
  * this script only ever *consumes* values you paste from the GCP console
  * (Google Auth Platform → Clients → Create Client → Web application).
  */
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { mintServiceAccountToken } from '../lib/server/sa-token.mjs';
+import { readLocalEnv } from './local-env.mjs';
 
 export const CLASSIC_CLIENT_ID_RE = /^\d+-[\w-]+\.apps\.googleusercontent\.com$/;
 // Real GOCSPX secrets are long; the placeholder template is short (`GOCSPX-xxxx`).
@@ -111,8 +111,7 @@ async function main() {
   console.log('OK: redirects to Google consent — client recognized:', loc.slice(0, 120));
 
   console.log('\n=== 4. SDK createAuthUri embeds the classic client ===');
-  const env = readFileSync('.env.local', 'utf8');
-  const key = (env.match(/^NEXT_PUBLIC_FIREBASE_API_KEY=(.*)$/m) || [])[1]?.trim();
+  const key = readLocalEnv('NEXT_PUBLIC_FIREBASE_API_KEY') ?? '';
   const uriRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:createAuthUri?key=${encodeURIComponent(key)}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },

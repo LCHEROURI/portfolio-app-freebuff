@@ -26,7 +26,7 @@
  * Integrations cells are byte-stable across runs; unset, live values flow.
  */
 import { spawn } from 'node:child_process';
-import { readFileSync, rmSync } from 'node:fs';
+import { rmSync } from 'node:fs';
 import { copyFile, mkdir, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -35,6 +35,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 // app/screenshots/[file]/route.ts so the pages, the allowlist, and the
 // captured cells can never drift apart.
 import galleryCells from '../lib/gallery-cells.json' with { type: 'json' };
+import { readLocalEnv } from './local-env.mjs';
 
 const CHROME = process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const PORT = 9444;
@@ -307,17 +308,9 @@ const REVIEW_SHEET_FILES = [
 const reviewCaptured = [];
 // Resolve the driver's credential requirements the SAME way the driver does
 // (process env first, then .env.local) so the gate and the driver can never
-// disagree about whether the review sheet can render.
-const readLocalEnv = (name) => {
-  if (process.env[name]) return process.env[name];
-  try {
-    const env = readFileSync(resolve('.env.local'), 'utf8');
-    const m = env.match(new RegExp(`^${name}=(.*)$`, 'm'));
-    return m ? m[1].trim().replace(/^"|"$/g, '') : undefined;
-  } catch {
-    return undefined;
-  }
-};
+// disagree about whether the review sheet can render. The shared reader
+// (./local-env.mjs) keeps the env-first precedence and strips pull-formatted
+// quotes — same semantics as the old local copy, one tested implementation.
 // Match the driver's resolution EXACTLY (no drift): verify-review-sheet.mjs
 // reads FIREBASE_WEB_API_KEY from process.env only, NEXT_PUBLIC_FIREBASE_API_KEY
 // from env then .env.local, and seed-live-data reads FIREBASE_SERVICE_ACCOUNT

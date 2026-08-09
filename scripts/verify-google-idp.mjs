@@ -17,21 +17,10 @@
 // Exits nonzero on any failure. No Chrome required — fast, CI-friendly.
 // ============================================================================
 
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-
 import { getServiceAccount, mintServiceAccountToken } from '../lib/server/sa-token.mjs';
+import { readLocalEnv } from './local-env.mjs';
 
-const readEnv = (name) => {
-  if (process.env[name]) return process.env[name];
-  try {
-    const env = readFileSync(resolve(process.cwd(), '.env.local'), 'utf8');
-    const m = env.match(new RegExp(`^${name}=(.*)$`, 'm'));
-    return m ? m[1].trim().replace(/^"|"$/g, '') : undefined;
-  } catch {
-    return undefined;
-  }
-};
+const readEnv = (name) => readLocalEnv(name);
 
 const API_KEY =
   process.env.FIREBASE_WEB_API_KEY ??

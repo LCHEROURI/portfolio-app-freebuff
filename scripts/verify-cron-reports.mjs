@@ -32,8 +32,7 @@
 //      the default check keeps passing on unseeded setups.
 // ============================================================================
 
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readLocalEnv } from './local-env.mjs';
 
 const args = process.argv.slice(2);
 const flag = (name, fallback) => {
@@ -47,9 +46,7 @@ const SECRET =
   process.env.CRON_SECRET ??
   (() => {
     try {
-      const env = readFileSync(resolve(process.cwd(), '.env.local'), 'utf8');
-      const m = env.match(/^CRON_SECRET=(.*)$/m);
-      return m ? m[1].trim().replace(/^"|"$/g, '') : '';
+      return readLocalEnv('CRON_SECRET') ?? '';
     } catch {
       return '';
     }

@@ -16,15 +16,13 @@
 // documents and the throwaway user are deleted on the way out.
 // ============================================================================
 
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readLocalEnv } from './local-env.mjs';
 
 const projectId =
   process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ??
   (() => {
     try {
-      const env = readFileSync(resolve(process.cwd(), '.env.local'), 'utf8');
-      return env.match(/^NEXT_PUBLIC_FIREBASE_PROJECT_ID=(.*)$/m)?.[1]?.trim() ?? '';
+      return readLocalEnv('NEXT_PUBLIC_FIREBASE_PROJECT_ID') ?? '';
     } catch {
       return '';
     }
@@ -35,8 +33,7 @@ const API_KEY =
   process.env.NEXT_PUBLIC_FIREBASE_API_KEY ??
   (() => {
     try {
-      const env = readFileSync(resolve(process.cwd(), '.env.local'), 'utf8');
-      return env.match(/^NEXT_PUBLIC_FIREBASE_API_KEY=(.*)$/m)?.[1]?.trim() ?? '';
+      return readLocalEnv('NEXT_PUBLIC_FIREBASE_API_KEY') ?? '';
     } catch {
       return '';
     }

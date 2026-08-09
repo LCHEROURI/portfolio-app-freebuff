@@ -39,11 +39,10 @@
 // Firestore write fails — so the step can gate a deploy script.
 // ============================================================================
 
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
 
 import { getProjectId, getServiceAccount, mintServiceAccountToken } from '../lib/server/sa-token.mjs';
+import { readLocalEnv } from './local-env.mjs';
 
 // ─── Composed cron report -> client Report doc ─────────────────────────────
 
@@ -89,8 +88,7 @@ async function main() {
     process.env.CRON_SECRET ??
     (() => {
       try {
-        const env = readFileSync(resolve(process.cwd(), '.env.local'), 'utf8');
-        return env.match(/^CRON_SECRET=(.*)$/m)?.[1] ?? '';
+        return readLocalEnv('CRON_SECRET') ?? '';
       } catch {
         return '';
       }

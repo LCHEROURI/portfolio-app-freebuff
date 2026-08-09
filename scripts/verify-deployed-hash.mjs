@@ -52,6 +52,7 @@ import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { readLocalEnv } from './local-env.mjs';
 
 export const PROJECT = 'portfolio-app-freebuff';
 export const PRODUCTION_URL = 'https://portfolio-app-freebuff.vercel.app';
@@ -102,9 +103,8 @@ export class InvalidTokenError extends Error {
 export const readToken = () => {
   if (process.env.VERCEL_TOKEN) return process.env.VERCEL_TOKEN;
   try {
-    const env = readFileSync(resolve(process.cwd(), '.env.local'), 'utf8');
-    const m = env.match(/^VERCEL_TOKEN=(.*)$/m);
-    if (m) return m[1].trim().replace(/^"|"$/g, '');
+    const token = readLocalEnv('VERCEL_TOKEN');
+    if (token) return token;
   } catch { /* no .env.local */ }
   try {
     const auth = readFileSync(resolve(homedir(), 'Library/Application Support/com.vercel.cli/auth.json'), 'utf8');

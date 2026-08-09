@@ -26,8 +26,7 @@
 // table (auth-gate / firebase-row / vercel-row).
 // ============================================================================
 
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readLocalEnv } from './local-env.mjs';
 import { fileURLToPath } from 'node:url';
 
 // ── Pure classification (unit-tested): split feed rows into the provider
@@ -63,9 +62,7 @@ if (isMain) {
     process.env.NEXT_PUBLIC_FIREBASE_API_KEY ??
     (() => {
       try {
-        const env = readFileSync(resolve(process.cwd(), '.env.local'), 'utf8');
-        const m = env.match(/^NEXT_PUBLIC_FIREBASE_API_KEY=(.*)$/m);
-        return m ? m[1].trim().replace(/^"|"$/g, '') : '';
+        return readLocalEnv('NEXT_PUBLIC_FIREBASE_API_KEY') ?? '';
       } catch {
         return '';
       }

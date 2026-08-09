@@ -78,7 +78,11 @@ echo "[$(date '+%F %T')] scan-all scheduled run finished (exit ${SCAN_STATUS})" 
 # Seed the composed report into the in-app Reports feed (nothing is emailed).
 # Owner resolves env -> .env.local -> cron default 'demo-user', so
 # the report lands under the same account the automation reads.
-REPORT_OWNER="${REPORT_OWNER_ID:-$(grep -E '^REPORT_OWNER_ID=' "${PROJECT_ROOT}/.env.local" 2>/dev/null | head -1 | cut -d= -f2- || true)}"
+# Strip one surrounding quote pair: a `vercel env pull`-formatted .env.local
+# writes KEY="value", and an owner with literal quotes would seed reports
+# under the wrong uid (the same quote bug the node gates fixed via
+# scripts/local-env.mjs).
+REPORT_OWNER="${REPORT_OWNER_ID:-$(grep -E '^REPORT_OWNER_ID=' "${PROJECT_ROOT}/.env.local" 2>/dev/null | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' || true)}"
 REPORT_OWNER="${REPORT_OWNER:-demo-user}"
 node scripts/seed-in-app-reports.mjs --owner "${REPORT_OWNER}" >> "${LOG_FILE}" 2>&1
 SEED_STATUS=$?

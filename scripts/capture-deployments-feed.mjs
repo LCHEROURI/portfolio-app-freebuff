@@ -31,10 +31,11 @@
 // ============================================================================
 
 import { spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import { readLocalEnv } from './local-env.mjs';
 
 // Minimum deployment cards the live feed must show. Currently 7 Vercel rows +
 // 1 Firebase row; raise/lower here when the monitored repo set changes (the
@@ -88,9 +89,7 @@ if (isMain) {
     process.env.NEXT_PUBLIC_FIREBASE_API_KEY ??
     (() => {
       try {
-        const env = readFileSync(resolve(process.cwd(), '.env.local'), 'utf8');
-        const m = env.match(/^NEXT_PUBLIC_FIREBASE_API_KEY=(.*)$/m);
-        return m ? m[1].trim().replace(/^"|"$/g, '') : '';
+        return readLocalEnv('NEXT_PUBLIC_FIREBASE_API_KEY') ?? '';
       } catch {
         return '';
       }

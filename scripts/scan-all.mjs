@@ -24,10 +24,11 @@
 // ============================================================================
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readLocalEnv } from './local-env.mjs';
 
 const args = process.argv.slice(2);
 const getArg = (name, fallback) => {
@@ -191,9 +192,7 @@ const resolveCronSecret = () => {
   if (NOTIFY_SECRET) return NOTIFY_SECRET;
   if (process.env.CRON_SECRET) return process.env.CRON_SECRET;
   try {
-    const env = readFileSync(resolve(process.cwd(), '.env.local'), 'utf8');
-    const m = env.match(/^CRON_SECRET=(.*)$/m);
-    return m ? m[1].trim().replace(/^"|"$/g, '') : undefined;
+    return readLocalEnv('CRON_SECRET');
   } catch {
     return undefined;
   }

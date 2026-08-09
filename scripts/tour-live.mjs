@@ -17,9 +17,10 @@
 // ============================================================================
 
 import { spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { readLocalEnv } from './local-env.mjs';
 
 const args = process.argv.slice(2);
 const flag = (name, fallback) => {
@@ -37,9 +38,7 @@ const API_KEY =
   process.env.NEXT_PUBLIC_FIREBASE_API_KEY ??
   (() => {
     try {
-      const env = readFileSync(resolve(process.cwd(), '.env.local'), 'utf8');
-      const m = env.match(/^NEXT_PUBLIC_FIREBASE_API_KEY=(.*)$/m);
-      return m ? m[1].trim().replace(/^"|"$/g, '') : '';
+      return readLocalEnv('NEXT_PUBLIC_FIREBASE_API_KEY') ?? '';
     } catch {
       return '';
     }

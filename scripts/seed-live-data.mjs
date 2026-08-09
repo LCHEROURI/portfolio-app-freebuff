@@ -33,23 +33,14 @@
 // Exits nonzero when the service account is not configured.
 // ============================================================================
 
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 
 import { getProjectId, getServiceAccount, mintServiceAccountToken } from '../lib/server/sa-token.mjs';
+import { readLocalEnv } from './local-env.mjs';
 
 /** Read an env var from process.env, falling back to .env.local for CLI runs. */
-export const readEnv = (name) => {
-  if (process.env[name]) return process.env[name];
-  try {
-    const env = readFileSync(resolve(process.cwd(), '.env.local'), 'utf8');
-    const m = env.match(new RegExp(`^${name}=(.*)$`, 'm'));
-    return m ? m[1].trim().replace(/^"|"$/g, '') : undefined;
-  } catch {
-    return undefined;
-  }
-};
+export const readEnv = (name) => readLocalEnv(name);
 
 // ─── Deterministic fixture (ids are fixed → idempotent upsert) ───────────────
 // Shapes mirror lib/seed.ts exactly: a signed-in account with a couple of
