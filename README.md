@@ -114,7 +114,7 @@ reads its secrets from env, then `.env.local`:
 | google-idp | `FIREBASE_WEB_API_KEY`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | Google IdP record enabled with a classic web client |
 | review-sheet | `FIREBASE_WEB_API_KEY`, `FIREBASE_SERVICE_ACCOUNT`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` (+ Chrome) | deployed Model Comparison prints one review sheet listing every project's AI winner recommendation (both numbered entries + friendly model label) |
 | deployments | `FIREBASE_WEB_API_KEY` | deployed /api/deployments feed: 401 without auth; at least one Firebase Hosting row (SA-minted token, correct host) + one Vercel row (name→id resolution) with HEALTHY health checks |
-| deployed-pdf | `FIREBASE_WEB_API_KEY`, `FIREBASE_SERVICE_ACCOUNT`, `REPORT_OWNER_ID` | deployed /api/print/pdf renders a real PDF as the real owner: SA-minted custom token → owner idToken → POST returns 200 + `application/pdf` + a `%PDF-` body + an attachment filename (the route that 503'd on Vercel until serverless Chromium shipped) |
+| deployed-pdf | `FIREBASE_WEB_API_KEY`, `FIREBASE_SERVICE_ACCOUNT`, `REPORT_OWNER_ID` | deployed /api/print/pdf renders a real PDF as the real owner: SA-minted custom token → owner idToken → POST returns 200 + `application/pdf` + a `%PDF-` body + an attachment filename, rendered server-side by the bundled serverless Chromium on Vercel (no local Chrome needed on the runtime) |
 | auth-domains-direct | `FIREBASE_WEB_API_KEY` | same as auth-domains via the direct script (reported as covered) |
 | deployed-hash | `VERCEL_TOKEN` | production actually serves the expected commit |
 | import-surface | — | no unused or re-exported imports across scripts/ + lib/ + app/ |
