@@ -597,8 +597,17 @@ export const CANONICAL_SYSTEM_INJECTED_VARS = new Set([
 const SYSTEM_INJECTED_VARS_RE = /const SYSTEM_INJECTED_VARS = new Set\(\[([^\]]*)\]\);/;
 // Real project vars that share the VERCEL_ prefix and must never be exempted.
 const REAL_VERCEL_PROJECT_VARS = ['VERCEL_TOKEN', 'VERCEL_TEAM_ID'];
-// The §4 vercel-env row must document the exemption in plain words.
-const SYSTEM_INJECTED_DOC_MARKER_RE = /system-injected/i;
+// The vercel-env rows in BOTH onboarding docs must tell the same exemption
+// story in plain words: every phrase below must appear in each row, so a doc
+// that keeps the /system-injected/i marker while softening the rest of the
+// contract fails. Exported as the source of truth — the wording-parity unit
+// test iterates this same list, so guard and test can never drift.
+export const SYSTEM_INJECTED_WORDING_PHRASES = [
+  'system-injected',
+  'VERCEL_OIDC_TOKEN',
+  'real project vars',
+  'stay value-compared',
+];
 
 /**
  * Find a §4 gate-table row by its backticked command, bounded to the
@@ -628,8 +637,8 @@ function findLaunchRow(doc, command) {
  *   - no real project var (VERCEL_TOKEN, VERCEL_TEAM_ID) is exempted — they
  *     share the prefix but must stay value-compared;
  *   - docs/launch.md §4's vercel-env row AND the README handoff gate-table
- *     row both document the system-injected exemption, so neither onboarding
- *     surface can silently lose the note.
+ *     row both carry every SYSTEM_INJECTED_WORDING_PHRASES phrase, so neither
+ *     onboarding surface can silently lose the note or soften the contract.
  * Pure: reads nothing itself.
  *
  * @param {{ vercelEnvSrc: string, launchDoc: string, readmeDoc: string }} args
@@ -664,10 +673,8 @@ export function crossCheckSystemInjectedVars({ vercelEnvSrc, launchDoc, readmeDo
   const row = findLaunchRow(launchDoc, 'npm run verify:vercel-env');
   if (!row) {
     failures.push('docs/launch.md §4 has no vercel-env gate row — the system-injected exemption cannot be documented.');
-  } else if (!SYSTEM_INJECTED_DOC_MARKER_RE.test(row)) {
-    failures.push(
-      'docs/launch.md §4 vercel-env row does not document the system-injected-vars exemption — add the note so the doc and the gate agree.',
-    );
+  } else {
+    checkExemptionWording('docs/launch.md §4', row, failures);
   }
 
   // The README handoff gate table must document the same exemption, so both
@@ -676,13 +683,26 @@ export function crossCheckSystemInjectedVars({ vercelEnvSrc, launchDoc, readmeDo
   const readmeRow = findReadmeGateRow(readmeDoc, 'vercel-env');
   if (!readmeRow) {
     failures.push('README handoff gate table has no vercel-env row — the system-injected exemption cannot be documented.');
-  } else if (!SYSTEM_INJECTED_DOC_MARKER_RE.test(readmeRow)) {
-    failures.push(
-      'README handoff vercel-env row does not document the system-injected-vars exemption — add the note so the doc and the gate agree.',
-    );
+  } else {
+    checkExemptionWording('README handoff', readmeRow, failures);
   }
 
   return failures;
+}
+
+/**
+ * Assert a vercel-env row carries every SYSTEM_INJECTED_WORDING_PHRASES
+ * phrase, pushing one failure per missing phrase (naming the doc and the
+ * exact phrase, so the fix is self-explanatory). Pure: reads nothing itself.
+ */
+function checkExemptionWording(docLabel, row, failures) {
+  for (const phrase of SYSTEM_INJECTED_WORDING_PHRASES) {
+    if (!row.includes(phrase)) {
+      failures.push(
+        `${docLabel} vercel-env row omits the exemption phrase "${phrase}" — add the note so the doc and the gate agree.`,
+      );
+    }
+  }
 }
 
 /**

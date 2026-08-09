@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import {
   CANONICAL_SYSTEM_INJECTED_VARS,
   crossCheckSystemInjectedVars,
+  SYSTEM_INJECTED_WORDING_PHRASES,
 } from './launch-checklist-gates.mjs';
 
 const ROOT = process.cwd();
@@ -51,7 +52,7 @@ describe('crossCheckSystemInjectedVars (live repo)', () => {
     // exemption while the gate still applies it.
     const mutated = launchDoc.replace(/system-injected/gi, 'build-injected');
     const failures = crossCheckSystemInjectedVars({ vercelEnvSrc, launchDoc: mutated, readmeDoc });
-    expect(failures.join('\n')).toContain('does not document');
+    expect(failures.join('\n')).toContain('omits the exemption phrase');
     expect(failures.join('\n')).toContain('system-injected');
   });
 
@@ -60,8 +61,19 @@ describe('crossCheckSystemInjectedVars (live repo)', () => {
     // the README row must fail even though launch.md still documents it.
     const mutated = readmeDoc.replace(/system-injected/gi, 'build-injected');
     const failures = crossCheckSystemInjectedVars({ vercelEnvSrc, launchDoc, readmeDoc: mutated });
-    expect(failures.join('\n')).toContain('does not document');
+    expect(failures.join('\n')).toContain('omits the exemption phrase');
     expect(failures.join('\n')).toContain('system-injected');
+  });
+
+  it('catches a README row that keeps the marker but softens a phrase', () => {
+    // The marker surviving is not enough — softening 'stay value-compared'
+    // while keeping 'system-injected' must fail at runtime, not just in the
+    // unit suite (this is exactly what the phrase contract adds over the
+    // marker check).
+    const mutated = readmeDoc.replace('stay value-compared', 'stay compared');
+    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc, launchDoc, readmeDoc: mutated });
+    expect(failures.join('\n')).toContain('stay value-compared');
+    expect(failures.join('\n')).toContain('omits the exemption phrase');
   });
 
   it('README and launch.md vercel-env rows share the same exemption wording', () => {
@@ -76,7 +88,9 @@ describe('crossCheckSystemInjectedVars (live repo)', () => {
     const readmeRow = readmeDoc.split('\n').find((l) => l.startsWith('| vercel-env |')) ?? '';
     expect(launchRow, 'launch.md §4 must have a vercel-env row').not.toBe('');
     expect(readmeRow, 'README must have a vercel-env row').not.toBe('');
-    for (const phrase of ['system-injected', 'VERCEL_OIDC_TOKEN', 'real project vars', 'stay value-compared']) {
+    // Iterate the exported source of truth, so the unit test and the drift
+    // guard can never disagree about which phrases constitute the contract.
+    for (const phrase of SYSTEM_INJECTED_WORDING_PHRASES) {
       expect(launchRow, `launch.md §4 row must carry the phrase: ${phrase}`).toContain(phrase);
       expect(readmeRow, `README row must carry the phrase: ${phrase}`).toContain(phrase);
     }
@@ -101,14 +115,14 @@ describe('crossCheckSystemInjectedVars (fixture)', () => {
     '## 3. The verification gates',
     '| Gate | Requires | What it proves |',
     '| --- | --- | --- |',
-    '| `npm run verify:vercel-env` | `VERCEL_TOKEN` | Vercel production env matches `.env.local`. Vercel system-injected build vars are exempted from comparison. |',
+    '| `npm run verify:vercel-env` | `VERCEL_TOKEN` | Vercel production env matches `.env.local`. Vercel system-injected build vars (`VERCEL_OIDC_TOKEN`) are exempted from comparison; real project vars (`VERCEL_TOKEN`, `VERCEL_TEAM_ID`) stay value-compared. |',
   ].join('\n');
   // The README table keys rows by bare gate name (no npm run prefix).
   const FIXTURE_README = [
     '### The 15 verification gates',
     '| Gate | Requires | Proves |',
     '| --- | --- | --- |',
-    '| vercel-env | `VERCEL_TOKEN` (+ Vercel CLI) | Vercel prod env matches `.env.local` (system-injected build vars are exempted as informational) |',
+    '| vercel-env | `VERCEL_TOKEN` (+ Vercel CLI) | Vercel prod env matches `.env.local` (system-injected build vars like `VERCEL_OIDC_TOKEN` are exempted as informational; real project vars stay value-compared) |',
   ].join('\n');
 
   it('passes when the set matches the canonical list and BOTH docs document the exemption', () => {
@@ -139,13 +153,23 @@ describe('crossCheckSystemInjectedVars (fixture)', () => {
   it('fails when the doc row does not document the exemption', () => {
     const doc = FIXTURE_DOC.replace(/system-injected/i, 'injected');
     const failures = crossCheckSystemInjectedVars({ vercelEnvSrc: FIXTURE_SRC, launchDoc: doc, readmeDoc: FIXTURE_README });
-    expect(failures.join('\n')).toContain('does not document');
+    expect(failures.join('\n')).toContain('omits the exemption phrase');
   });
 
   it('fails when the README row does not document the exemption', () => {
     const readme = FIXTURE_README.replace(/system-injected/i, 'injected');
     const failures = crossCheckSystemInjectedVars({ vercelEnvSrc: FIXTURE_SRC, launchDoc: FIXTURE_DOC, readmeDoc: readme });
-    expect(failures.join('\n')).toContain('does not document');
+    expect(failures.join('\n')).toContain('omits the exemption phrase');
+  });
+
+  it('fails when a row keeps the marker but drops a non-marker phrase', () => {
+    // The new capability over the marker check: 'system-injected' survives in
+    // the README row, but losing 'real project vars' still fails — CI cannot
+    // be gamed by keeping one phrase while softening the contract.
+    const readme = FIXTURE_README.replace('real project vars', 'other vars');
+    const failures = crossCheckSystemInjectedVars({ vercelEnvSrc: FIXTURE_SRC, launchDoc: FIXTURE_DOC, readmeDoc: readme });
+    expect(failures.join('\n')).toContain('real project vars');
+    expect(failures.join('\n')).toContain('omits the exemption phrase');
   });
 
   it('fails when the doc has no vercel-env row at all', () => {
