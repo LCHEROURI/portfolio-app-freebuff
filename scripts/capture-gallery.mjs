@@ -137,12 +137,16 @@ const chrome = spawn(CHROME, [
   // Linux runner, while their light twins were byte-identical. The glyph AA
   // depends on Chrome's process-level text state — LCD subpixel mode, font
   // hinting, and the color pipeline — so pin all three: force grayscale AA,
-  // disable hinting (deterministic glyph shapes regardless of the runner's
-  // FreeType state), and force the sRGB profile so no display/color state
-  // leaks into rasterization. Light cells stay byte-identical with these on.
+  // full hinting (glyph edges pixel-snapped — the remaining 10px CodeBlock
+  // buttons stopped jittering only once hinting snapped them to the grid;
+  // hinting=none left 1-4-unit AA blend jitter on those glyph edges), and
+  // force the sRGB profile so no display/color state leaks into rasterization.
+  // --disable-gpu-compositing keeps the screenshot compositor on the fully
+  // deterministic software path. Light cells stay byte-identical with these on.
   '--disable-lcd-text',
-  '--font-render-hinting=none',
+  '--font-render-hinting=full',
   '--force-color-profile=srgb',
+  '--disable-gpu-compositing',
   `--remote-debugging-port=${PORT}`,
   `--user-data-dir=${USER_DATA_DIR}`,
   'about:blank',

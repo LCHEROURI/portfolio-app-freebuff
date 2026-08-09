@@ -241,27 +241,31 @@ describe('scripts/capture-gallery.mjs · headless Chrome spawn flags', () => {
     expect(DRIVER.match(/spawn\(CHROME, \[/g)).toHaveLength(1);
   });
 
-  it('passes the text-rendering determinism trio as real array entries (not just comment prose)', () => {
+  it('passes the text-rendering determinism flags as real array entries (not just comment prose)', () => {
     // The dark cells used to churn by a few pixels of sub-glyph anti-aliasing
     // on small semibold text run to run on the Linux runner while light cells
     // stayed byte-identical. The fix pins Chrome's process-level text state:
     // --disable-lcd-text (grayscale AA, no subpixel jitter),
-    // --font-render-hinting=none (glyph shapes independent of the runner's
-    // FreeType hinting state), --force-color-profile=srgb (no display/color
-    // state leaks into rasterization). Same comment-stripping discipline as
+    // --font-render-hinting=full (glyph edges pixel-snapped — the last
+    // jittering 10px CodeBlock buttons stopped only with full hinting),
+    // --force-color-profile=srgb (no display/color state leaks into
+    // rasterization), --disable-gpu-compositing (deterministic software
+    // compositor for the screenshot). Same comment-stripping discipline as
     // the sandbox flags: they must be ACTUAL args, not prose.
     const argsWithoutComments = chromeArgsBlock
       .split('\n')
       .filter((line) => !line.trim().startsWith('//'))
       .join('\n');
     expect(argsWithoutComments).toContain("'--disable-lcd-text'");
-    expect(argsWithoutComments).toContain("'--font-render-hinting=none'");
+    expect(argsWithoutComments).toContain("'--font-render-hinting=full'");
     expect(argsWithoutComments).toContain("'--force-color-profile=srgb'");
+    expect(argsWithoutComments).toContain("'--disable-gpu-compositing'");
     // Comma-anchored forms guard against a partial edit that drops the flag
     // while leaving a quoted mention in a comment elsewhere.
     expect(argsWithoutComments).toMatch(/'--disable-lcd-text',/);
-    expect(argsWithoutComments).toMatch(/'--font-render-hinting=none',/);
+    expect(argsWithoutComments).toMatch(/'--font-render-hinting=full',/);
     expect(argsWithoutComments).toMatch(/'--force-color-profile=srgb',/);
+    expect(argsWithoutComments).toMatch(/'--disable-gpu-compositing',/);
   });
 });
 
