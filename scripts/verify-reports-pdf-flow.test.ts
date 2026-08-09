@@ -39,7 +39,15 @@ describe('scripts/verify-reports-pdf-flow.mjs · source contract', () => {
   it('clicks the REAL Download PDF button on a saved report row', () => {
     expect(SCRIPT).toContain('button[aria-label^="Download PDF of"]');
     expect(SCRIPT).toContain('b.click()');
-    expect(SCRIPT).toContain("readdirSync(DOWNLOADS).filter((f) => !f.endsWith('.crdownload'))");
+  });
+
+  it('accepts ONLY real .pdf files as the download (ignores crash-dump artifacts)', () => {
+    // Under load the renderer can crash mid-click and Chrome drops a minidump
+    // named after the page (e.g. downloads.html, Cr24 magic) into the download
+    // dir. The gate must filter on the .pdf extension — grabbing the first new
+    // file would fail the %PDF- check with a confusing bad-header error.
+    expect(SCRIPT).toContain("f.endsWith('.pdf') && !f.endsWith('.crdownload')");
+    expect(SCRIPT).toContain('no real PDF download appeared within 60s');
   });
 
   it('asserts the downloaded file is a real PDF, not a stub', () => {

@@ -253,15 +253,21 @@ const clickDownloadAndVerify = async ({ selectorExpr, baseline, section, label }
     return false;
   }
   ok(`${label}: button clicked`);
+  // Only a real *.pdf file counts as the download. Under load the renderer can
+  // crash mid-click and Chrome drops a minidump into the download dir (a file
+  // named after the page, e.g. downloads.html, with the Cr24 magic) — grabbing
+  // the first new file would fail the %PDF- check with a confusing "bad
+  // header". The app always names PDFs via printPdfFileName (…pdf), so filter
+  // on the extension and keep polling past any crash-dump artifacts.
   let file = null;
   for (let i = 0; i < 60; i++) {
     await sleepMs(1000);
-    const files = readdirSync(DOWNLOADS).filter((f) => !f.endsWith('.crdownload'));
+    const files = readdirSync(DOWNLOADS).filter((f) => f.endsWith('.pdf') && !f.endsWith('.crdownload'));
     const fresh = files.filter((f) => !baseline.has(f));
     if (fresh.length > 0) { file = fresh[0]; break; }
   }
   if (!file) {
-    fail(`${label}: no browser download appeared within 60s of the click`, section);
+    fail(`${label}: no real PDF download appeared within 60s of the click`, section);
     return false;
   }
   const filePath = `${DOWNLOADS}/${file}`;
@@ -289,7 +295,7 @@ const waitForShell = async (marker) => {
   return false;
 };
 
-const listDownloaded = () => new Set(readdirSync(DOWNLOADS).filter((f) => !f.endsWith('.crdownload')));
+const listDownloaded = () => new Set(readdirSync(DOWNLOADS).filter((f) => f.endsWith('.pdf') && !f.endsWith('.crdownload')));
 
 // ── 4. Surface 1: Reports page row ──────────────────────────────────────────
 if (await waitForShell('reports-pdf-session')) {
