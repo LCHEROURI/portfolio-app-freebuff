@@ -207,3 +207,70 @@ describe('checkIntegrations — authorized-domains override', () => {
     expect(fb.authDomains).toBeUndefined();
   });
 });
+
+// ── Firestore probe: the health check must hit a REAL Firestore REST method ──
+// The bare GET …/documents?pageSize=1 was rejected by Google's frontend with
+// a 404 before auth, so the Firestore card showed 'Endpoint error (HTTP 404)'
+// even though the data layer worked (the cron reads through the SAME
+// :runQuery call). Lock the fixed probe: POST …/documents:runQuery with a
+// trivial structured query — HTTP 200 + [] means the DB + service account are
+// healthy — and forbid the old invalid URL from returning.
+describe('checkIntegrations — Firestore probe (runQuery, not the documents GET)', () => {
+  it('reports healthy and pings :runQuery when the service account is configured', async () => {
+    stubAdminEnv();
+    const calls: Array<{ url: string; method?: string }> = [];
+    const firestoreMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, method: init?.method });
+      if (url.includes('firestore.googleapis.com')) return jsonResponse([]); // runQuery → []
+      if (url.includes('api.github.com')) {
+        return jsonResponse({ resources: { core: { remaining: 10, limit: 60 } } });
+      }
+      if (url.includes('defaultSupportedIdpConfigs/google.com')) {
+        return jsonResponse({ enabled: true, clientId: '952213217375-abc.apps.googleusercontent.com' });
+      }
+      return jsonResponse({});
+    });
+    vi.stubGlobal('fetch', firestoreMock);
+
+    const statuses = await checkIntegrations(true);
+    const fs = statuses.find((s) => s.id === 'firestore');
+    expect(fs).toBeDefined();
+    expect(fs!.endpoint).toEqual({
+      ok: true,
+      status: 200,
+      ms: expect.any(Number),
+      detail: 'Service account can read documents',
+    });
+
+    const probe = calls.find((c) => c.url.includes('firestore.googleapis.com'));
+    expect(probe).toBeDefined();
+    expect(probe!.url).toContain('/documents:runQuery');
+    expect(probe!.url).not.toContain('/documents?pageSize=1');
+    expect(probe!.method).toBe('POST');
+  });
+
+  it('reports a 401/403 as lacking access (a failed probe is a real signal)', async () => {
+    stubAdminEnv();
+    const denied = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('firestore.googleapis.com')) {
+        return jsonResponse({ error: { message: 'permission denied' } }, 403);
+      }
+      if (url.includes('api.github.com')) {
+        return jsonResponse({ resources: { core: { remaining: 10, limit: 60 } } });
+      }
+      return jsonResponse({});
+    });
+    vi.stubGlobal('fetch', denied);
+
+    const statuses = await checkIntegrations(true);
+    const fs = statuses.find((s) => s.id === 'firestore');
+    expect(fs!.endpoint).toEqual({
+      ok: false,
+      status: 403,
+      ms: expect.any(Number),
+      detail: 'Service account lacks access',
+    });
+  });
+});

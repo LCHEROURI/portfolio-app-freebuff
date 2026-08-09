@@ -101,10 +101,23 @@ const checkFirestore = async (): Promise<IntegrationStatus> => {
     try {
       const token = await getFirestoreAdminToken();
       const project = getFirestoreProjectId();
+      // The probe must hit a REAL Firestore REST method: a bare GET on the
+      // collection root (…/documents?pageSize=1) is rejected by Google's
+      // frontend with a 404 before auth even runs, which rendered the
+      // Firestore card as a perpetual 'Endpoint error (HTTP 404)' while the
+      // data layer itself worked fine (the cron reads through the SAME
+      // :runQuery call below). Query a non-existent collection: HTTP 200 with
+      // an empty result set means the database + service account are healthy.
       const r = await cachedPing(
         'firestore',
-        `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents?pageSize=1`,
-        { headers: { Authorization: `Bearer ${token}` } },
+        `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents:runQuery`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            structuredQuery: { from: [{ collectionId: '__firestore_health_probe__' }], limit: 1 },
+          }),
+        },
       );
       const detail =
         r.status === 200 ? 'Service account can read documents'
