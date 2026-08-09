@@ -47,16 +47,39 @@ describe('scripts/verify-reports-pdf-flow.mjs · source contract', () => {
     expect(SCRIPT).toContain('buf.length <= 1000');
   });
 
-  it('asserts no error toast surfaces after the click (button is not silently dead)', () => {
+  it('asserts no error toast surfaces after each click (button is not silently dead)', () => {
     expect(SCRIPT).toContain('/PDF export failed|Failed to.*PDF|Chrome unavailable/');
-    expect(SCRIPT).toContain('errorState.pdfError || errorState.errorToast');
+    expect(SCRIPT).toContain('/Something went wrong|There was an error/');
+    // Each surface checks its own post-click error state (three checks, one
+    // per surface) so a dead button on any page fails the gate.
+    expect(SCRIPT).toContain('error surfaced after the Reports click');
+    expect(SCRIPT).toContain('error surfaced after the Command Center click');
+    expect(SCRIPT).toContain('error surfaced after the Model Comparison click');
   });
 
-  it('emits the four prefixed sub-result markers for the verify:all summary', () => {
+  it('drives all THREE printable surfaces (Reports, Top Three, review sheet)', () => {
+    expect(SCRIPT).toContain('button[aria-label^="Download PDF of"]');
+    expect(SCRIPT).toContain("Download today's top three as PDF");
+    expect(SCRIPT).toContain('Download all winner recommendations as PDF');
+    expect(SCRIPT).toContain('/model-comparison');
+  });
+
+  it('generates a winner recommendation via AI Recommend when none is saved', () => {
+    expect(SCRIPT).toContain("(b.textContent ?? '').includes('AI Recommend')");
+    expect(SCRIPT).toContain('document.body.innerText.match(/ai winner recommendation/gi)');
+  });
+
+  it('emits the ten prefixed sub-result markers for the verify:all summary', () => {
     expect(SCRIPT).toContain('VERIFY-SUBRESULT|reports-pdf-session|');
     expect(SCRIPT).toContain('VERIFY-SUBRESULT|reports-pdf-page|');
     expect(SCRIPT).toContain('VERIFY-SUBRESULT|reports-pdf-click|');
     expect(SCRIPT).toContain('VERIFY-SUBRESULT|reports-pdf-download|');
+    expect(SCRIPT).toContain('VERIFY-SUBRESULT|cc-pdf-page|');
+    expect(SCRIPT).toContain('VERIFY-SUBRESULT|cc-pdf-click|');
+    expect(SCRIPT).toContain('VERIFY-SUBRESULT|cc-pdf-download|');
+    expect(SCRIPT).toContain('VERIFY-SUBRESULT|mc-pdf-page|');
+    expect(SCRIPT).toContain('VERIFY-SUBRESULT|mc-pdf-click|');
+    expect(SCRIPT).toContain('VERIFY-SUBRESULT|mc-pdf-download|');
   });
 
   it('cleans up the headless Chrome profile and kill the browser on every exit path', () => {

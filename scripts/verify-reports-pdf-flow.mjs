@@ -1,29 +1,31 @@
 #!/usr/bin/env node
 // ============================================================================
-// scripts/verify-reports-pdf-flow.mjs — Reports-page Download PDF UI gate.
+// scripts/verify-reports-pdf-flow.mjs — Download PDF UI gate for ALL three
+// export surfaces.
 //
-// Proves the FULL UI flow (not just the API): signs into the DEPLOYED app as
+// Proves the FULL UI flows (not just the API): signs into the DEPLOYED app as
 // the REAL owner (service-account-minted Firebase custom token for
 // REPORT_OWNER_ID exchanged for an idToken — the same session mechanism
-// verify-deployed-pdf.mjs uses), navigates to /reports, waits for a saved
-// report row, CLICKS its actual "Download PDF" button, and captures the
-// browser-level download via CDP (Browser.setDownloadBehavior) to assert a
-// real %PDF- file lands on disk. Asserts:
+// verify-deployed-pdf.mjs uses), then for each printable surface drives the
+// actual "Download PDF" button and captures the browser-level download via
+// CDP (Browser.setDownloadBehavior) to assert a real %PDF- file lands:
 //
-//   1. session     — the owner idToken mints and the Reports page releases the
-//                    auth gate (no "Sign in to sync").
-//   2. page        — at least one saved report row renders with a
-//                    "Download PDF of …" button.
-//   3. click       — the button click is accepted with no error toast
-//                    (pdfError / "Something went wrong" absent).
-//   4. download    — the browser download completes and the file is a real
-//                    PDF (%PDF- header, > 1000 bytes) with the slug filename
-//                    (proving filename parity with the server disposition).
+//   1. Reports        — /reports, a saved report row's "Download PDF of …"
+//   2. Command Center — /, the "Download today's top three as PDF" button on
+//                       the Top Three card (renders when topThree has items,
+//                       which the owner's seeded data provides)
+//   3. Model Comp.    — /model-comparison, the "Download all winner
+//                       recommendations as PDF" review-sheet button. That
+//                       button only renders once at least one project has a
+//                       winner recommendation, so the gate clicks "AI
+//                       Recommend" on the first project and waits for the
+//                       panel (up to 90s) when no saved winner exists.
 //
-// This is the client-side complement of verify:deployed-pdf (which POSTs the
-// route directly): a regression in the button wiring, the auth facade, the
-// blob/anchor save, or the download flow fails CI even though the API is
-// healthy.
+// Each surface asserts: the button rendered, the click was accepted with no
+// error toast, and a real PDF (%PDF- header, > 1000 bytes) landed with the
+// slug filename (proving filename parity with the server disposition).
+// Emits VERIFY-SUBRESULT markers (reports-pdf-* / cc-pdf-* / mc-pdf-*) for
+// verify-all.mjs's summary table.
 //
 // Usage:
 //   node scripts/verify-reports-pdf-flow.mjs [--app https://...]
@@ -33,8 +35,7 @@
 // FIREBASE_SERVICE_ACCOUNT / FIREBASE_SERVICE_ACCOUNT_PATH / .env.local (via
 // lib/server/sa-token.mjs); and the owner uid from REPORT_OWNER_ID, then
 // .env.local. Needs a Chrome binary (CHROME_PATH, else the macOS default; CI
-// installs it on the Linux runner). Emits VERIFY-SUBRESULT markers
-// (session / page / click / download) for verify-all.mjs's summary table.
+// installs it on the Linux runner).
 // ============================================================================
 
 import { spawn } from 'node:child_process';
@@ -85,10 +86,10 @@ const fail = (msg, section) => {
   if (section) sectionFails[section] = (sectionFails[section] ?? 0) + 1;
   console.error(`  ✗ FAIL: ${msg}`);
 };
-// The section keys are the VERIFY-SUBRESULT names below (reports-pdf-*);
-// keep them in sync — a fail() call with a section name that no marker
-// emits silently drops the sub-row from the summary table.
 const ok = (msg) => console.log(`  ✓ ${msg}`);
+// The section keys are the VERIFY-SUBRESULT names below (reports-pdf-* /
+// cc-pdf-* / mc-pdf-*); keep them in sync — a fail() call with a section name
+// that no marker emits silently drops the sub-row from the summary table.
 
 const missing = [];
 if (!API_KEY) missing.push('FIREBASE_WEB_API_KEY');
@@ -101,7 +102,7 @@ if (missing.length > 0) {
 }
 
 // ── 1. Mint the owner session ───────────────────────────────────────────────
-console.log(`\n[1/4] Minting owner session (${OWNER.slice(0, 10)}…) via custom token`);
+console.log(`\n[1] Minting owner session (${OWNER.slice(0, 10)}…) via custom token`);
 const customToken = mintCustomToken(saJson, OWNER);
 const exchange = await fetch(
   `https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${API_KEY}`,
@@ -122,10 +123,10 @@ const expiresAt = Date.now() + parseInt(exchange.expiresIn, 10) * 1000;
 ok('owner idToken minted');
 
 // ── 2. Launch headless Chrome with downloads enabled ────────────────────────
-console.log(`\n[2/4] Launching headless Chrome (CDP :${PORT}) with download capture`);
+console.log(`\n[2] Launching headless Chrome (CDP :${PORT}) with download capture`);
 const chrome = spawn(CHROME, [
   '--headless=new', '--disable-gpu', '--no-first-run', '--disable-background-networking',
-  '--no-sandbox', '--disable-dev-shm-usage', '--hide-scrollbars',
+  '--no-sandbox', '--disable-dev-shm-usage', '--disable-popup-blocking', '--hide-scrollbars',
   '--window-size=1440,1400',
   `--remote-debugging-port=${PORT}`, `--user-data-dir=${USER_DATA_DIR}`, 'about:blank',
 ], { stdio: 'ignore' });
@@ -182,8 +183,8 @@ await main.send('Browser.setDownloadBehavior', {
   behavior: 'allow', downloadPath: DOWNLOADS, eventsEnabled: true,
 });
 
-// ── 3. Inject the owner session, then load /reports ─────────────────────────
-console.log(`\n[3/4] Loading ${APP}/reports as the owner`);
+// ── 3. Inject the owner session ─────────────────────────────────────────────
+console.log(`\n[3] Injecting the owner session, then loading ${APP}/reports`);
 await main.send('Page.navigate', { url: `${APP}/reports` });
 await sleepMs(4000);
 
@@ -237,20 +238,66 @@ await main.evaluate(`(async () => {
 await main.send('Page.reload', { ignoreCache: true });
 await sleepMs(3000);
 
-let shell = false;
-let t = '';
-for (let i = 0; i < 45; i++) {
-  await sleepMs(1000);
-  t = await main.text();
-  if (t.includes('Reports') && !t.includes('Sign in to sync')) { shell = true; break; }
-}
-if (!shell) {
-  fail(`Reports page never released the auth gate. Page: ${t.slice(0, 300)}`, 'reports-pdf-session');
-} else {
-  ok('auth gate released — Reports page rendered as the owner');
-}
+// ── Shared helpers ──────────────────────────────────────────────────────────
+// Click a button (by selector/expression), wait for a NEW file to land in the
+// downloads dir (beyond the pre-click baseline), and assert it is a real PDF.
+const clickDownloadAndVerify = async ({ selectorExpr, baseline, section, label }) => {
+  const clicked = await main.evaluate(`(() => {
+    const b = ${selectorExpr};
+    if (!b) return false;
+    b.click();
+    return true;
+  })()`);
+  if (!clicked) {
+    fail(`${label}: button not found`, section);
+    return false;
+  }
+  ok(`${label}: button clicked`);
+  let file = null;
+  for (let i = 0; i < 60; i++) {
+    await sleepMs(1000);
+    const files = readdirSync(DOWNLOADS).filter((f) => !f.endsWith('.crdownload'));
+    const fresh = files.filter((f) => !baseline.has(f));
+    if (fresh.length > 0) { file = fresh[0]; break; }
+  }
+  if (!file) {
+    fail(`${label}: no browser download appeared within 60s of the click`, section);
+    return false;
+  }
+  const filePath = `${DOWNLOADS}/${file}`;
+  const buf = readFileSync(filePath);
+  const isPdf = buf.subarray(0, 5).toString() === '%PDF-';
+  console.log(`  ↳ downloaded: ${file} · ${buf.length} bytes · header ${buf.subarray(0, 8).toString()}`);
+  if (!isPdf || buf.length <= 1000) {
+    fail(`${label}: expected a real PDF (${isPdf ? '' : 'bad header, '}${buf.length} bytes)`, section);
+    return false;
+  }
+  ok(`${label}: real PDF download (${buf.length} bytes, %PDF- header, filename "${file}")`);
+  return true;
+};
 
-// Wait for at least one saved report row with a Download PDF button.
+// Wait for a page shell: the app loaded and the auth gate released (the
+// signed-in nav/header is present, no "Sign in to sync").
+const waitForShell = async (marker) => {
+  let t = '';
+  for (let i = 0; i < 45; i++) {
+    await sleepMs(1000);
+    t = await main.text();
+    if (!t.includes('Sign in to sync') && /Command Center|Reports|Model Comparison/.test(t)) return true;
+  }
+  fail(`app shell never released the auth gate. Page: ${t.slice(0, 300)}`, marker);
+  return false;
+};
+
+const listDownloaded = () => new Set(readdirSync(DOWNLOADS).filter((f) => !f.endsWith('.crdownload')));
+
+// ── 4. Surface 1: Reports page row ──────────────────────────────────────────
+if (await waitForShell('reports-pdf-session')) {
+  ok('auth gate released — app rendered as the owner');
+} else {
+  // waitForShell already recorded the failure; continue so the other surfaces
+  // still report their own state (the run will exit nonzero).
+}
 let rowCount = 0;
 for (let i = 0; i < 30; i++) {
   await sleepMs(1000);
@@ -263,60 +310,138 @@ if (rowCount === 0) {
   ok(`${rowCount} saved report row(s) rendered with Download PDF buttons`);
 }
 
-// ── 4. Click the first Download PDF button; capture the download ────────────
-console.log(`\n[4/4] Clicking "Download PDF" on the first report row`);
-const clicked = await main.evaluate(`(() => {
-  const b = document.querySelector('button[aria-label^="Download PDF of"]');
-  if (!b) return false;
-  b.click();
-  return true;
-})()`);
-if (!clicked) {
-  fail('could not click the Download PDF button', 'reports-pdf-click');
-} else {
-  ok('button clicked');
-}
-
-// Watch for the file to land (exclude in-progress .crdownload files).
-let file = null;
-for (let i = 0; i < 60; i++) {
-  await sleepMs(1000);
-  const files = readdirSync(DOWNLOADS).filter((f) => !f.endsWith('.crdownload'));
-  if (files.length > 0) { file = files[0]; break; }
-}
-if (!file) {
-  fail('no browser download appeared within 60s of the click', 'reports-pdf-download');
-} else {
-  const filePath = `${DOWNLOADS}/${file}`;
-  const buf = readFileSync(filePath);
-  const isPdf = buf.subarray(0, 5).toString() === '%PDF-';
-  console.log(`  ↳ downloaded: ${file} · ${buf.length} bytes · header ${buf.subarray(0, 8).toString()}`);
-  if (!isPdf || buf.length <= 1000) {
-    fail(`expected a real PDF (${isPdf ? '' : 'bad header, '}${buf.length} bytes)`, 'reports-pdf-download');
-  } else {
-    ok(`real PDF download (${buf.length} bytes, %PDF- header, filename "${file}")`);
-  }
-}
-
-// No error toast / pdfError after the click (the button isn't silently dead).
-const errorState = await main.evaluate(`(() => {
+const reportsBaseline = listDownloaded();
+const reportsPdf = await clickDownloadAndVerify({
+  selectorExpr: `document.querySelector('button[aria-label^="Download PDF of"]')`,
+  baseline: reportsBaseline,
+  section: 'reports-pdf-click',
+  label: 'Reports row Download PDF',
+});
+if (reportsPdf) ok('Reports row: real PDF landed');
+const reportsError = await main.evaluate(`(() => {
   const t = document.body?.innerText || '';
-  return {
-    pdfError: /PDF export failed|Failed to.*PDF|Chrome unavailable/.test(t),
-    errorToast: /Something went wrong|There was an error/.test(t),
-  };
+  return /PDF export failed|Failed to.*PDF|Chrome unavailable/.test(t) || /Something went wrong|There was an error/.test(t);
 })()`);
-if (errorState.pdfError || errorState.errorToast) {
-  fail(`error surfaced after the click (${JSON.stringify(errorState)})`, 'reports-pdf-click');
+if (reportsError) {
+  fail('error surfaced after the Reports click', 'reports-pdf-click');
 } else {
-  ok('no error toast after the click');
+  ok('no error toast after the Reports click');
+}
+// The click/download sub-rows: mark the download sub-check from the file
+// verdict (the click row covers button-found + no-error).
+if (!reportsPdf) fail('Reports download did not complete', 'reports-pdf-download');
+
+// ── 5. Surface 2: Command Center Top Three card ─────────────────────────────
+console.log(`\n[5] Driving ${APP}/ — Command Center Top Three card`);
+await main.send('Page.navigate', { url: APP });
+await sleepMs(4000);
+if (await waitForShell('cc-pdf-page')) {
+  ok('Command Center shell rendered');
+}
+// NOTE: the button's aria-label contains an apostrophe ("today's top three"),
+// which terminates a single-quoted JS string inside the evaluate expression —
+// a naive `document.querySelector('button[aria-label="today's …"]')` is a
+// syntax error that silently returns undefined. Use an apostrophe-free prefix
+// selector ([aria-label^=…]) instead, exactly like the Reports surface.
+let ccButton = false;
+for (let i = 0; i < 30; i++) {
+  await sleepMs(1000);
+  ccButton = await main.evaluate(`(!!document.querySelector('button[aria-label^="Download today"]'))`);
+  if (ccButton) break;
+}
+if (!ccButton) {
+  fail(`Top Three Download PDF button never rendered (needs topThree items). Page: ${(await main.text()).slice(0, 400)}`, 'cc-pdf-page');
+} else {
+  ok('Top Three card rendered with its Download PDF button');
+}
+const ccBaseline = listDownloaded();
+const ccPdf = await clickDownloadAndVerify({
+  selectorExpr: `document.querySelector('button[aria-label^="Download today"]')`,
+  baseline: ccBaseline,
+  section: 'cc-pdf-click',
+  label: 'Command Center Top Three Download PDF',
+});
+if (!ccPdf) fail('Command Center download did not complete', 'cc-pdf-download');
+const ccError = await main.evaluate(`(() => {
+  const t = document.body?.innerText || '';
+  return /PDF export failed|Failed to.*PDF|Chrome unavailable/.test(t) || /Something went wrong|There was an error/.test(t);
+})()`);
+if (ccError) {
+  fail('error surfaced after the Command Center click', 'cc-pdf-click');
+} else {
+  ok('no error toast after the Command Center click');
 }
 
-// ── Sub-result markers for the verify:all summary table ────────────────────
+// ── 6. Surface 3: Model Comparison review sheet ─────────────────────────────
+console.log(`\n[6] Driving ${APP}/model-comparison — review sheet`);
+await main.send('Page.navigate', { url: `${APP}/model-comparison` });
+await sleepMs(4000);
+if (await waitForShell('mc-pdf-page')) {
+  ok('Model Comparison shell rendered');
+}
+// The Download-all button only renders once ≥1 project has a winner
+// recommendation. If the owner has none saved, click AI Recommend on the
+// first project and wait for the panel (OpenRouter round-trip, up to 90s).
+let mcButton = await main.evaluate(`(!!document.querySelector('button[aria-label="Download all winner recommendations as PDF"]'))`);
+if (!mcButton) {
+  console.log('  ↳ no saved winner recommendation — generating one via AI Recommend');
+  const clickedRecommend = await main.evaluate(`(() => {
+    const btn = [...document.querySelectorAll('button')].find((b) => (b.textContent ?? '').includes('AI Recommend'));
+    if (!btn) return 'missing';
+    btn.click();
+    return 'clicked';
+  })()`);
+  ok(clickedRecommend === 'clicked' ? 'AI Recommend clicked' : `AI Recommend button missing: ${clickedRecommend}`);
+  const panelCount = () => main.evaluate(
+    `(document.body.innerText.match(/ai winner recommendation/gi) || []).length`,
+  );
+  let count = await panelCount();
+  for (let i = 0; i < 90 && count < 1; i++) {
+    await sleepMs(1000);
+    count = await panelCount();
+  }
+  if (count < 1) {
+    fail('AI recommendation panel never rendered within 90s — cannot drive the review-sheet button', 'mc-pdf-page');
+  } else {
+    ok('AI winner recommendation panel rendered');
+  }
+  await sleepMs(1500);
+  mcButton = await main.evaluate(`(!!document.querySelector('button[aria-label="Download all winner recommendations as PDF"]'))`);
+}
+if (!mcButton) {
+  fail('review-sheet Download PDF button never rendered', 'mc-pdf-page');
+} else {
+  ok('review-sheet Download PDF button rendered');
+}
+const mcBaseline = listDownloaded();
+const mcPdf = await clickDownloadAndVerify({
+  selectorExpr: `document.querySelector('button[aria-label="Download all winner recommendations as PDF"]')`,
+  baseline: mcBaseline,
+  section: 'mc-pdf-click',
+  label: 'Model Comparison review-sheet Download PDF',
+});
+if (!mcPdf) fail('Model Comparison download did not complete', 'mc-pdf-download');
+const mcError = await main.evaluate(`(() => {
+  const t = document.body?.innerText || '';
+  return /PDF export failed|Failed to.*PDF|Chrome unavailable/.test(t) || /Something went wrong|There was an error/.test(t);
+})()`);
+if (mcError) {
+  fail('error surfaced after the Model Comparison click', 'mc-pdf-click');
+} else {
+  ok('no error toast after the Model Comparison click');
+}
+
+// ── 7. Sub-result markers for the verify:all summary table ──────────────────
 console.log(`\nVERIFY-SUBRESULT|reports-pdf-session|${(sectionFails['reports-pdf-session'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
 console.log(`VERIFY-SUBRESULT|reports-pdf-page|${(sectionFails['reports-pdf-page'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
 console.log(`VERIFY-SUBRESULT|reports-pdf-click|${(sectionFails['reports-pdf-click'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
 console.log(`VERIFY-SUBRESULT|reports-pdf-download|${(sectionFails['reports-pdf-download'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
+console.log(`VERIFY-SUBRESULT|cc-pdf-page|${(sectionFails['cc-pdf-page'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
+console.log(`VERIFY-SUBRESULT|cc-pdf-click|${(sectionFails['cc-pdf-click'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
+console.log(`VERIFY-SUBRESULT|cc-pdf-download|${(sectionFails['cc-pdf-download'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
+console.log(`VERIFY-SUBRESULT|mc-pdf-page|${(sectionFails['mc-pdf-page'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
+console.log(`VERIFY-SUBRESULT|mc-pdf-click|${(sectionFails['mc-pdf-click'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
+console.log(`VERIFY-SUBRESULT|mc-pdf-download|${(sectionFails['mc-pdf-download'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
 
 main.ws.close(); killChrome(); dropProfile();
 console.error(`\nRESULT: ${failures === 0 ? 'PASS' : `FAIL (${failures})`}`);
