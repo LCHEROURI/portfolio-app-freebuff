@@ -214,6 +214,18 @@ describe('.github/workflows/preview-gate.yml · deployment_status preview gate',
     expect(PREVIEW_GATE).toMatch(/on retry\)/);
     expect(PREVIEW_GATE).toContain('exit 1');
   });
+
+  it('wires the full EXPECTED_LIVE_FLAGS set into the preview-gate job env', () => {
+    // Same contract as the ci.yml verify-deployed and gallery jobs: every flag
+    // the local gate requires in the deployed store must be declared here so
+    // this deployment_status workflow stays locked to the same set. A flag
+    // added to EXPECTED_LIVE_FLAGS without this wiring — or dropped here while
+    // still required — fails below.
+    expect(Object.keys(EXPECTED_LIVE_FLAGS).length).toBeGreaterThan(0);
+    for (const [key, value] of Object.entries(EXPECTED_LIVE_FLAGS)) {
+      expect(PREVIEW_GATE).toContain(`${key}: '${value}'`);
+    }
+  });
 });
 
 describe('.github/workflows/gallery.yml · PR/dispatch gallery capture', () => {
@@ -362,5 +374,17 @@ describe('.github/workflows/verify-deployed-hash.yml · deployment_status deploy
   it('keeps the production alias-routing drift watch (--compare-url)', () => {
     expect(DEPLOYED_HASH).toContain('--compare-url "https://portfolio-app-freebuff.vercel.app"');
     expect(DEPLOYED_HASH).toContain("github.event.deployment_status.environment == 'Production'");
+  });
+
+  it('wires the full EXPECTED_LIVE_FLAGS set into the deployed-hash job env', () => {
+    // Same contract as the other three workflows: the deployed-store LIVE-flag
+    // set must be declared in this deployment_status workflow too, so EVERY
+    // workflow that fires per deploy is locked to the same set the local gate
+    // asserts. A flag added to EXPECTED_LIVE_FLAGS without this wiring — or
+    // dropped here while still required — fails below.
+    expect(Object.keys(EXPECTED_LIVE_FLAGS).length).toBeGreaterThan(0);
+    for (const [key, value] of Object.entries(EXPECTED_LIVE_FLAGS)) {
+      expect(DEPLOYED_HASH).toContain(`${key}: '${value}'`);
+    }
   });
 });

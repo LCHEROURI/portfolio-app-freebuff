@@ -55,6 +55,14 @@ jobs:
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       VERCEL_TEAM_ID: ${{ secrets.VERCEL_ORG_ID }}
+      # The deployed-store LIVE-flag set (source of truth: EXPECTED_LIVE_FLAGS
+      # in scripts/verify-vercel-env.mjs). Public build-time flags, safe as
+      # plain values — declares what the deployed store must carry and locks
+      # this deployment_status workflow to the same set the local gate asserts
+      # and the ci.yml/gallery.yml jobs declare. ci-workflows.test.ts fails if
+      # this list and EXPECTED_LIVE_FLAGS ever drift apart.
+      NEXT_PUBLIC_LIVE_REPOS: '1'
+      NEXT_PUBLIC_LIVE_DEPLOYMENTS: '1'
 
     steps:
       - name: Check out repository
