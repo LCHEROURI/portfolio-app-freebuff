@@ -80,9 +80,13 @@ export const resolveChromeBinary = async (): Promise<ChromeBinary> => {
       bundled: true,
       args: chromium.args,
     };
-  } catch {
+  } catch (err) {
     // No bundled Chromium available — fall back to a system binary and let
     // the spawn error surface the targeted 503 if it is not there either.
+    // Log the underlying cause: a silent fallthrough once shipped a 503 that
+    // said '/usr/bin/chromium' when the real failure was the bundle missing
+    // chromium.br — the log must name the actual reason next time.
+    console.warn(`chromePdf: bundled Chromium unavailable (${(err as Error).message ?? err}); falling back to /usr/bin/chromium`);
     return { path: '/usr/bin/chromium', bundled: false };
   }
 };

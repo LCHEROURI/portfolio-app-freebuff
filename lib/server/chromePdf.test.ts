@@ -158,7 +158,15 @@ describe('next.config.mjs · serverless Chromium wiring', () => {
     expect(config).toContain("serverComponentsExternalPackages: ['@sparticuz/chromium']");
   });
 
-  it('traces the bin/ dir into the /api/print/pdf function bundle', () => {
-    expect(config).toContain("'/api/print/pdf': ['node_modules/@sparticuz/chromium/bin/**']");
+  it('traces the bin/ dir into the /api/print/pdf function bundle under experimental', () => {
+    // Top-level outputFileTracingIncludes is silently IGNORED on Next 14.2
+    // (that shipped the no-chromium.br 503) — the option must sit under
+    // experimental with the route path (no /route suffix) as its key.
+    expect(config).toContain("outputFileTracingIncludes: {");
+    expect(config).toContain("'/api/print/pdf': ['./node_modules/@sparticuz/chromium/bin/**']");
+    const experimentalIdx = config.indexOf('experimental: {');
+    const tracingIdx = config.indexOf('outputFileTracingIncludes: {');
+    expect(experimentalIdx).toBeGreaterThan(-1);
+    expect(tracingIdx).toBeGreaterThan(experimentalIdx);
   });
 });
