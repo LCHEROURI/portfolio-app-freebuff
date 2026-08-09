@@ -525,6 +525,13 @@ only need an env change + redeploy to take effect.
 > is missing, so a re-introduction of this gap is caught instead of silently
 > shipping demo-mode screenshots.
 
+> **When the gallery re-captures** — the Gallery workflow fires on pull
+> requests and manual dispatch only, **not** on main pushes. So the 18
+> demo-preview route cells refresh when a PR runs (or you dispatch it
+> manually); the review-sheet and deployments-feed cells re-capture from the
+> live app on the same runs. To refresh the committed cells after a deploy,
+> dispatch `Gallery` from the Actions tab and fold the fresh screenshots in.
+
 **Connection status panel** — the **Integrations** page live-polls `/api/status`
 (every 30s + manual refresh) and shows, per integration: exactly which env
 vars are set (✓/✗, booleans only — values are never exposed) and a live
