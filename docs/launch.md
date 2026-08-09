@@ -84,12 +84,13 @@ Each exits nonzero on failure. Read secrets from env, then `.env.local`.
 | `node scripts/verify-google-idp.mjs` | `FIREBASE_WEB_API_KEY`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | `createAuthUri` resolves `google.com` with a classic web client id; admin API confirms the IdP record is enabled |
 | `npm run verify:review-sheet` | `FIREBASE_WEB_API_KEY`, `FIREBASE_SERVICE_ACCOUNT`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` (+ Chrome) | Drives the deployed Model Comparison page end to end: seeds a live fixture under a throwaway user, generates two AI winner recommendations, opens the Print-all review sheet in the preview window, and asserts BOTH numbered entries render with the friendly model label (DeepSeek Chat). Same credential family as prod-signin plus the service account for seeding. Emits sub-rows in `verify:all`'s summary (preview / entries / model label); run-to-run AI note drift is accepted (structure-only assertions) — the committed PNG pair is byte-stable via deterministic capture (gate 0.6d, see the sub-rows note below) |
 | `npm run verify:deployments` | `FIREBASE_WEB_API_KEY` | Deployed `/api/deployments` feed end to end with a throwaway Identity Toolkit user (minted from the web API key, deleted after): unauthenticated calls get 401; an authenticated call returns 200 + `ok:true`; at least one Firebase Hosting row (from the `firebasehosting.googleapis.com` feed via the SA-minted token) and one Vercel row (name→id resolution) are present with HEALTHY health checks. Guards the wrong-host 404 and the name-ignored-filter regressions the feed hit before. Emits `auth-gate` / `firebase-row` / `vercel-row` sub-rows in `verify:all`'s summary |
+| `npm run verify:deployed-pdf` | `FIREBASE_WEB_API_KEY`, `FIREBASE_SERVICE_ACCOUNT`, `REPORT_OWNER_ID` | Deployed `/api/print/pdf` renders a REAL PDF as the real owner (SA-minted custom token → owner idToken): 200 + `application/pdf` + `%PDF-` body + attachment filename; unauthenticated POSTs get 401. The route that 503'd on Vercel until serverless Chromium shipped |
 | `node scripts/verify-auth-domains.mjs` | `FIREBASE_WEB_API_KEY` | same as `verify:auth-domains` with throwaway-user token |
 | `npm run verify:deployed-hash -- --expect <sha>` | `VERCEL_TOKEN` | Production is actually serving the expected commit — the exact gate the `deployed-hash` CI workflow and pre-push hook run. Pass the commit you expect to be live (`git rev-parse origin/main` for the last pushed commit; `--check-local` compares against local HEAD instead) |
 | `npm run verify:import-surface` | — | Static import-surface lint over `scripts/` + `lib/` + `app/` (TS-compiler-AST scan): no re-exported imports and no unused imports. No secrets, no network — also wired into `npm run lint`, the pre-push hook (gate 0.6), and CI's lint step |
 | `npm run verify:dead-words` | — | Repo-wide sweep for dead-feature phrasing in code comments and docs: the removed report-email wording plus the removed integrations (the old data store, the delivery sender) can never silently return. The env-identifier phrases are **derived from `REMOVED_ENV_VARS` in `lib/integrationVarLinks.ts`** — the same source of truth the Integrations lock test loops over — so the banned list and the lock can never drift: add a removed identifier to the array and both extend automatically. Fails loudly if the array is missing or empty. Skips `docs/reviews/` (historical records), the linter's own files (which must quote the phrases), the source-of-truth array lines, and the removed-var lock lines in `lib/integrationVarLinks.test.ts` (which must quote the dead names to prove they resolve to null). No secrets, no network — also wired into `npm run lint`, the pre-push hook (gate 0.6b), and CI's lint step |
 
-Run **all fifteen in one command** with `npm run verify:all` — it preflights the
+Run **all sixteen in one command** with `npm run verify:all` — it preflights the
 drift guard above, runs every gate sequentially against the production URL
 (or `--app <url>` to target a preview/local server), dedupes the two
 auth-domains rows (they share one script), and prints a summary table,
@@ -132,7 +133,7 @@ When each gate runs (same picture as the README handoff section):
 ```text
    ┌───────────────────────────────────────────────────────────────┐
    │  LOCAL — every git push (.githooks/pre-push)                  │
-   │  runs the 15 verify:all gates + drift guards (timeboxed); a  │
+   │  runs the 16 verify:all gates + drift guards (timeboxed); a  │
    │  hook gates 0.6/0.6b/0.6c/0.6d (lints + render byte gates);   │
    │  dirty tree or any failure ABORTS the push                    │
    └──────────────────────────────┬────────────────────────────────┘
@@ -241,7 +242,7 @@ screenshots match; the review-sheet capture runs in deterministic mode). After
 every individual gate passes, it
 asserts the working tree is clean (nothing staged, unstaged, or untracked — a
 dirty tree means the pushed commit cannot match the code you just ran) and
-runs the complete fifteen-gate suite against production, printing a single
+runs the complete sixteen-gate suite against production, printing a single
 `SHIP READY` / `SHIP BLOCKED` verdict. Any nonzero exit aborts the push — so
 the same one-command verdict the go-live checklist uses is enforced at the
 point of no return. `SKIP_VERIFY_SIGNIN=1` bypasses it like every other gate.
@@ -322,7 +323,7 @@ installer's note).
 2. **Vercel** — all env vars from §2 set on **Production** (and the GitHub secrets from §3).
 3. **Rules** — `npx firebase deploy --only firestore:rules --project portfolio-app-freebuff2`.
 4. **Push to `main`** — Vercel auto-deploys; the pre-push hook runs the local gates; CI runs the post-deploy gates.
-5. **Run the full verify suite** against the production URL (§4). All fifteen gates must pass.
+5. **Run the full verify suite** against the production URL (§4). All sixteen gates must pass.
 6. **Manual smoke** — sign in on the production URL with email/password, then Google; open Command Center; click AI Explain and confirm the briefing card renders with the `DeepSeek Chat` badge.
 
 ## 6. What was verified at go-live (2026-08-06)

@@ -164,6 +164,7 @@ jobs:
       CRON_SECRET: ${{ secrets.CRON_SECRET }}
       FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
       FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      REPORT_OWNER_ID: ${{ secrets.REPORT_OWNER_ID }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       # The deployed-store LIVE-flag set (source of truth: EXPECTED_LIVE_FLAGS
       # in scripts/verify-vercel-env.mjs). These are PUBLIC build-time flags
@@ -194,12 +195,13 @@ jobs:
       # re-verifies stay exempt: forks never carry these secrets, and a
       # workflow_dispatch re-verify shows its skipped steps to the operator.
       - name: Fail loudly if a verify secret is missing (main push)
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'LCHEROURI/portfolio-app-freebuff' && (env.CRON_SECRET == '' || env.FIREBASE_WEB_API_KEY == '' || env.FIREBASE_SERVICE_ACCOUNT == '' || env.VERCEL_TOKEN == '') }}
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'LCHEROURI/portfolio-app-freebuff' && (env.CRON_SECRET == '' || env.FIREBASE_WEB_API_KEY == '' || env.FIREBASE_SERVICE_ACCOUNT == '' || env.REPORT_OWNER_ID == '' || env.VERCEL_TOKEN == '') }}
         run: |
           echo "::error::Required GitHub Actions secret(s) missing on main push:"
           [ -z "$CRON_SECRET" ] && echo "  - CRON_SECRET (gates 'Verify deployed cron report bodies')"
-          [ -z "$FIREBASE_WEB_API_KEY" ] && echo "  - FIREBASE_WEB_API_KEY (gates 'Verify deployed Firestore rules', 'Verify Google sign-in IdP config', and 'Verify deployed deployments feed')"
-          [ -z "$FIREBASE_SERVICE_ACCOUNT" ] && echo "  - FIREBASE_SERVICE_ACCOUNT (gates 'Verify deployed review-sheet print-all contract')"
+          [ -z "$FIREBASE_WEB_API_KEY" ] && echo "  - FIREBASE_WEB_API_KEY (gates 'Verify deployed Firestore rules', 'Verify Google sign-in IdP config', 'Verify deployed deployments feed', and 'Verify deployed PDF route')"
+          [ -z "$FIREBASE_SERVICE_ACCOUNT" ] && echo "  - FIREBASE_SERVICE_ACCOUNT (gates 'Verify deployed review-sheet print-all contract' and 'Verify deployed PDF route')"
+          [ -z "$REPORT_OWNER_ID" ] && echo "  - REPORT_OWNER_ID (gates 'Verify deployed PDF route' — the owner session minted for the PDF POST)"
           [ -z "$VERCEL_TOKEN" ] && echo "  - VERCEL_TOKEN (gates 'Verify Vercel token health')"
           echo "Add them under GitHub -> Settings -> Secrets and variables -> Actions, then re-run this job."
           exit 1
@@ -207,7 +209,9 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          REPORT_OWNER_ID: ${{ secrets.REPORT_OWNER_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        
 
       # Vercel token health: proves the CI VERCEL_TOKEN (the same secret the
       # deployed-hash + gallery workflows consume) is still alive, reporting
@@ -294,6 +298,22 @@ jobs:
         run: node scripts/verify-deployments.mjs
         env:
           FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+
+      # Deployed PDF route contract: POSTs a PrintDoc to the DEPLOYED
+      # /api/print/pdf AS THE REAL OWNER (service-account-minted custom token
+      # for REPORT_OWNER_ID, exchanged for an idToken) and asserts a real
+      # %PDF- response with an attachment filename — the contract that 503'd
+      # on Vercel (no Chrome binary, untraced chromium.br, no /dev/shm). A
+      # silent regression fails CI. Gated on the full owner-session trio (web
+      # API key + service account + owner uid) so forks / unconfigured repos
+      # stay green.
+      - name: Verify deployed PDF route
+        if: ${{ env.FIREBASE_WEB_API_KEY != '' && env.FIREBASE_SERVICE_ACCOUNT != '' && env.REPORT_OWNER_ID != '' }}
+        run: node scripts/verify-deployed-pdf.mjs
+        env:
+          FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          REPORT_OWNER_ID: ${{ secrets.REPORT_OWNER_ID }}
 
   # Post-deploy authorized-domains smoke test. Mints a throwaway Firebase
   # user, calls the deployed /api/status?project=<domain> and fails the run

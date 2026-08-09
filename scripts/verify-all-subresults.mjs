@@ -38,6 +38,8 @@ export const SUBRESULT_LABELS = {
   'review-sheet-model-label': 'Friendly model label rendered',
   'firebase-row': 'Firebase Hosting row present + HEALTHY',
   'vercel-row': 'Vercel deployment row present + HEALTHY',
+  'pdf-render': 'Authenticated POST returns a real %PDF- document',
+  'pdf-filename': 'Content-Disposition attachment filename present',
   'token-active': 'Vercel token resolves + valid',
   'expiry-verdict': 'Token expiry verdict',
   'alias-drift': 'Alias-routing drift watch',

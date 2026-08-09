@@ -154,7 +154,7 @@ describe('extractSection', () => {
     const readme = readFileSync('README.md', 'utf8');
     const section = extractSection(readme, '## Handoff', '## Screenshots');
     expect(section).toContain('## Handoff — read this first');
-    expect(section).toContain('### The 15 verification gates');
+    expect(section).toContain('### The 16 verification gates');
     expect(section).toContain('When each gate runs:');
     // Both docs-PNG embeds must stay inside the Handoff section (before the
     // Screenshots section) — a future edit dropping either embed fails here.

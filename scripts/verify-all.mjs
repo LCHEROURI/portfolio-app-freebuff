@@ -6,7 +6,7 @@
 // against production (or an --app override), so the go-live checklist is
 // executable in a single command:
 //
-//   npm run verify:all                       # all fourteen gates, production URL
+//   npm run verify:all                       # all sixteen gates, production URL
 //   node scripts/verify-all.mjs --app http://localhost:3000
 //   node scripts/verify-all.mjs --only prod-signin,google-idp
 //   node scripts/verify-all.mjs --skip prod-signin --timeout 900
@@ -60,7 +60,7 @@ const PRODUCTION_URL = 'https://portfolio-app-freebuff.vercel.app';
 const ONLY = onlyArg ? onlyArg.split(',').map((s) => s.trim()).filter(Boolean) : [];
 const SKIP = skipArg ? skipArg.split(',').map((s) => s.trim()).filter(Boolean) : [];
 
-const GATE_NAMES = ['disk-headroom', 'conv-db', 'token-health', 'vercel-env', 'cron-reports', 'firestore-rules', 'auth-domains', 'prod-signin', 'google-idp', 'review-sheet', 'deployments', 'auth-domains-direct', 'deployed-hash', 'import-surface', 'dead-words'];
+const GATE_NAMES = ['disk-headroom', 'conv-db', 'token-health', 'vercel-env', 'cron-reports', 'firestore-rules', 'auth-domains', 'prod-signin', 'google-idp', 'review-sheet', 'deployments', 'deployed-pdf', 'auth-domains-direct', 'deployed-hash', 'import-surface', 'dead-words'];
 const unknownOnly = ONLY.filter((n) => !GATE_NAMES.includes(n));
 const unknownSkip = SKIP.filter((n) => !GATE_NAMES.includes(n));
 if (unknownOnly.length > 0 || unknownSkip.length > 0) {
@@ -160,6 +160,15 @@ const GATES = [
   // and the name→id Vercel resolution — a silent regression in either half of
   // the feed fails CI. Same credential family as prod-signin (web API key).
   { name: 'deployments', label: 'Deployments feed (Vercel + Firebase)', script: 'verify:deployments', appFlag: '--app', secrets: ['FIREBASE_WEB_API_KEY'], capture: true },
+  // The deployed-pdf gate proves the DEPLOYED /api/print/pdf renders a real
+  // PDF AS THE REAL OWNER: a service-account-minted custom token for
+  // REPORT_OWNER_ID is exchanged for an idToken, and the authenticated POST
+  // must return 200 + application/pdf + a %PDF- body + an attachment
+  // filename. This is the contract that 503'd on Vercel (no Chrome binary,
+  // untraced chromium.br, no /dev/shm) — a silent regression fails CI. The
+  // owner session needs the SA (custom-token mint) + web API key (exchange)
+  // + the owner uid, so all three are declared secrets.
+  { name: 'deployed-pdf', label: 'Deployed PDF route (serverless Chromium)', script: 'verify:deployed-pdf', appFlag: '--app', secrets: ['FIREBASE_WEB_API_KEY', 'FIREBASE_SERVICE_ACCOUNT', 'REPORT_OWNER_ID'], capture: true },
   { name: 'auth-domains-direct', label: 'Authorized domains (direct script)', file: 'scripts/verify-auth-domains.mjs', appFlag: '--app', duplicateOf: 'auth-domains', secrets: ['FIREBASE_WEB_API_KEY'] },
   { name: 'deployed-hash', label: 'Deployed commit matches expected', script: 'verify:deployed-hash', expectFlag: '--expect', url: PRODUCTION_URL, secrets: ['VERCEL_TOKEN'], capture: true },
   // Pure static lint over scripts/ + lib/ + app/: re-exported or unused
@@ -177,7 +186,7 @@ const GATES = [
 ];
 
 // ── Self-check: the 15-gate contract must hold before anything runs ─────────
-// The launch-checklist contract promises EXACTLY fifteen gates — the same
+// The launch-checklist contract promises EXACTLY sixteen gates — the same
 // EXPECTED_GATE_COUNT verify-launch-checklist.mjs hardcodes. If a future gate
 // is added to GATE_NAMES (or a GATES entry to the table) without the full
 // contract update — the §4 row + Requires cell, the README/launch.md pipeline
@@ -187,7 +196,7 @@ const GATES = [
 // off a contract that no longer holds. The preflight drift guard would also
 // catch the mismatch, but only after spawning a child process; this is
 // instant and names the exact source of truth.
-const EXPECTED_GATE_COUNT = 15;
+const EXPECTED_GATE_COUNT = 16;
 if (GATE_NAMES.length !== EXPECTED_GATE_COUNT || GATES.length !== GATE_NAMES.length) {
   console.error(`✗ FAIL: gate contract — GATE_NAMES has ${GATE_NAMES.length}, GATES has ${GATES.length}, but the launch-checklist contract promises ${EXPECTED_GATE_COUNT}.`);    console.error('  A gate was added without the full contract update:');
     console.error('    - scripts/verify-launch-checklist.mjs  EXPECTED_GATE_COUNT');

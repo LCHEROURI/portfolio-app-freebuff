@@ -40,13 +40,13 @@ const EXPECTED = [
 
 const WIDTH = 1200;
 const MIN_HEIGHT = 2000;
-// 7000 not 6500: launch.md §4 carries the Disk full emergency subsection
-// (added 2026-08-08) and grew again when the conv-db WAL gate became the
-// 14th §4 row (renders ~6600 tall) and the deployments feed gate the 15th
-// (~6700 tall). The band's real job is catching the 800px MIN_H broken-page
-// collapse, so it tracks content growth while staying far above the floor
-// and far below any pathological render.
-const MAX_HEIGHT = 7000;
+// 7500 not 7000: launch.md §4 carries the Disk full emergency subsection
+// (added 2026-08-08), grew with the conv-db WAL gate (14th row), the
+// deployments feed gate (15th), and now the deployed-pdf gate (16th,
+// renders ~7100 tall). The band's real job is catching the 800px MIN_H
+// broken-page collapse, so it tracks content growth while staying far above
+// the floor and far below any pathological render.
+const MAX_HEIGHT = 7500;
 
 // ── Dependency-free PNG IHDR parser ─────────────────────────────────────────
 // Width/height live in the IHDR chunk at fixed offsets after the 8-byte

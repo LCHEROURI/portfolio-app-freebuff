@@ -169,6 +169,24 @@ describe('.github/workflows/ci.yml · verify-deployed job (post-deploy smoke gat
     expect(verifyDeployedBlock).toContain('FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}');
   });
 
+  it('still runs the deployed PDF route gate, gated on the owner-session trio', () => {
+    // The deployed-pdf gate (verify-deployed-pdf.mjs) POSTs a PrintDoc to the
+    // DEPLOYED /api/print/pdf AS THE REAL OWNER (SA-minted custom token for
+    // REPORT_OWNER_ID exchanged for an idToken) and asserts a real %PDF-
+    // response with an attachment filename — the contract that 503'd on
+    // Vercel (no Chrome binary, untraced chromium.br, no /dev/shm). It needs
+    // all three of the owner-session credentials, each gated so a missing
+    // secret skips-not-fails only on forks.
+    expect(verifyDeployedBlock).toMatch(/run: node scripts\/verify-deployed-pdf\.mjs/);
+    expect(verifyDeployedBlock).toContain("if: ${{ env.FIREBASE_WEB_API_KEY != '' && env.FIREBASE_SERVICE_ACCOUNT != '' && env.REPORT_OWNER_ID != '' }}");
+    expect(verifyDeployedBlock).toContain('FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}');
+    expect(verifyDeployedBlock).toContain('REPORT_OWNER_ID: ${{ secrets.REPORT_OWNER_ID }}');
+    // The loud guard must name the new secret, so a missing REPORT_OWNER_ID
+    // on a main push fails the run instead of silently skipping the gate.
+    expect(verifyDeployedBlock).toContain("env.REPORT_OWNER_ID == ''");
+    expect(verifyDeployedBlock).toContain('REPORT_OWNER_ID: ${{ secrets.REPORT_OWNER_ID }}');
+  });
+
   it('wires the full EXPECTED_LIVE_FLAGS set into the verify-deployed job env', () => {
     // The deployed-store LIVE-flag set (source of truth: EXPECTED_LIVE_FLAGS
     // in verify-vercel-env.mjs) must be declared in this job's env so the
