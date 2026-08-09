@@ -110,6 +110,11 @@ DRIVER_ARGS=(--url "$URL" --out "$CAPTURE_DIR" --review-sheet-app "$REVIEW_SHEET
 if [[ ${#HEADERS[@]} -gt 0 ]]; then
   for hdr in "${HEADERS[@]}"; do DRIVER_ARGS+=(--header "$hdr"); done
 fi
+# Deterministic capture: pin /api/status latencies + timestamps (the driver's
+# CAPTURE_DETERMINISTIC mode) so the Integrations cells are byte-stable across
+# runs — the last churning route cells become as stable as the rest of the
+# gallery. Live captures can opt out with CAPTURE_DETERMINISTIC=0.
+export CAPTURE_DETERMINISTIC=1
 node scripts/capture-gallery.mjs "${DRIVER_ARGS[@]}" 2>&1 | tee "$CAPTURE_LOG"
 PIPE_STATUS="${PIPESTATUS[0]}"
 

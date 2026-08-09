@@ -280,3 +280,54 @@ describe('scripts/capture-gallery.mjs · per-run Chrome profile (--user-data-dir
     }
   });
 });
+
+describe('scripts/capture-gallery.mjs · deterministic capture mode (CAPTURE_DETERMINISTIC)', () => {
+  it('defines the CAPTURE_DETERMINISTIC flag and fixed pin values', () => {
+    // The Integrations cells churn run to run because /api/status returns real
+    // ping latencies, an ISO checkedAt, and a draining GitHub rate-limit count.
+    // The flag gates the pinning; the fixed constants are the pinned values.
+    expect(DRIVER).toContain("process.env.CAPTURE_DETERMINISTIC === '1'");
+    expect(DRIVER).toContain('const FIXED_MS = 120;');
+    expect(DRIVER).toContain("const FIXED_RATE_LIMIT = '4500/5000';");
+  });
+
+  it('pins checkedAt, endpoint.ms, and the GitHub rate-limit counts in /api/status bodies', () => {
+    // Each churn field must be rewritten in place: the ISO timestamp, every
+    // numeric latency, and the "— N/M req/h left" counts that drain as polls
+    // consume the rate limit. A pin that only covers one field leaves the
+    // cell churning on the others.
+    expect(DRIVER).toContain("if (key === 'checkedAt' && typeof value === 'string') node[key] = FIXED_CHECKED_AT;");
+    expect(DRIVER).toContain("else if (key === 'ms' && typeof value === 'number') node[key] = FIXED_MS;");
+    expect(DRIVER).toMatch(/req\\\/h left\/\.test\(value\)/);
+    expect(DRIVER).toContain('req\\/h left/, `${FIXED_RATE_LIMIT} req/h left`');
+  });
+
+  it('enables CDP Fetch interception scoped to /api/status at Response stage', () => {
+    // The interception must target exactly the status route the page polls (a
+    // broader pattern would pause unrelated requests and risk hanging the
+    // run), and pause at Response so the body can be rewritten before render.
+    expect(DRIVER).toContain("await send('Fetch.enable',");
+    expect(DRIVER).toContain("patterns: [{ urlPattern: '*://*/*api/status*', requestStage: 'Response' }]");
+    // The interception must be gated behind the flag — live captures never
+    // enable the Fetch domain, so real latencies still flow.
+    expect(DRIVER).toContain('if (DETERMINISTIC) {');
+  });
+
+  it('fulfills paused responses with the pinned body and never hangs on a hiccup', () => {
+    // The paused request must be answered — pinLiveFields the parsed body and
+    // fulfill it, with a continueRequest fallback so any interception hiccup
+    // (non-JSON body, CDP error) can never stall the page.
+    expect(DRIVER).toContain("await send('Fetch.getResponseBody', { requestId });");
+    expect(DRIVER).toContain('pinLiveFields(json);');
+    expect(DRIVER).toContain("await send('Fetch.fulfillRequest',");
+    expect(DRIVER).toContain("await send('Fetch.continueRequest', { requestId });");
+  });
+
+  it('capture-screenshots.sh enables the flag so CI + local captures are deterministic', () => {
+    // The shell wrapper is the single entry both CI (gallery.yml → npm run
+    // capture:screenshots) and local folds use; without the export here the
+    // flag would be a dead switch that never fires in the real capture path.
+    const shell = readFileSync('scripts/capture-screenshots.sh', 'utf8');
+    expect(shell).toContain('export CAPTURE_DETERMINISTIC=1');
+  });
+});

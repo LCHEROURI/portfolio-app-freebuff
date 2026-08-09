@@ -20,6 +20,10 @@
  *     --url https://portfolio-app-freebuff-dvn3k3egz-laredj-chehrouris-projects.vercel.app \
  *     --out screenshots \
  *     --header 'x-vercel-protection-bypass: <secret>'   # repeatable; sent on every request
+ *
+ * Deterministic capture: CAPTURE_DETERMINISTIC=1 (set by capture-screenshots.sh)
+ * pins /api/status checkedAt + latencies via CDP Fetch interception so the
+ * Integrations cells are byte-stable across runs; unset, live values flow.
  */
 import { spawn } from 'node:child_process';
 import { readFileSync, rmSync } from 'node:fs';
@@ -43,6 +47,33 @@ const VIEWPORT_H = 1000;
 const USER_DATA_DIR = `/tmp/gallery-capture-chrome-${process.pid}-${Date.now()}`;
 // Overridable so quick smoke tests (and CI) don't pay the full settle time.
 const WAIT_MS = Number(process.env.CAPTURE_WAIT_MS ?? 12000);
+// Deterministic capture mode: CAPTURE_DETERMINISTIC=1 pins the live fields in
+// /api/status responses via CDP Fetch interception (checkedAt, every
+// endpoint.ms, and the GitHub rate-limit counts), so the Integrations cells
+// render byte-identical values on every run — the last churning route cells
+// become as stable as the rest of the gallery. Live captures (flag unset) are
+// untouched: the interception is never enabled, so real latencies still flow.
+const DETERMINISTIC = process.env.CAPTURE_DETERMINISTIC === '1';
+const FIXED_MS = 120;
+const FIXED_RATE_LIMIT = '4500/5000';
+const FIXED_CHECKED_AT = '2026-01-01T00:00:00.000Z';
+
+// Rewrite the churn-prone fields of a parsed /api/status body in place:
+//   checkedAt        — ISO timestamp, differs every request;
+//   any `ms` number  — real ping latency, differs every run;
+//   GitHub detail    — "Authenticated — 4500/5000 req/h left" — the remaining
+//                      count drains as polls consume the rate limit.
+const pinLiveFields = (node) => {
+  if (Array.isArray(node)) { for (const item of node) pinLiveFields(item); return; }
+  if (!node || typeof node !== 'object') return;
+  for (const [key, value] of Object.entries(node)) {
+    if (key === 'checkedAt' && typeof value === 'string') node[key] = FIXED_CHECKED_AT;
+    else if (key === 'ms' && typeof value === 'number') node[key] = FIXED_MS;
+    else if (typeof value === 'string' && /req\/h left/.test(value)) {
+      node[key] = value.replace(/\d+\/\d+ req\/h left/, `${FIXED_RATE_LIMIT} req/h left`);
+    } else if (value && typeof value === 'object') pinLiveFields(value);
+  }
+};
 
 const args = process.argv.slice(2);
 // Accept both `--url X` and `--url=X` (and the same for --out).
@@ -134,20 +165,52 @@ await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = rejec
 
 let msgId = 0;
 const pending = new Map();
-ws.onmessage = (event) => {
-  const msg = JSON.parse(event.data);
-  if (msg.id && pending.has(msg.id)) {
-    const { resolve, reject } = pending.get(msg.id);
-    pending.delete(msg.id);
-    msg.error ? reject(new Error(JSON.stringify(msg.error))) : resolve(msg.result);
-  }
-};
 const send = (method, params = {}) =>
   new Promise((resolve, reject) => {
     const id = ++msgId;
     pending.set(id, { resolve, reject });
     ws.send(JSON.stringify({ id, method, params }));
   });
+
+// CDP events that need async handling: Fetch.requestPaused fires for every
+// /api/status response in deterministic mode. Every paused request is answered
+// with fulfill (pinned body) or continue (fallback), so a page can never hang
+// waiting on a paused request.
+const handleEvent = async (msg) => {
+  if (msg.method !== 'Fetch.requestPaused') return;
+  const { requestId, responseStatusCode, responseHeaders } = msg.params;
+  try {
+    const { body, base64Encoded } = await send('Fetch.getResponseBody', { requestId });
+    const text = Buffer.from(body, base64Encoded ? 'base64' : 'utf8').toString('utf8');
+    const json = JSON.parse(text);
+    pinLiveFields(json);
+    const pinned = Buffer.from(JSON.stringify(json), 'utf8').toString('base64');
+    await send('Fetch.fulfillRequest', {
+      requestId,
+      responseCode: responseStatusCode ?? 200,
+      responseHeaders: (responseHeaders ?? [])
+        .filter((h) => !['content-encoding', 'content-length'].includes(h.name.toLowerCase()))
+        .map((h) => ({ name: h.name.toLowerCase(), value: h.value })),
+      body: pinned,
+    });
+  } catch {
+    // A paused request must NEVER hang the run: any interception hiccup
+    // (non-JSON body, CDP error) continues the request unmodified. Live
+    // latencies rendering once is fine; a stalled page is not.
+    try { await send('Fetch.continueRequest', { requestId }); } catch { /* gone */ }
+  }
+};
+
+ws.onmessage = (event) => {
+  const msg = JSON.parse(event.data);
+  if (msg.id && pending.has(msg.id)) {
+    const { resolve, reject } = pending.get(msg.id);
+    pending.delete(msg.id);
+    msg.error ? reject(new Error(JSON.stringify(msg.error))) : resolve(msg.result);
+  } else if (msg.method) {
+    void handleEvent(msg);
+  }
+};
 
 await send('Emulation.setDeviceMetricsOverride', {
   width: VIEWPORT_W, height: VIEWPORT_H, deviceScaleFactor: 1, mobile: false,
@@ -157,6 +220,16 @@ if (Object.keys(extraHeaders).length) {
   await send('Network.enable');
   await send('Network.setExtraHTTPHeaders', { headers: extraHeaders });
   console.log(`extra HTTP headers: ${Object.keys(extraHeaders).join(', ')}`);
+}
+
+if (DETERMINISTIC) {
+  // Intercept /api/status at the Response stage and rewrite the churn-prone
+  // fields (checkedAt, latencies, rate-limit counts) before the page renders
+  // them — scoped to exactly that route so no other request is touched.
+  await send('Fetch.enable', {
+    patterns: [{ urlPattern: '*://*/*api/status*', requestStage: 'Response' }],
+  });
+  console.log('deterministic capture: /api/status checkedAt + latencies pinned for byte-stable cells');
 }
 
 await mkdir(outArg, { recursive: true });
