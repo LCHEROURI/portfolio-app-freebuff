@@ -250,7 +250,15 @@ describe('.github/workflows/gallery.yml · PR/dispatch gallery capture', () => {
 
   it('still deploys a preview of the branch, gated on the Vercel env trio', () => {
     expect(GALLERY).toContain('id: deploy');
-    expect(GALLERY).toMatch(/npx --yes vercel deploy --prebuilt --yes --token=/);
+    expect(GALLERY).toMatch(/npx --yes vercel deploy --yes --token=/);
+    // The prebuilt flow must NOT come back: a prebuilt deploy uploads only
+    // source + .vercel/output, but the serverless functions' filePathMap
+    // references ROOT node_modules (styled-jsx, react, ...) that the upload
+    // excludes, so "Deploying outputs" dies with ENOENT lstat
+    // node_modules/styled-jsx/index.js. The remote-build path (no --prebuilt)
+    // installs node_modules on the build machine first and is the proven
+    // production path.
+    expect(GALLERY).not.toMatch(/vercel deploy --prebuilt/);
     // The env trio gates THREE steps (Deploy, Wait, Capture); asserting the
     // count keeps a drop on any one step from passing via another's copy.
     expect(GALLERY.match(new RegExp(GALLERY_ENV_TRIO.replace(/[$\{\}]/g, '\\$&'), 'g'))).toHaveLength(3);

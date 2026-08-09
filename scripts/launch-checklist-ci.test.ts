@@ -296,7 +296,7 @@ jobs:
     steps:
       - name: Deploy preview
         if: \${{ env.VERCEL_TOKEN != '' && env.VERCEL_ORG_ID != '' }}
-        run: npx --yes vercel deploy --prebuilt
+        run: npx --yes vercel deploy
 `;
   const FIXTURE_PREVIEW = `
 jobs:

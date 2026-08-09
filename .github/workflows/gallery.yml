@@ -73,10 +73,24 @@ jobs:
       - name: Deploy preview of this branch
         id: deploy
         if: ${{ env.VERCEL_TOKEN != '' && env.VERCEL_ORG_ID != '' && env.VERCEL_PROJECT_ID != '' }}
+        # Remote build on purpose, NOT `--prebuilt`: a prebuilt deploy uploads
+        # only source + .vercel/output, but every serverless function's
+        # .vc-config.json filePathMap references ROOT node_modules files
+        # (styled-jsx, react, next/dist ...) that the upload excludes
+        # (.vercelignore drops node_modules), so Vercel's "Deploying outputs"
+        # phase dies with ENOENT lstat node_modules/styled-jsx/index.js.
+        # A remote build installs node_modules on the build machine before the
+        # outputs are processed — the same path production uses (proven green).
+        # The preview environment carries no Firebase/LIVE vars (all project
+        # env vars are production-only), so the remote preview build renders
+        # the demo-mode shell the route cells capture.
         run: |
           npx --yes vercel pull --yes --environment=preview --token="$VERCEL_TOKEN"
-          npx --yes vercel build --yes --token="$VERCEL_TOKEN"
-          URL="$(npx --yes vercel deploy --prebuilt --yes --token="$VERCEL_TOKEN" | tail -1)"
+          # The final CLI line is the "run vercel --prod" hint, not the URL, so
+          # extract the preview URL from the output instead of tail -1. The
+          # production host is filtered out defensively (it appears without a
+          # scheme on the hint line, but never rely on that).
+          URL="$(npx --yes vercel deploy --yes --token="$VERCEL_TOKEN" 2>&1 | grep -oE 'https://[a-z0-9-]+\.vercel\.app' | grep -vE 'https://portfolio-app-freebuff\.vercel\.app' | tail -1)"
           echo "Preview URL: $URL"
           echo "url=$URL" >> "$GITHUB_OUTPUT"
         env:
