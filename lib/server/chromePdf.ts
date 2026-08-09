@@ -128,8 +128,12 @@ export const renderHtmlToPdf = async (html: string): Promise<Buffer> => {
   // The bundled headless shell takes the package's curated serverless args
   // (--no-sandbox, --single-process, --headless='shell' …) — it does NOT
   // support --headless=new, so that flag only ships on the real-Chrome path.
+  // --disable-dev-shm-usage is appended for Vercel: its runtime has NO
+  // /dev/shm, so Chromium's shared-memory creation FATALs there (Lambda has
+  // /dev/shm, which is why the curated set omits it) — the flag redirects
+  // shared memory to /tmp instead.
   const chromeArgs = [
-    ...(bundled && bundledArgs ? bundledArgs : ['--headless=new', '--disable-gpu']),
+    ...(bundled && bundledArgs ? [...bundledArgs, '--disable-dev-shm-usage'] : ['--headless=new', '--disable-gpu']),
     '--hide-scrollbars',
     '--no-first-run',
     // Port 0 → Chrome picks a free port and prints it to stderr; the capture

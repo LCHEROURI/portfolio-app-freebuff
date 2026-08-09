@@ -110,7 +110,18 @@ describe('lib/server/chromePdf.ts · CDP PDF driver contract', () => {
   it('never passes --headless=new to the bundled headless shell (unsupported mode)', () => {
     // The sparticuz shell has no 'new' headless mode; --headless=new must be
     // confined to the real-Chrome branch of the args ternary.
-    expect(script).toMatch(/bundled && bundledArgs \? bundledArgs : \['--headless=new', '--disable-gpu'\]/);
+    expect(script).toMatch(/bundled && bundledArgs \? \[\.\.\.bundledArgs, '--disable-dev-shm-usage'\] : \['--headless=new', '--disable-gpu'\]/);
+  });
+
+  it('appends --disable-dev-shm-usage for the bundled shell (Vercel has no /dev/shm)', () => {
+    // Vercel's serverless runtime mounts NO /dev/shm; Chromium's shared-memory
+    // creation FATALs there (the deployed stderr proved it). The flag
+    // redirects shared memory to /tmp and must stay on the bundled path.
+    expect(script).toContain("[...bundledArgs, '--disable-dev-shm-usage']");
+    // The rationale comment wraps across lines ('runtime has NO' / '//
+    // /dev/shm'), so assert the two phrases separately.
+    expect(script).toMatch(/runtime has NO/i);
+    expect(script).toContain('/dev/shm');
   });
 });
 
