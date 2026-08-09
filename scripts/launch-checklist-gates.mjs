@@ -42,8 +42,9 @@
 //   crossCheckPipelineDiagrams  — asserts BOTH onboarding docs (README.md's
 //     handoff section and docs/launch.md §4) still carry the "When each gate
 //     runs:" pipeline-diagram section — the marker line AND a non-empty
-//     fenced diagram body after it — so the picture itself is contract-locked
-//     in CI, not just in the vitest suite that asserts its content.
+//     fenced diagram body after it that names every PIPELINE_DIAGRAM_KEY_NAMES
+//     entry — so the picture itself is contract-locked in CI, not just in the
+//     vitest suite that asserts its content.
 //   crossCheckSystemInjectedVars — asserts verify-vercel-env.mjs's
 //     SYSTEM_INJECTED_VARS exemption matches the canonical Vercel
 //     system-injected build-var set EXACTLY (a var dropped, added, or typo'd
@@ -82,6 +83,24 @@ const SCRIPT_TARGET_RE = /scripts\/[\w./-]+\.(mjs|ts|js|sh|cjs)\b/;
 // scripts/readme-pipeline.test.ts's parser) so a future prose mention of the
 // phrase can't be mistaken for the section.
 const PIPELINE_DIAGRAM_MARKER_RE = /^When each gate runs/m;
+// The key job/workflow display names that MUST appear in BOTH onboarding
+// docs' "When each gate runs:" diagrams — the five ci.yml push jobs and the
+// three deployment_status workflows. Exported as the source of truth: the
+// diagram-content vitest and the runtime drift-guard check iterate this same
+// list, so guard and test can never disagree about which names constitute
+// the picture. (The diagram may render a name with extra context, e.g.
+// "Verify deployed cron reports + rules (secret-gated)" — containment of the
+// base name is what matters.)
+export const PIPELINE_DIAGRAM_KEY_NAMES = [
+  'Typecheck · Lint · Test · Build',
+  'Verify launch checklist matches scripts',
+  'Verify deployed cron reports + rules',
+  'Verify authorized domains',
+  'Verify production sign-in + Firestore sync',
+  'Preview gate',
+  'Deployed-hash gate',
+  'Gallery',
+];
 // §4 command forms (tolerate trailing args on npm gates).
 const NPM_CMD_RE = /^npm run (verify:[^\s]+)/;
 const NODE_CMD_RE = /^node (scripts\/[\w./-]+\.mjs)/;
@@ -516,10 +535,11 @@ export function crossCheckDeploymentStatusGates({ workflows, verifyAllSrc, npmSc
  * Cross-check that both onboarding docs still carry the "When each gate
  * runs:" pipeline-diagram section. Returns an array of failure strings —
  * empty means every doc has the marker line AND a non-empty fenced diagram
- * body after it. A doc that loses the marker, keeps the marker but drops the
- * fence, or leaves an empty/unterminated fenced body fails, so the picture
- * itself is contract-locked in CI — not just asserted by the readme-pipeline
- * vitest that checks the diagram's content (job/workflow names). Pure: reads
+ * body after it that names every PIPELINE_DIAGRAM_KEY_NAMES entry. A doc that
+ * loses the marker, keeps the marker but drops the fence, leaves an
+ * empty/unterminated fenced body, or omits a key job/workflow name fails, so
+ * the picture itself is contract-locked in CI — not just asserted by the
+ * readme-pipeline vitest that checks the diagram's content. Pure: reads
  * nothing itself.
  *
  * @param {{ readmeSrc: string, launchSrc: string }} args
@@ -559,9 +579,27 @@ export function crossCheckPipelineDiagrams({ readmeSrc, launchSrc }) {
       failures.push(
         `${label} has an empty or unterminated diagram after "When each gate runs:" — restore the fenced picture.`,
       );
+      continue;
+    }
+    // Every key job/workflow name must appear in the picture — the same
+    // phrase contract the system-injected cross-check applies to the
+    // vercel-env rows, so a diagram that loses or renames a gate fails the
+    // drift guard before the unit suite even runs.
+    const body = normalizeWhitespace(src.slice(bodyStart, fenceEnd));
+    for (const name of PIPELINE_DIAGRAM_KEY_NAMES) {
+      if (!body.includes(normalizeWhitespace(name))) {
+        failures.push(
+          `${label} "When each gate runs:" diagram omits the key name "${name}" — update the picture so the onboarding docs keep naming every gate.`,
+        );
+      }
     }
   }
   return failures;
+}
+
+/** Collapse every whitespace run (including newlines) to a single space. */
+function normalizeWhitespace(s) {
+  return String(s ?? '').replace(/\s+/g, ' ').trim();
 }
 
 // The canonical Vercel system-injected build-var set — the source of truth

@@ -2,24 +2,40 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { crossCheckPipelineDiagrams } from './launch-checklist-gates.mjs';
+import { crossCheckPipelineDiagrams, PIPELINE_DIAGRAM_KEY_NAMES } from './launch-checklist-gates.mjs';
 
 const ROOT = process.cwd();
 const read = (p) => readFileSync(resolve(ROOT, p), 'utf8');
 
 // ── crossCheckPipelineDiagrams: live repo (the real lock) ───────────────────
 describe('crossCheckPipelineDiagrams (live repo)', () => {
-  it('passes: both onboarding docs carry the "When each gate runs:" diagram', () => {
+  it('passes: both onboarding docs carry the "When each gate runs:" diagram naming every key gate', () => {
     const failures = crossCheckPipelineDiagrams({
       readmeSrc: read('README.md'),
       launchSrc: read('docs/launch.md'),
     });
     expect(failures).toEqual([]);
   });
+
+  it('catches a diagram that drops a key job name', () => {
+    // The runtime phrase contract: a picture that keeps its structure but
+    // stops naming a gate must fail the drift guard, not just the unit suite.
+    const mutated = read('README.md').replace('· Verify authorized domains', '· Verify domains only');
+    const failures = crossCheckPipelineDiagrams({
+      readmeSrc: mutated,
+      launchSrc: read('docs/launch.md'),
+    });
+    expect(failures.join('\n')).toContain('README.md');
+    expect(failures.join('\n')).toContain('Verify authorized domains');
+    expect(failures.join('\n')).toContain('omits the key name');
+  });
 });
 
 // ── crossCheckPipelineDiagrams: synthetic fixture (deterministic) ────────────
 describe('crossCheckPipelineDiagrams (fixture)', () => {
+  // Build the fixture diagram FROM the exported key-names list, so the green
+  // path is guaranteed by construction (mirroring the system-injected
+  // fixture) and every failure case is a single-token edit.
   const FIXTURE_DOC = [
     '# Heading',
     '',
@@ -30,6 +46,7 @@ describe('crossCheckPipelineDiagrams (fixture)', () => {
     '```text',
     '   ┌───────────────────────────────┐',
     '   │  LOCAL — every git push       │',
+    ...PIPELINE_DIAGRAM_KEY_NAMES.map((name) => `   · ${name}`),
     '   └───────────────────────────────┘',
     '```',
     '',
@@ -120,6 +137,19 @@ describe('crossCheckPipelineDiagrams (fixture)', () => {
     expect(failures.join('\n')).toContain('empty or unterminated diagram');
   });
 
+  it('flags a doc whose diagram omits a key name', () => {
+    // Structure intact, but one gate stops being named — the new runtime
+    // contract must catch it on the launch.md side too.
+    const broken = FIXTURE_DOC.replace('· Preview gate', '· Preview portal');
+    const failures = crossCheckPipelineDiagrams({
+      readmeSrc: FIXTURE_DOC,
+      launchSrc: broken,
+    });
+    expect(failures.join('\n')).toContain('docs/launch.md');
+    expect(failures.join('\n')).toContain('Preview gate');
+    expect(failures.join('\n')).toContain('omits the key name');
+  });
+
   it('reports BOTH docs when both lost the section', () => {
     const failures = crossCheckPipelineDiagrams({
       readmeSrc: '# No diagram at all',
@@ -128,5 +158,18 @@ describe('crossCheckPipelineDiagrams (fixture)', () => {
     expect(failures).toHaveLength(2);
     expect(failures.join('\n')).toContain('README.md');
     expect(failures.join('\n')).toContain('docs/launch.md');
+  });
+
+  it('locks the key-names list to the five ci.yml jobs + three deployment_status workflows', () => {
+    expect(PIPELINE_DIAGRAM_KEY_NAMES).toEqual([
+      'Typecheck · Lint · Test · Build',
+      'Verify launch checklist matches scripts',
+      'Verify deployed cron reports + rules',
+      'Verify authorized domains',
+      'Verify production sign-in + Firestore sync',
+      'Preview gate',
+      'Deployed-hash gate',
+      'Gallery',
+    ]);
   });
 });
