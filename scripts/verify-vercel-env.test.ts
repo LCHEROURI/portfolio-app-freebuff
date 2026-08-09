@@ -6,6 +6,7 @@ import {
   missingExpectedFlags,
   parseEnvFile,
   parseGhSecretList,
+  SYSTEM_INJECTED_VARS,
 } from './verify-vercel-env.mjs';
 
 // ── parseEnvFile ────────────────────────────────────────────────────────────
@@ -81,6 +82,76 @@ describe('diffEnvMaps', () => {
     expect(drift.valueUnreadable).toEqual([
       { key: 'CRON_SECRET', reason: expect.stringContaining('write-only') },
     ]);
+  });
+});
+
+// ── SYSTEM_INJECTED_VARS (diffEnvMaps exemption) ────────────────────────────
+describe('diffEnvMaps system-injected vars', () => {
+  it('exempts rotating system-injected build vars from value comparison', () => {
+    // A raw `vercel env pull` writes VERCEL_OIDC_TOKEN (rotates per build),
+    // VERCEL_URL (per deploy), and the VERCEL_GIT_* metadata (per commit).
+    // If such a pull file was saved as .env.local, both sides carry the key
+    // with DIFFERENT values — comparing them would false-alarm the gate on
+    // every untrimmed pull (the exact VERCEL_OIDC_TOKEN incident).
+    const local = parseEnvFile('VERCEL_OIDC_TOKEN=token-a-1243\nVERCEL_URL=x.vercel.app\nSHARED=same\n');
+    const vercel = parseEnvFile('VERCEL_OIDC_TOKEN=token-b-1243\nVERCEL_URL=y.vercel.app\nSHARED=same\n');
+    const drift = diffEnvMaps(local, vercel);
+    expect(drift.valueMismatch).toEqual([]);
+    expect(drift.missingInVercel).toEqual([]);
+    expect(drift.systemInjected.map((i) => i.key).sort()).toEqual(['VERCEL_OIDC_TOKEN', 'VERCEL_URL']);
+    // The report must still carry lengths only, never the values.
+    expect(JSON.stringify(drift)).not.toContain('token-a');
+    expect(JSON.stringify(drift)).not.toContain('token-b');
+  });
+
+  it('does not flag a system var missing from the pull as drift', () => {
+    // If .env.local carries a system var the pull did not write (e.g. a stale
+    // VERCEL_GIT_COMMIT_SHA from an older saved pull), it is not a
+    // project-managed key — reporting it MISSING in Vercel would be noise.
+    const drift = diffEnvMaps(parseEnvFile('VERCEL_GIT_COMMIT_SHA=abc\n'), parseEnvFile(''));
+    expect(drift.missingInVercel).toEqual([]);
+    expect(drift.systemInjected.map((i) => i.key)).toEqual(['VERCEL_GIT_COMMIT_SHA']);
+  });
+
+  it('still compares real project vars even when VERCEL_-prefixed', () => {
+    // VERCEL_TOKEN and VERCEL_TEAM_ID are genuine project env vars (the API
+    // token + the team scope set deliberately in all three stores) — they
+    // must NOT be exempted just for sharing the prefix. VERCEL_TOKEN is
+    // write-only (presence-checked); VERCEL_TEAM_ID drift is real drift.
+    const drift = diffEnvMaps(
+      parseEnvFile('VERCEL_TOKEN=secret\nVERCEL_TEAM_ID=team_a\n'),
+      parseEnvFile('VERCEL_TOKEN=\nVERCEL_TEAM_ID=team_b\n'),
+    );
+    expect(drift.valueMismatch.map((m) => m.key)).toEqual(['VERCEL_TEAM_ID']);
+    expect(drift.valueUnreadable.map((u) => u.key)).toEqual(['VERCEL_TOKEN']);
+    expect(drift.systemInjected).toEqual([]);
+  });
+
+  it('locks the system-injected set (and that real Vercel vars are NOT exempt)', () => {
+    // The set is the contract with what `vercel env pull` injects: exempting
+    // a real project var would silently stop comparing it, and missing a
+    // rotating system var would resurrect the false drift. Both directions
+    // are locked so any change is deliberate.
+    expect([...SYSTEM_INJECTED_VARS].sort()).toEqual([
+      'VERCEL',
+      'VERCEL_ENV',
+      'VERCEL_GIT_COMMIT_AUTHOR_LOGIN',
+      'VERCEL_GIT_COMMIT_AUTHOR_NAME',
+      'VERCEL_GIT_COMMIT_MESSAGE',
+      'VERCEL_GIT_COMMIT_REF',
+      'VERCEL_GIT_COMMIT_SHA',
+      'VERCEL_GIT_PREVIOUS_SHA',
+      'VERCEL_GIT_PROVIDER',
+      'VERCEL_GIT_PULL_REQUEST_ID',
+      'VERCEL_GIT_REPO_ID',
+      'VERCEL_GIT_REPO_OWNER',
+      'VERCEL_GIT_REPO_SLUG',
+      'VERCEL_OIDC_TOKEN',
+      'VERCEL_TARGET_ENV',
+      'VERCEL_URL',
+    ]);
+    expect(SYSTEM_INJECTED_VARS.has('VERCEL_TOKEN')).toBe(false);
+    expect(SYSTEM_INJECTED_VARS.has('VERCEL_TEAM_ID')).toBe(false);
   });
 });
 

@@ -27,6 +27,14 @@
 //     VERCEL_PROJECT_ID, VERCEL_PROTECTION_BYPASS) vs shared (present in more
 //     than one store). CI-only entries are informational; a GitHub secret that
 //     SHOULD also exist in Vercel but doesn't is surfaced as drift.
+//   - SYSTEM_INJECTED_VARS (VERCEL_OIDC_TOKEN, VERCEL_URL, VERCEL_ENV,
+//     VERCEL_TARGET_ENV, the VERCEL_GIT_* metadata set, bare VERCEL) are
+//     injected by Vercel per build and ROTATE every deploy/commit. A raw
+//     `vercel env pull` writes them, so an untrimmed pull file saved as
+//     .env.local would otherwise false-alarm as value drift. They are exempt
+//     from comparison and surfaced as informational (lengths only). Real
+//     project vars that merely share the prefix (VERCEL_TOKEN, VERCEL_TEAM_ID)
+//     are NOT exempt — they stay compared exactly.
 //
 // Values are pulled from Vercel via `vercel env pull` (the CLI writes the
 // decrypted values to a temp file; the REST API exposes key names + type but
@@ -49,10 +57,10 @@
 //   node scripts/verify-vercel-env.mjs
 //
 // Exports (for the unit test): parseEnvFile, diffEnvMaps, parseGhSecretList,
-// classifyGithubSecrets, missingExpectedFlags. Token resolution reuses
-// readToken + the invalid-token contract from verify-deployed-hash.mjs (env →
-// .env.local → CLI store), so the credential flow can never drift from the
-// other Vercel gates.
+// classifyGithubSecrets, missingExpectedFlags, SYSTEM_INJECTED_VARS. Token
+// resolution reuses readToken + the invalid-token contract from
+// verify-deployed-hash.mjs (env → .env.local → CLI store), so the credential
+// flow can never drift from the other Vercel gates.
 //
 // Exit codes: 0 = env matches (drift-free), 1 = drift or verification failed,
 // 2 = VERCEL_TOKEN invalid/revoked (Vercel flagged invalidToken:true) — the
@@ -102,7 +110,8 @@ export function parseEnvFile(text) {
 /**
  * Diff two key→value maps into a drift report. Returns:
  *   { missingInVercel: string[], valueMismatch: {key, localLen, vercelLen}[],
- *     valueUnreadable: {key, reason}[], extraInVercel: string[] }
+ *     valueUnreadable: {key, reason}[], systemInjected: {key, localLen,
+ *     vercelLen}[], extraInVercel: string[] }
  *
  * Vercel's `sensitive` vars are write-only: env pull returns an empty string
  * for them, so a key whose pulled value is EMPTY is presence-checked and
@@ -111,12 +120,24 @@ export function parseEnvFile(text) {
  * A non-empty pulled value that differs from .env.local is REAL drift:
  * valueMismatch carries LENGTHS only (never the values), so e.g.
  * REPORT_OWNER_ID local=28 vercel=9 is diagnosable without leaking the secret.
+ *
+ * Keys in SYSTEM_INJECTED_VARS are exempt entirely: Vercel injects them per
+ * build (OIDC token, deploy URL, git metadata) and their values rotate every
+ * commit/deploy, so comparing them would false-alarm on an untrimmed pull
+ * file. They are surfaced in systemInjected (lengths only, informational) and
+ * never count toward failure.
  */
 export function diffEnvMaps(local, vercel) {
   const missingInVercel = [];
   const valueMismatch = [];
   const valueUnreadable = [];
+  const systemInjected = [];
   for (const [key, localValue] of local) {
+    if (SYSTEM_INJECTED_VARS.has(key)) {
+      const vercelValue = vercel.has(key) ? vercel.get(key) : '';
+      systemInjected.push({ key, localLen: localValue.length, vercelLen: vercelValue.length });
+      continue;
+    }
     if (!vercel.has(key)) {
       missingInVercel.push(key);
       continue;
@@ -138,9 +159,41 @@ export function diffEnvMaps(local, vercel) {
     missingInVercel: missingInVercel.sort(),
     valueMismatch: valueMismatch.sort((a, b) => a.key.localeCompare(b.key)),
     valueUnreadable: valueUnreadable.sort((a, b) => a.key.localeCompare(b.key)),
+    systemInjected: systemInjected.sort((a, b) => a.key.localeCompare(b.key)),
     extraInVercel,
   };
 }
+
+/**
+ * Vercel system-injected build vars — injected by Vercel at build/runtime, NOT
+ * project-managed. `vercel env pull` writes them alongside the real project
+ * env, so an untrimmed pull file saved as .env.local carries them with values
+ * that ROTATE every deploy/commit (OIDC token, deploy URL, git metadata).
+ * diffEnvMaps exempts them from comparison and surfaces them informationally.
+ *
+ * Keep this set EXACT: exempting a real project var (e.g. VERCEL_TOKEN or
+ * VERCEL_TEAM_ID, which are deliberately set in all three stores) would
+ * silently stop comparing it; missing a rotating system var would resurrect
+ * the false drift this gate exists to absorb.
+ */
+export const SYSTEM_INJECTED_VARS = new Set([
+  'VERCEL',
+  'VERCEL_ENV',
+  'VERCEL_GIT_COMMIT_AUTHOR_LOGIN',
+  'VERCEL_GIT_COMMIT_AUTHOR_NAME',
+  'VERCEL_GIT_COMMIT_MESSAGE',
+  'VERCEL_GIT_COMMIT_REF',
+  'VERCEL_GIT_COMMIT_SHA',
+  'VERCEL_GIT_PREVIOUS_SHA',
+  'VERCEL_GIT_PROVIDER',
+  'VERCEL_GIT_PULL_REQUEST_ID',
+  'VERCEL_GIT_REPO_ID',
+  'VERCEL_GIT_REPO_OWNER',
+  'VERCEL_GIT_REPO_SLUG',
+  'VERCEL_OIDC_TOKEN',
+  'VERCEL_TARGET_ENV',
+  'VERCEL_URL',
+]);
 
 /**
  * Parse `gh secret list` output into a sorted array of secret names.
@@ -325,6 +378,12 @@ async function main() {
   if (drift.valueUnreadable.length > 0) {
     console.log('  · present but write-only (sensitive vars cannot be echoed back — presence verified, value proven behaviorally):');
     for (const { key } of drift.valueUnreadable) console.log(`      - ${key}`);
+  }
+  if (drift.systemInjected.length > 0) {
+    console.log('  · system-injected build vars (injected by Vercel per build — rotating values, comparison skipped):');
+    for (const { key, localLen, vercelLen } of drift.systemInjected) {
+      console.log(`      - ${key}  (local len ${localLen} vs vercel len ${vercelLen})`);
+    }
   }
   if (drift.extraInVercel.length > 0) {
     console.log('  · in Vercel only (prod-only runtime vars are legitimate — informational):');
