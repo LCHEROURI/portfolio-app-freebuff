@@ -1,8 +1,20 @@
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { auditSource, main, scanDir, scanRoots } from './lint-import-surface.mjs';
+
+// The planted-violation test below writes into the REAL app/ tree. If a worker
+// is killed mid-test (timeout or OOM under load), its finally/afterAll never
+// run and the planted file survives on disk — which then fails the
+// live-clean-scan test (the FIRST test in this file) on every later run. This
+// self-heals at file start, before any scan, so a crashed run can never poison
+// the next one. The name is fixed so any leftover is removed, and the test
+// itself still plants and removes the file within its own try/finally.
+const plantedPath = join(process.cwd(), 'app', '__linttest-planted.mjs');
+beforeAll(() => {
+  rmSync(plantedPath, { force: true });
+});
 
 // ── auditSource: the re-export-of-unused-import rule ─────────────────────────
 describe('auditSource · re-export-of-unused-import', () => {
@@ -259,7 +271,12 @@ describe('auditSource · unused-import', () => {
 
 // ── scanDir / scanRoots: the real working tree must stay clean ───────────────
 describe('scanRoots (live repo)', () => {
-  it('finds no re-export or unused-import violations across scripts/, lib/, and app/', () => {
+  // Each full-tree scan parses every file with the TypeScript AST walker
+  // (~0.5s idle, several seconds under CPU contention); four tests in this
+  // file scan the whole tree. The vitest default test timeout (5000ms) is too
+  // tight for that under parallel full-suite runs, so the scan-heavy tests get
+  // a budget that matches the real cost instead of timing out.
+  it('finds no re-export or unused-import violations across scripts/, lib/, and app/', { timeout: 60_000 }, () => {
     const findings = scanRoots();
     expect(findings).toEqual([]);
   });
@@ -277,13 +294,11 @@ describe('scanRoots (live repo)', () => {
 // finally, and an afterAll self-heals any hard-kill leftover, so the tree is
 // never left dirty.
 describe('scanRoots (planted violation locks the app root)', () => {
-  const plantedPath = join(process.cwd(), 'app', '__linttest-planted.mjs');
-
   afterAll(() => {
     rmSync(plantedPath, { force: true });
   });
 
-  it('catches a planted violation under app/ via both the default roots and the explicit app root', () => {
+  it('catches a planted violation under app/ via both the default roots and the explicit app root', { timeout: 60_000 }, () => {
     writeFileSync(
       plantedPath,
       `import { X } from './verify-deployed-hash.mjs';\nexport { X };\n`,
@@ -357,7 +372,7 @@ describe('main (CLI exit-code contract)', () => {
     }
   });
 
-  it('returns 0 when the scanned roots are clean', () => {
+  it('returns 0 when the scanned roots are clean', { timeout: 60_000 }, () => {
     expect(main()).toBe(0);
   });
 
