@@ -136,6 +136,24 @@ describe('local-env contract · every .env.local value read goes through readLoc
   //                           never .match()) — quote-agnostic by design.
   const ALLOWED_RAW = new Set(['local-env.mjs', 'verify-vercel-env.mjs', 'verify-all.mjs']);
 
+  it('no .mjs file re-implements quote stripping with the old regex (the duplicate that broke gate 3)', () => {
+    // The old per-file stripper was `trim().replace(/^"|"$/g, '')`; one copy
+    // of it survived in lib/server/sa-token.mjs after the big migration and
+    // is now retired too. A future copy of that regex — anywhere in scripts/
+    // or lib/ — fails here, so the stripping logic lives only in the helper
+    // (and verify-vercel-env.mjs's whole-file parser, which uses a different
+    // startsWith/endsWith form and is a separate, documented job).
+    const roots = [join(process.cwd(), 'scripts'), join(process.cwd(), 'lib')];
+    const offenders = [];
+    for (const root of roots) {
+      for (const f of readdirSync(root, { recursive: true }).filter((f) => f.endsWith('.mjs'))) {
+        const src = readFileSync(join(root, f), 'utf8');
+        if (/replace\(\/\^"\|\"\$\/g/.test(src)) offenders.push(join(root, f));
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
   it('no other script extracts a .env.local value with its own anchored regex', () => {
     const offenders = [];
     for (const f of readdirSync(scriptsDir).filter((f) => f.endsWith('.mjs'))) {
