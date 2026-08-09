@@ -132,19 +132,20 @@ const chrome = spawn(CHROME, [
   '--no-sandbox',
   '--disable-dev-shm-usage',
   // Byte-stable captures across gallery runs: the dark cells used to churn
-  // by a few pixels of sub-glyph anti-aliasing on the small semibold "Copy"
-  // text (sidebar VarCopyButton + setup-checklist buttons) run to run on the
-  // Linux runner, while their light twins were byte-identical. The glyph AA
-  // depends on Chrome's process-level text state — LCD subpixel mode, font
-  // hinting, and the color pipeline — so pin all three: force grayscale AA,
-  // full hinting (glyph edges pixel-snapped — the remaining 10px CodeBlock
-  // buttons stopped jittering only once hinting snapped them to the grid;
-  // hinting=none left 1-4-unit AA blend jitter on those glyph edges), and
-  // force the sRGB profile so no display/color state leaks into rasterization.
-  // --disable-gpu-compositing keeps the screenshot compositor on the fully
-  // deterministic software path. Light cells stay byte-identical with these on.
+  // by a few pixels of sub-glyph anti-aliasing on small semibold text run to
+  // run on the Linux runner, while their light twins were byte-identical. The
+  // glyph AA depends on Chrome's process-level text state — LCD subpixel mode,
+  // font hinting, the color pipeline, and the compositor — so pin them all:
+  // force grayscale AA, disable hinting (deterministic glyph shapes regardless
+  // of the runner's FreeType state — full hinting merely MOVED the residual
+  // jitter to other glyphs), force the sRGB profile so no display/color state
+  // leaks into rasterization, and --disable-gpu-compositing keeps the
+  // screenshot compositor on the fully deterministic software path (the
+  // compositor, not the hinting mode, was the source of the last residual
+  // jitter: with hinting=none + software compositing both integrations-dark
+  // and reports-dark are byte-identical across runs).
   '--disable-lcd-text',
-  '--font-render-hinting=full',
+  '--font-render-hinting=none',
   '--force-color-profile=srgb',
   '--disable-gpu-compositing',
   `--remote-debugging-port=${PORT}`,

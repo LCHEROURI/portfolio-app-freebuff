@@ -246,24 +246,26 @@ describe('scripts/capture-gallery.mjs · headless Chrome spawn flags', () => {
     // on small semibold text run to run on the Linux runner while light cells
     // stayed byte-identical. The fix pins Chrome's process-level text state:
     // --disable-lcd-text (grayscale AA, no subpixel jitter),
-    // --font-render-hinting=full (glyph edges pixel-snapped — the last
-    // jittering 10px CodeBlock buttons stopped only with full hinting),
+    // --font-render-hinting=none (deterministic glyph shapes regardless of
+    // the runner's FreeType state — full hinting merely moved the residual
+    // jitter to other glyphs),
     // --force-color-profile=srgb (no display/color state leaks into
     // rasterization), --disable-gpu-compositing (deterministic software
-    // compositor for the screenshot). Same comment-stripping discipline as
-    // the sandbox flags: they must be ACTUAL args, not prose.
+    // compositor — the source of the last residual jitter, not the hinting
+    // mode). Same comment-stripping discipline as the sandbox flags: they
+    // must be ACTUAL args, not prose.
     const argsWithoutComments = chromeArgsBlock
       .split('\n')
       .filter((line) => !line.trim().startsWith('//'))
       .join('\n');
     expect(argsWithoutComments).toContain("'--disable-lcd-text'");
-    expect(argsWithoutComments).toContain("'--font-render-hinting=full'");
+    expect(argsWithoutComments).toContain("'--font-render-hinting=none'");
     expect(argsWithoutComments).toContain("'--force-color-profile=srgb'");
     expect(argsWithoutComments).toContain("'--disable-gpu-compositing'");
     // Comma-anchored forms guard against a partial edit that drops the flag
     // while leaving a quoted mention in a comment elsewhere.
     expect(argsWithoutComments).toMatch(/'--disable-lcd-text',/);
-    expect(argsWithoutComments).toMatch(/'--font-render-hinting=full',/);
+    expect(argsWithoutComments).toMatch(/'--font-render-hinting=none',/);
     expect(argsWithoutComments).toMatch(/'--force-color-profile=srgb',/);
     expect(argsWithoutComments).toMatch(/'--disable-gpu-compositing',/);
   });
