@@ -13,11 +13,15 @@
 // (lib/printDoc.ts buildPreviewHtml), so the downloaded PDF can never drift
 // from the on-screen preview.
 //
-// Env: CHROME_PATH overrides the Chrome binary (CI and local macOS default).
-// Node ≥ 22 provides the global WebSocket this driver uses — the same runtime
-// the capture scripts require. Where Chrome is unavailable (e.g. some
-// serverless runtimes) renderHtmlToPdf throws ChromePdfUnavailableError and
-// the route surfaces it as a targeted 503 instead of a generic 500.
+// Binary resolution (resolveChromeBinary): CHROME_PATH wins (CI + local
+// overrides), then the macOS system Chrome on darwin, then the bundled
+// @sparticuz/chromium headless shell on Linux serverless (Vercel) — the 503
+// the route used to return on Vercel was this resolver falling through to a
+// binary that does not exist there. Node ≥ 22 provides the global WebSocket
+// this driver uses — the same runtime the capture scripts require. Where
+// Chrome is unavailable even after resolution, renderHtmlToPdf throws
+// ChromePdfUnavailableError and the route surfaces it as a targeted 503
+// instead of a generic 500.
 //
 // Self-cleanup contract (same as the capture scripts): Chrome is killed and
 // its unique profile dir removed on EVERY exit path — normal completion,
@@ -32,7 +36,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 
-const CHROME = process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const MACOS_CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
 /** Error thrown when headless Chrome cannot be launched at all (missing
  *  binary, broken install). The route maps this to a 503 so the caller can
@@ -43,6 +47,45 @@ export class ChromePdfUnavailableError extends Error {
     this.name = 'ChromePdfUnavailableError';
   }
 }
+
+export interface ChromeBinary {
+  /** Absolute path to the Chrome/Chromium executable to spawn. */
+  path: string;
+  /** True when the binary is the serverless-bundled @sparticuz/chromium
+   *  headless shell: its flags differ (NO --headless=new — the shell has no
+   *  'new' headless mode) and Linux sandbox flags apply. */
+  bundled: boolean;
+  /** The package's curated serverless args (only when bundled). */
+  args?: string[];
+}
+
+/**
+ * Resolve the Chrome binary for THIS runtime:
+ *   1. CHROME_PATH wins — CI (setup-chrome) and local overrides.
+ *   2. macOS dev fallback: the system Google Chrome (@sparticuz/chromium is
+ *      compiled for Linux only and cannot run on macOS).
+ *   3. Everything else (Vercel/AWS serverless): the @sparticuz/chromium
+ *      headless shell bundled into the function (kept external + traced in
+ *      next.config.mjs so its bin/ reaches the read-only serverless fs).
+ * The bundled branch is lazy: the package is only imported on Linux runtimes,
+ * so macOS dev/tests never pay for it.
+ */
+export const resolveChromeBinary = async (): Promise<ChromeBinary> => {
+  if (process.env.CHROME_PATH) return { path: process.env.CHROME_PATH, bundled: false };
+  if (process.platform === 'darwin') return { path: MACOS_CHROME, bundled: false };
+  try {
+    const { default: chromium } = await import('@sparticuz/chromium');
+    return {
+      path: await chromium.executablePath(),
+      bundled: true,
+      args: chromium.args,
+    };
+  } catch {
+    // No bundled Chromium available — fall back to a system binary and let
+    // the spawn error surface the targeted 503 if it is not there either.
+    return { path: '/usr/bin/chromium', bundled: false };
+  }
+};
 
 const fetchJson = async (url: string) => (await fetch(url)).json();
 
@@ -73,10 +116,13 @@ process.on('exit', () => {
  *  engine (Page.printToPDF). */
 export const renderHtmlToPdf = async (html: string): Promise<Buffer> => {
   const profileDir = await mkdtemp(join(tmpdir(), 'print-pdf-chrome-'));
+  const { path: chromePath, bundled, args: bundledArgs } = await resolveChromeBinary();
 
-  const chrome = spawn(CHROME, [
-    '--headless=new',
-    '--disable-gpu',
+  // The bundled headless shell takes the package's curated serverless args
+  // (--no-sandbox, --single-process, --headless='shell' …) — it does NOT
+  // support --headless=new, so that flag only ships on the real-Chrome path.
+  const chromeArgs = [
+    ...(bundled && bundledArgs ? bundledArgs : ['--headless=new', '--disable-gpu']),
     '--hide-scrollbars',
     '--no-first-run',
     // Port 0 → Chrome picks a free port and prints it to stderr; the capture
@@ -84,7 +130,9 @@ export const renderHtmlToPdf = async (html: string): Promise<Buffer> => {
     '--remote-debugging-port=0',
     `--user-data-dir=${profileDir}`,
     'about:blank',
-  ], { stdio: ['ignore', 'ignore', 'pipe'] });
+  ];
+
+  const chrome = spawn(chromePath, chromeArgs, { stdio: ['ignore', 'ignore', 'pipe'] });
   activeChromes.add(chrome);
 
   // Hoisted so cleanup can close the DevTools socket on every exit path.
@@ -105,7 +153,7 @@ export const renderHtmlToPdf = async (html: string): Promise<Buffer> => {
   const chromeFailed = new Promise<never>((_, reject) => {
     chrome.on('error', (err) => {
       reject(new ChromePdfUnavailableError(
-        `Failed to launch headless Chrome at ${CHROME}: ${err.message}. Set CHROME_PATH to a working Chrome binary and re-run.`,
+        `Failed to launch headless Chrome at ${chromePath}: ${err.message}. Set CHROME_PATH to a working Chrome binary and re-run.`,
       ));
     });
   });

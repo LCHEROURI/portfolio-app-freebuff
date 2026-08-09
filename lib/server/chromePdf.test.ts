@@ -1,7 +1,16 @@
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ChromePdfUnavailableError, parseDevToolsPort } from './chromePdf';
+import { ChromePdfUnavailableError, parseDevToolsPort, resolveChromeBinary } from './chromePdf';
+
+// The @sparticuz/chromium import must never be real in tests: the linux
+// binary cannot run on macOS, so the mock provides a fake executablePath.
+vi.mock('@sparticuz/chromium', () => ({
+  default: {
+    executablePath: vi.fn().mockResolvedValue('/bundled/chromium'),
+    args: ['--no-sandbox', "--headless='shell'", '--single-process'],
+  },
+}));
 
 // ============================================================================
 // lib/server/chromePdf.test.ts — lock the headless-Chrome PDF driver contract.
@@ -86,5 +95,70 @@ describe('lib/server/chromePdf.ts · CDP PDF driver contract', () => {
     expect(script).toContain('rmSync(profileDir, { recursive: true, force: true })');
     expect(script).toContain('process.on(\'exit\'');
     expect(script).toContain('activeChromes');
+  });
+
+  it('resolves the binary in tiers: CHROME_PATH → macOS default → bundled serverless Chromium', () => {
+    // The Vercel 503 fix: the resolver must prefer CHROME_PATH, keep the
+    // macOS dev fallback, and fall through to @sparticuz/chromium on Linux
+    // serverless instead of pointing at a binary that does not exist there.
+    expect(script).toContain("if (process.env.CHROME_PATH) return { path: process.env.CHROME_PATH, bundled: false };");
+    expect(script).toContain("if (process.platform === 'darwin') return { path: MACOS_CHROME, bundled: false };");
+    expect(script).toContain("await import('@sparticuz/chromium')");
+    expect(script).toContain('chromium.executablePath()');
+  });
+
+  it('never passes --headless=new to the bundled headless shell (unsupported mode)', () => {
+    // The sparticuz shell has no 'new' headless mode; --headless=new must be
+    // confined to the real-Chrome branch of the args ternary.
+    expect(script).toMatch(/bundled && bundledArgs \? bundledArgs : \['--headless=new', '--disable-gpu'\]/);
+  });
+});
+
+describe('resolveChromeBinary (unit)', () => {
+  const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+  const setPlatform = (value: string) => {
+    Object.defineProperty(process, 'platform', { value, configurable: true });
+  };
+
+  beforeEach(() => {
+    delete process.env.CHROME_PATH;
+  });
+  afterEach(() => {
+    if (originalPlatform) Object.defineProperty(process, 'platform', originalPlatform);
+    delete process.env.CHROME_PATH;
+  });
+
+  it('returns CHROME_PATH verbatim on any platform (CI/local override wins)', async () => {
+    setPlatform('linux');
+    process.env.CHROME_PATH = '/ci/chrome'; // must beat the bundled fallback
+    const bin = await resolveChromeBinary();
+    expect(bin).toEqual({ path: '/ci/chrome', bundled: false });
+  });
+
+  it('keeps the macOS system Chrome on darwin (sparticuz is linux-only)', async () => {
+    setPlatform('darwin');
+    const bin = await resolveChromeBinary();
+    expect(bin).toEqual({ path: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', bundled: false });
+  });
+
+  it('uses the bundled @sparticuz/chromium headless shell on linux serverless', async () => {
+    setPlatform('linux');
+    const bin = await resolveChromeBinary();
+    expect(bin.path).toBe('/bundled/chromium');
+    expect(bin.bundled).toBe(true);
+    expect(bin.args).toContain('--no-sandbox');
+    expect(bin.args).toContain("--headless='shell'");
+  });
+});
+
+describe('next.config.mjs · serverless Chromium wiring', () => {
+  const config = readFileSync('next.config.mjs', 'utf8');
+
+  it('keeps @sparticuz/chromium external to the server bundle (Next 14 key)', () => {
+    expect(config).toContain("serverComponentsExternalPackages: ['@sparticuz/chromium']");
+  });
+
+  it('traces the bin/ dir into the /api/print/pdf function bundle', () => {
+    expect(config).toContain("'/api/print/pdf': ['node_modules/@sparticuz/chromium/bin/**']");
   });
 });
