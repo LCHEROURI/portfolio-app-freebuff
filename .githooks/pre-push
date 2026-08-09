@@ -114,7 +114,7 @@ timebox() {
 run_verify() {
   local label="$1" script="$2"
   shift 2  # remaining args (if any) are forwarded to the script
-  echo "pre-push: verifying $label…"
+  echo "pre-push: verifying ${label}…"
   if timebox 90 node "$script" "$@"; then
     echo "pre-push: $label passed ✓"
   else
@@ -145,7 +145,7 @@ run_verify() {
 run_with_retry() {
   local budget="$1" label="$2" fail_msg="$3" transient="$4"
   shift 4
-  echo "pre-push: verifying $label…"
+  echo "pre-push: verifying ${label}…"
   if timebox "$budget" "$@"; then
     echo "pre-push: $label passed ✓"
     return 0
