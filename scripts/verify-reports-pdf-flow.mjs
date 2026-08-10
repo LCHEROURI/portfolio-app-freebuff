@@ -66,7 +66,13 @@ const flag = (name, fallback) => {
   return i >= 0 && args[i + 1] ? args[i + 1] : fallback;
 };
 const APP = (flag('--app', process.env.VERIFY_BASE_URL) ?? 'https://portfolio-app-freebuff.vercel.app').replace(/\/$/, '');
-const OUT = flag('--out', '/tmp/reports-pdf-flow');
+// The downloads dir MUST be unique per run (like the Chrome profile): Chrome
+// overwrites same-named downloads IN PLACE in the CDP dir, so with a shared
+// default OUT a filename from a previous run was already in the pre-click
+// baseline and the fresh-file filter never saw the new file — every surface
+// failed with "no real PDF appeared" while the PDF actually landed. --out
+// stays for explicit dirs (the gallery passes per-run tmp dirs).
+const OUT = flag('--out', `/tmp/reports-pdf-flow-${process.pid}-${Date.now()}`);
 const DOWNLOADS = `${OUT}/downloads`;
 const CHROME = process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const PORT = 9490;

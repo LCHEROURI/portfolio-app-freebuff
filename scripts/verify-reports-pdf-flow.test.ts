@@ -42,6 +42,16 @@ describe('scripts/verify-reports-pdf-flow.mjs · source contract', () => {
     expect(SCRIPT).toContain("url.includes('/api/print/pdf')");
   });
 
+  it('uses a fresh downloads dir per run so stale same-named files can never mask a real download', () => {
+    // Chrome overwrites same-named downloads IN PLACE in the CDP dir; with a
+    // shared default OUT, a filename from a previous run was already in the
+    // pre-click baseline, the fresh-file filter never saw the new file, and
+    // every surface failed with "no real PDF appeared" while the PDF actually
+    // landed. The default OUT must be unique per run like the Chrome profile.
+    expect(SCRIPT).toContain('flag(\'--out\', `/tmp/reports-pdf-flow-${process.pid}-${Date.now()}`)');
+    expect(SCRIPT).toContain('mkdirSync(DOWNLOADS, { recursive: true })');
+  });
+
   it('warms the serverless PDF renderer with a DIRECT fetch before the first click', () => {
     // The first UI click repeatedly missed the download window on a cold
     // serverless instance while the second and third clicks landed fine. The
