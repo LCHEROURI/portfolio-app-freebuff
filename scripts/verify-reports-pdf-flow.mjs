@@ -23,7 +23,11 @@
 //
 // Each surface asserts: the button rendered, the click was accepted with no
 // error toast, and a real PDF (%PDF- header, > 1000 bytes) landed with the
-// slug filename (proving filename parity with the server disposition).
+// slug filename (proving filename parity with the server disposition). It
+// ALSO proves the double-click race lock live: after the first click the
+// gate waits for the button's busy (disabled) state, attempts a rapid second
+// click, and asserts exactly ONE /api/print/pdf POST (CDP Network count) and
+// exactly ONE file land — mirroring the unit-level disabled-while-busy tests.
 // Emits VERIFY-SUBRESULT markers (reports-pdf-* / cc-pdf-* / mc-pdf-*) for
 // verify-all.mjs's summary table.
 //
@@ -182,6 +186,17 @@ const sleepMs = (ms) => sleep(ms);
 await main.send('Browser.setDownloadBehavior', {
   behavior: 'allow', downloadPath: DOWNLOADS, eventsEnabled: true,
 });
+// Count /api/print/pdf POSTs at the network layer (CDP Network.requestWillBeSent)
+// so the double-click race lock can assert exactly ONE request fired across a
+// rapid second click on the (disabled) button.
+await main.send('Network.enable');
+let pdfRequests = 0;
+main.on((m) => {
+  if (m.method === 'Network.requestWillBeSent') {
+    const url = String(m.params?.request?.url ?? '');
+    if (url.includes('/api/print/pdf')) pdfRequests += 1;
+  }
+});
 
 // ── 3. Inject the owner session ─────────────────────────────────────────────
 console.log(`\n[3] Injecting the owner session, then loading ${APP}/reports`);
@@ -241,7 +256,8 @@ await sleepMs(3000);
 // ── Shared helpers ──────────────────────────────────────────────────────────
 // Click a button (by selector/expression), wait for a NEW file to land in the
 // downloads dir (beyond the pre-click baseline), and assert it is a real PDF.
-const clickDownloadAndVerify = async ({ selectorExpr, baseline, section, label }) => {
+const clickDownloadAndVerify = async ({ selectorExpr, baseline, section, label, race }) => {
+  const beforeCount = pdfRequests;
   const clicked = await main.evaluate(`(() => {
     const b = ${selectorExpr};
     if (!b) return false;
@@ -253,6 +269,25 @@ const clickDownloadAndVerify = async ({ selectorExpr, baseline, section, label }
     return false;
   }
   ok(`${label}: button clicked`);
+  // Double-click race lock proof: after the first click the page disables the
+  // button (pdfBusy) until the flight completes. Wait for that committed
+  // disabled state, then attempt a rapid second click — it must be inert. If
+  // the lock regressed, the second click would start a concurrent POST and a
+  // second file would land.
+  if (race) {
+    let disabled = false;
+    for (let i = 0; i < 50 && !disabled; i++) {
+      await sleepMs(100);
+      disabled = await main.evaluate(`(!!(${selectorExpr}?.disabled))`);
+    }
+    if (!disabled) {
+      fail(`${label}: button never entered the busy (disabled) state after the first click`, section);
+      return false;
+    }
+    ok(`${label}: busy lock engaged (button disabled mid-flight)`);
+    await main.evaluate(`(() => { const b = ${selectorExpr}; b.click(); return true; })()`);
+    ok(`${label}: rapid second click attempted on the disabled button`);
+  }
   // Only a real *.pdf file counts as the download. Under load the renderer can
   // crash mid-click and Chrome drops a minidump into the download dir (a file
   // named after the page, e.g. downloads.html, with the Cr24 magic) — grabbing
@@ -279,6 +314,30 @@ const clickDownloadAndVerify = async ({ selectorExpr, baseline, section, label }
     return false;
   }
   ok(`${label}: real PDF download (${buf.length} bytes, %PDF- header, filename "${file}")`);
+  if (race) {
+    // By the time the first file has landed, any second POST from the rapid
+    // double-click would already have fired (the second click happened right
+    // after the disabled state committed) — the network count must be one.
+    const postCount = pdfRequests - beforeCount;
+    if (postCount !== 1) {
+      fail(`${label}: expected exactly 1 /api/print/pdf POST across the double-click, got ${postCount}`, section);
+      return false;
+    }
+    ok(`${label}: exactly one /api/print/pdf POST fired across the rapid double-click`);
+    // Settle briefly, then confirm no second PDF file appeared (a concurrent
+    // download from a lock regression would land shortly after the first).
+    for (let i = 0; i < 5; i++) {
+      await sleepMs(1000);
+      const freshNow = readdirSync(DOWNLOADS).filter((f) => f.endsWith('.pdf') && !f.endsWith('.crdownload') && !baseline.has(f));
+      if (freshNow.length > 1) break;
+    }
+    const freshFinal = readdirSync(DOWNLOADS).filter((f) => f.endsWith('.pdf') && !f.endsWith('.crdownload') && !baseline.has(f));
+    if (freshFinal.length !== 1) {
+      fail(`${label}: expected exactly 1 PDF file to land across the double-click, got ${freshFinal.length}`, section);
+      return false;
+    }
+    ok(`${label}: exactly one PDF file landed across the rapid double-click`);
+  }
   return true;
 };
 
@@ -322,6 +381,7 @@ const reportsPdf = await clickDownloadAndVerify({
   baseline: reportsBaseline,
   section: 'reports-pdf-click',
   label: 'Reports row Download PDF',
+  race: true,
 });
 if (reportsPdf) ok('Reports row: real PDF landed');
 const reportsError = await main.evaluate(`(() => {
@@ -366,6 +426,7 @@ const ccPdf = await clickDownloadAndVerify({
   baseline: ccBaseline,
   section: 'cc-pdf-click',
   label: 'Command Center Top Three Download PDF',
+  race: true,
 });
 if (!ccPdf) fail('Command Center download did not complete', 'cc-pdf-download');
 const ccError = await main.evaluate(`(() => {
@@ -425,6 +486,7 @@ const mcPdf = await clickDownloadAndVerify({
   baseline: mcBaseline,
   section: 'mc-pdf-click',
   label: 'Model Comparison review-sheet Download PDF',
+  race: true,
 });
 if (!mcPdf) fail('Model Comparison download did not complete', 'mc-pdf-download');
 const mcError = await main.evaluate(`(() => {

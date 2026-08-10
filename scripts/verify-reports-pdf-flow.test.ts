@@ -36,6 +36,27 @@ describe('scripts/verify-reports-pdf-flow.mjs · source contract', () => {
     expect(SCRIPT).toContain('behavior: \'allow\', downloadPath: DOWNLOADS, eventsEnabled: true');
   });
 
+  it('counts /api/print/pdf POSTs at the CDP Network layer for the race proof', () => {
+    expect(SCRIPT).toContain("await main.send('Network.enable')");
+    expect(SCRIPT).toContain("m.method === 'Network.requestWillBeSent'");
+    expect(SCRIPT).toContain("url.includes('/api/print/pdf')");
+  });
+
+  it('drives a rapid second click once the busy lock engages (double-click race proof)', () => {
+    // The live lock proof: after the first click the page disables the button
+    // (pdfBusy); the gate waits for the committed disabled state, attempts a
+    // second click, and asserts exactly one POST + exactly one file across the
+    // double-click — mirroring the unit-level disabled-while-busy tests.
+    expect(SCRIPT).toContain('Double-click race lock proof');
+    expect(SCRIPT).toContain('busy lock engaged (button disabled mid-flight)');
+    expect(SCRIPT).toContain('rapid second click attempted on the disabled button');
+    expect(SCRIPT).toContain('exactly 1 /api/print/pdf POST across the double-click');
+    expect(SCRIPT).toContain('exactly 1 PDF file to land across the double-click');
+    // The race runs on EVERY surface, so a future surface edit can't silently
+    // drop the proof from one page.
+    expect(SCRIPT.match(/race: true/g)?.length).toBe(3);
+  });
+
   it('clicks the REAL Download PDF button on a saved report row', () => {
     expect(SCRIPT).toContain('button[aria-label^="Download PDF of"]');
     expect(SCRIPT).toContain('b.click()');
