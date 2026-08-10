@@ -64,7 +64,7 @@ const runGate = (overrides: Record<string, string>, opts?: { isolatedCwd?: boole
 };
 
 const SANDBOX_VARS = {
-  VERIFY_FIREBASE_PROJECT_ID: 'portfolio-app-freebuff-verify',
+  VERIFY_FIREBASE_PROJECT_ID: 'portfolio-app-freebuff-verify2',
   VERIFY_FIREBASE_WEB_API_KEY: 'fake-key-for-test',
 };
 

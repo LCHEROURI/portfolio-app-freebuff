@@ -644,7 +644,7 @@ packaged smoke tests run against the deployed URL after each push to `main`
 | Script | What it proves | Required GitHub secret |
 | --- | --- | --- |
 | `npm run verify:cron-reports` | Deployed `/api/cron/reports` 401s without auth; daily + weekly report bodies carry the friendly `(DeepSeek Chat)` heading and the raw-id `Model:` footer | `CRON_SECRET` |
-| `npm run verify:firestore-rules` | Probes rules isolation in the **verification sandbox** (`portfolio-app-freebuff-verify` — zero production reads): portfolio write/read under the user's uid, cross-user denied, plus a sandbox↔production rules-parity sub-check. Loud SKIP (exit 0) until the sandbox Auth is provisioned (one-time console click) | `VERIFY_FIREBASE_PROJECT_ID`, `VERIFY_FIREBASE_WEB_API_KEY` |
+| `npm run verify:firestore-rules` | Probes rules isolation in the **verification sandbox** (`portfolio-app-freebuff-verify2` — zero production reads): portfolio write/read under the user's uid, cross-user denied, plus a sandbox↔production rules-parity sub-check. Loud SKIP (exit 0) until the sandbox Auth is provisioned (one-time console click) | `VERIFY_FIREBASE_PROJECT_ID`, `VERIFY_FIREBASE_WEB_API_KEY` |
 | `npm run verify:auth-domains` | Deployed `/api/status?project=<domain>` reports `authDomains.ok` for the shipping domain (defaults to the production URL; pass `--domain <preview-url>` to validate a preview before it ships) | `FIREBASE_WEB_API_KEY` |
 
 Set `CRON_SECRET` and `FIREBASE_WEB_API_KEY` in **GitHub → Settings → Secrets

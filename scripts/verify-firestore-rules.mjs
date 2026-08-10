@@ -10,7 +10,7 @@
 // Target project (the read-budget guard for verification):
 //   - When VERIFY_FIREBASE_PROJECT_ID + VERIFY_FIREBASE_WEB_API_KEY are set
 //     (CI + the shared environment), the probe runs against the dedicated
-//     VERIFICATION SANDBOX project (portfolio-app-freebuff-verify) — a second
+//     VERIFICATION SANDBOX project (portfolio-app-freebuff-verify2) — a second
 //     Spark project whose whole purpose is absorbing probe/CI reads, so
 //     verification never touches the production Firestore read quota.
 //   - Otherwise it falls back to probing the PRODUCTION project
@@ -49,7 +49,7 @@ import { readLocalEnv } from './local-env.mjs';
 // The dedicated verification sandbox — a second Spark project that absorbs
 // probe/CI reads. VERIFY_FIREBASE_PROJECT_ID overrides it (forks may use
 // their own sandbox); the default is this repo's.
-const VERIFY_PROJECT_DEFAULT = 'portfolio-app-freebuff-verify';
+const VERIFY_PROJECT_DEFAULT = 'portfolio-app-freebuff-verify2';
 
 const envOr = (name) => process.env[name] ?? (() => {
   try {
