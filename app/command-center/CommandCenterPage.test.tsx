@@ -60,6 +60,12 @@ vi.mock('@/lib/firebase', () => ({
   isFirebaseConfigured: () => false,
 }));
 
+// liveData now imports readLocalDemoData from the firestore module for the
+// demo-mode export path; stub it so the real firebase SDK chain never loads.
+vi.mock('@/lib/firestore', () => ({
+  readLocalDemoData: () => null,
+}));
+
 // ─── Fetch stub: one queued /api/ai/top-three body per call ─────────────────
 
 type NarrationBody = {
@@ -916,5 +922,33 @@ describe('CommandCenterPage — briefing persistence across remounts', () => {
     // Restored from storage, and the auto-brief ref guard stops a duplicate call.
     expect(await screen.findByText('Stored narration, no refire.')).toBeInTheDocument();
     expect(aiCalls(lastFetchMock as ReturnType<typeof vi.fn>)).toHaveLength(1);
+  });
+});
+
+// ─── Export my data ─────────────────────────────────────────────────────────
+
+describe('CommandCenterPage — export my data', () => {
+  it('downloads the full JSON backup via the Export data button', async () => {
+    const { createObjectURL, clickSpy } = stubDownloadWindow();
+    render(<CommandCenterPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export all my data as JSON' }));
+
+    await waitFor(() => expect(clickSpy).toHaveBeenCalledTimes(1));
+    const blob = createObjectURL.mock.calls[0][0] as Blob;
+    const text = await blob.text();
+    const payload = JSON.parse(text) as {
+      app: string; version: number; userId: string; projects: unknown[]; reports: unknown[];
+    };
+    // Demo mode (no Firebase token in the test env): the same shared payload
+    // builder exports the local demo data — empty here, same shape as live.
+    expect(blob.type).toBe('application/json;charset=utf-8');
+    expect(payload.app).toBe('freebuff');
+    expect(payload.version).toBe(1);
+    expect(payload.userId).toBe('e2e-user');
+    expect(payload.projects).toEqual([]);
+    expect(payload.reports).toEqual([]);
+    const anchor = clickSpy.mock.instances[0] as HTMLAnchorElement;
+    expect(anchor.getAttribute('download')).toMatch(/^freebuff-export-\d{4}-\d{2}-\d{2}\.json$/);
   });
 });

@@ -70,6 +70,12 @@ vi.mock('@/lib/firebase', () => ({
   subscribeToUser: () => () => {},
 }));
 
+// liveData imports readLocalDemoData from the firestore module for the
+// demo-mode export path; stub it so the real firebase SDK chain never loads.
+vi.mock('@/lib/firestore', () => ({
+  readLocalDemoData: () => null,
+}));
+
 // ─── Fetch stub: one queued /api/ai/recommend-winner body per call ──────────
 
 type RecBody = {

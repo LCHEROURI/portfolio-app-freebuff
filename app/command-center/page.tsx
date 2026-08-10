@@ -16,7 +16,7 @@ import { ScanFreshnessBadge } from '@/components/ui/ScanFreshnessBadge';
 import { LastScanStrip } from '@/components/dashboard/LastScanStrip';
 import { VercelEnvSettingsLink } from '@/components/integrations/VercelEnvSettingsLink';
 import { isFirebaseConfigured } from '@/lib/firebase';
-import { downloadPrintPdf, fetchTopThreeNarration, isAiBriefingsEnabled, readLiveFlags } from '@/lib/liveData';
+import { downloadExportData, downloadPrintPdf, fetchTopThreeNarration, isAiBriefingsEnabled, readLiveFlags } from '@/lib/liveData';
 import { briefingPrintMeta, type PrintDoc } from '@/lib/printDoc';
 import { downloadPrintHtml, usePrint } from '@/lib/usePrint';
 import { useStore } from '@/lib/store';
@@ -123,6 +123,21 @@ export default function CommandCenterPage() {
   // headless Chrome, so the file can never drift from the preview.
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  // One-click data backup: downloads the full owner-scoped dataset as JSON.
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  const exportData = async () => {
+    setExportBusy(true);
+    setExportError(null);
+    try {
+      await downloadExportData(store.userId);
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : 'Export failed.');
+    } finally {
+      setExportBusy(false);
+    }
+  };
 
   const downloadPdf = async () => {
     setPdfBusy(true);
@@ -302,11 +317,29 @@ export default function CommandCenterPage() {
         title="Command Center"
         description={`${store.projects.filter((p) => !p.archived).length} active implementations tracked across ${new Set(store.versions.map((v) => v.model)).size} models.`}
         action={
-          <Link href="/projects" className="btn-primary">
-            <FolderKanban size={16} aria-hidden="true" /> New Project
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="btn-ghost"
+              aria-label="Export all my data as JSON"
+              title="Download a complete JSON backup of everything this account owns"
+              disabled={exportBusy}
+              onClick={() => void exportData()}
+            >
+              <FileDown size={16} aria-hidden="true" />
+              {exportBusy ? 'Exporting…' : 'Export data'}
+            </button>
+            <Link href="/projects" className="btn-primary">
+              <FolderKanban size={16} aria-hidden="true" /> New Project
+            </Link>
+          </div>
         }
       />
+      {exportError && (
+        <p role="alert" className="mb-4 text-sm font-medium text-paprika-600 dark:text-paprika-400">
+          {exportError}
+        </p>
+      )}
 
       {/* No live integrations — one-click setup nudge on the landing page */}
       {!anyLive && (

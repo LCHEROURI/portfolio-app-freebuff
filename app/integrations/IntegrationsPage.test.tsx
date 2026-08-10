@@ -26,6 +26,12 @@ vi.mock('@/lib/firebase', () => ({
   subscribeToUser: () => () => {},
 }));
 
+// liveData imports readLocalDemoData from the firestore module for the
+// demo-mode export path; stub it so the real firebase SDK chain never loads.
+vi.mock('@/lib/firestore', () => ({
+  readLocalDemoData: () => null,
+}));
+
 // ─── Fixtures ───────────────────────────────────────────────────────────────
 
 const healthy = (id: string, name: string, envVars: string[]): IntegrationStatus => ({

@@ -17,6 +17,8 @@
 // ============================================================================
 
 import { getFirebaseAuth } from '@/lib/firebase';
+import { readLocalDemoData } from '@/lib/firestore';
+import { buildExportPayload, exportFileName } from '@/lib/exportData';
 import { printPdfFileName, type PrintDoc } from '@/lib/printDoc';
 import type { Repository, Deployment } from '@/types';
 
@@ -243,6 +245,67 @@ export const downloadPrintPdf = async (userId: string, doc: PrintDoc): Promise<v
   const anchor = document.createElement('a');
   anchor.href = url;
   anchor.download = printPdfFileName(doc);
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+};
+
+// ─── One-click data export (via /api/export) ────────────────────────────────
+
+/**
+ * Download the acting user's entire dataset as a JSON file. In live mode
+ * (Firebase token present) the server route reads every owner-scoped
+ * collection — a COMPLETE backup, unbounded by the page-load read guard. In
+ * demo mode (no token issuer) there is no server store, so the local
+ * localStorage demo data is exported with the same payload shape, keeping the
+ * demo flow functional without a route round-trip. The filename comes from the
+ * server's Content-Disposition (or the shared helper in demo mode), so the
+ * saved file always matches the payload's exportedAt date.
+ */
+export const downloadExportData = async (userId: string): Promise<void> => {
+  const token = await getAuthToken();
+  let blob: Blob;
+  let filename = exportFileName(new Date());
+
+  if (token) {
+    const headers = new Headers();
+    headers.set('Content-Type', 'application/json');
+    headers.set('Authorization', `Bearer ${token}`);
+    const res = await fetch('/api/export', {
+      method: 'GET',
+      cache: 'no-store',
+      headers,
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(body.error ?? `Export failed (${res.status})`);
+    }
+    blob = await res.blob();
+    const disposition = res.headers.get('content-disposition');
+    const match = disposition?.match(/filename="([^"]+)"/);
+    if (match) filename = match[1];
+  } else {
+    // Demo mode: no server store — export the local demo data directly with
+    // the same shared payload builder so the file shape never differs.
+    const local = readLocalDemoData();
+    blob = new Blob([JSON.stringify(buildExportPayload(userId, {
+      profile: local?.profile ?? null,
+      projects: local?.projects ?? [],
+      versions: local?.versions ?? [],
+      repositories: local?.repositories ?? [],
+      deployments: local?.deployments ?? [],
+      tasks: local?.tasks ?? [],
+      evaluations: local?.evaluations ?? [],
+      activity: local?.activity ?? [],
+      reports: local?.reports ?? [],
+    }), null, 2)], { type: 'application/json;charset=utf-8' });
+  }
+
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
