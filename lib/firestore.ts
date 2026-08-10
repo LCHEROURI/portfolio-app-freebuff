@@ -1,6 +1,6 @@
 import {
   collection, doc, getDoc, getDocs, setDoc, deleteDoc, query, where,
-  serverTimestamp, type Firestore, type DocumentData,
+  limit, orderBy, serverTimestamp, type Firestore, type DocumentData,
 } from 'firebase/firestore';
 
 import { getFirestoreDb, isFirebaseConfigured, getUserId } from '@/lib/firebase';
@@ -66,6 +66,51 @@ const getById = async <T extends DocShape>(db: Firestore, name: CollectionName, 
   return snap.exists() ? deserialize<T>(snap.id, snap.data()) : null;
 };
 
+// ─── Bounded feed reads (read-budget guard) ─────────────────────────────────
+// Firestore bills per document READ, and the store/UI never keep more than
+// their in-memory caps: logActivity keeps activity at 200 entries (the
+// Activity page renders 100) and saveReport keeps reports at 60. Reading the
+// full collections was unbounded — the owner's activity collection alone held
+// ~1.1k docs, so every page load charged ~5x the rows the UI can ever show,
+// and the verify suite's owner-session page loads multiplied that across
+// gates. These two bounded reads cap the billed reads at exactly the limits
+// the in-memory store already enforces (no display regression possible).
+//
+// Activity is ordered by document id DESC: ids are `a-<base36-ms><rand>`
+// (timestamp-prefixed, see uid() in lib/store.tsx), so descending id order
+// returns newest-first — and an equality filter + document-id ordering is
+// served by the DEFAULT index, so NO composite index is needed (createdAt
+// would need one, and these docs store it as a string, not a Timestamp).
+// The SDK maps the '__name__' field string to the document id (the static
+// FieldPath.documentId() helper is absent from this SDK's types). This also
+// fixes a latent quirk: the old unbounded natural order returned the OLDEST
+// entries first.
+//
+// Reports keep NO orderBy: ids mix `r-<ts>` (in-app) and `r-seed-<kind>-<date>`
+// (seeder), so document-id order is not reliably newest-first; a plain limit
+// preserves today's exact display order while capping the read cost.
+const ACTIVITY_READ_LIMIT = 200;
+const REPORTS_READ_LIMIT = 60;
+
+const listActivity = async (db: Firestore, userId: string): Promise<ActivityEntry[]> => {
+  const snap = await getDocs(query(
+    col(db, 'activity'),
+    where('userId', '==', userId),
+    orderBy('__name__', 'desc'),
+    limit(ACTIVITY_READ_LIMIT),
+  ));
+  return snap.docs.map((d) => deserialize<ActivityEntry>(d.id, d.data()));
+};
+
+const listReports = async (db: Firestore, userId: string): Promise<Report[]> => {
+  const snap = await getDocs(query(
+    col(db, 'reports'),
+    where('userId', '==', userId),
+    limit(REPORTS_READ_LIMIT),
+  ));
+  return snap.docs.map((d) => deserialize<Report>(d.id, d.data()));
+};
+
 const upsert = async <T extends DocShape>(db: Firestore, name: CollectionName, data: T): Promise<T> => {
   const ref = doc(db, COLLECTIONS[name], data.id);
   await setDoc(ref, { ...serialize(data), updatedAt: serverTimestamp() }, { merge: true });
@@ -120,8 +165,8 @@ class FirestoreService implements DataService {
         listAll<Deployment>(db, 'deployments', userId),
         listAll<Task>(db, 'tasks', userId),
         listAll<ModelEvaluation>(db, 'evaluations', userId),
-        listAll<ActivityEntry>(db, 'activity', userId),
-        listAll<Report>(db, 'reports', userId),
+        listActivity(db, userId),
+        listReports(db, userId),
       ]);
     return {
       profile: profile ?? this.defaultProfile(userId),

@@ -105,10 +105,17 @@ const docIdFromName = (name: string): string => name.split('/').pop() ?? name;
  * Returns typed entities (the doc id is attached as `id`), matching the shape
  * the client FirestoreService stores. Never throws: failures return [] so the
  * cron snapshot degrades gracefully (same contract the old store path had).
+ *
+ * `limit` is an optional read cap for callers with a display cap (Firestore
+ * bills per document read — the client store's activity/reports feeds pass
+ * their in-memory caps to keep page loads inside the daily read budget). The
+ * cron's full-snapshot collections (projects/tasks/versions/evaluations) are
+ * small and stay unbounded.
  */
 export const firestoreList = async <T extends { id: string }>(
   collection: string,
   userId: string,
+  limit?: number,
 ): Promise<T[]> => {
   if (!isFirestoreAdminConfigured()) return [];
   try {
@@ -125,6 +132,7 @@ export const firestoreList = async <T extends { id: string }>(
               value: { stringValue: userId },
             },
           },
+          ...(limit ? { limit } : {}),
         },
       }),
       cache: 'no-store',
