@@ -763,6 +763,19 @@ gate fails (or vice versa) with the `invalid or revoked` message. Rotate both
 together and verify with `node scripts/verify-deployed-hash.mjs --url
 https://portfolio-app-freebuff.vercel.app`.
 
+**Gate 0 is the unified `--stale-guard` (identical to the cook repo).** The
+pre-push hook delegates its entire deployed-hash verdict to
+`scripts/verify-deployed-hash-gate.mjs --stale-guard` — the same direction-aware
+implementation the CI validate job runs both at push time (against the pushed
+HEAD) and on PRs (`--head` pinned to the PR head). The driver resolves the live
+commit via the shared `verify-deployed-hash.mjs` and decides: live an ancestor
+of the expected head → forward deploy → pass (proven after deploy by the
+deployment_status gates); live NOT an ancestor → STALE-HEAD BLOCK; an
+invalid/revoked token → exit 2, warn and continue (CI verifies with its own
+token); an undeterminable live commit → fail loudly. The hook carries zero
+verdict logic — a future edit that reintroduces bash ancestry code fails the
+contract test. `SKIP_VERIFY_DEPLOYED_HASH=1` bypasses the gate.
+
 **Even a no-expiration token can die.** Vercel revokes tokens when you create a
 new one with the "invalidate existing" option, or when account security
 settings change — so treat every token as rotatable, and set a **~90-day

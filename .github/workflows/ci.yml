@@ -114,6 +114,62 @@ jobs:
       - name: Production build
         run: npm run build
 
+      # Push-time stale-head guard: verifies the pushed HEAD is not a rollback
+      # of what Vercel is currently serving, BEFORE the deploy starts (the
+      # post-deploy workflows can only prove what was deployed == what was
+      # pushed; they cannot catch a stale push that should never have
+      # deployed). Runs verify-deployed-hash-gate with --stale-guard, the
+      # SAME direction-aware driver the pre-push hook delegates to — live an
+      # ancestor of the pushed HEAD (the standard forward case) → PASS, proven
+      # after deploy; live NOT an ancestor (rollback/diverged) → STALE-HEAD
+      # BLOCK. Only runs on pushes to main — a PR head is legitimately behind
+      # live main, so the check would falsely block every PR (the PR-time
+      # variant below handles PRs, pinned to the PR head). Gated on
+      # VERCEL_TOKEN; the loud guard below turns a missing token into a
+      # failure instead of a silently skipped gate.
+      - name: Fail loudly if VERCEL_TOKEN is missing (main push)
+        if: ${{ github.event_name == 'push' && github.repository == 'LCHEROURI/portfolio-app-freebuff' && env.VERCEL_TOKEN == '' }}
+        run: |
+          echo "::error::VERCEL_TOKEN secret missing — the stale-head guard cannot run on a main push."
+          echo "Add it under GitHub -> Settings -> Secrets and variables -> Actions, then re-run."
+          exit 1
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+      - name: Verify pushed head is not stale vs live (stale-guard)
+        if: ${{ github.event_name == 'push' && env.VERCEL_TOKEN != '' }}
+        run: node scripts/verify-deployed-hash-gate.mjs --stale-guard
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+      # PR-time stale-head guard: the SAME direction-aware gate, pinned to the
+      # PR head via --head instead of the pushed HEAD. Load-bearing on PRs
+      # because the checkout is the MERGE ref — which always contains current
+      # base main — so comparing live against the checkout HEAD would make
+      # every stale PR pass. The rule, applied to the PR head: FAIL iff live is
+      # NOT an ancestor of the PR head (the PR was cut before live's current
+      # state — stale, update the branch); PASS if the PR head already
+      # contains the entire live state. A PR head is legitimately behind BASE
+      # main (that is the push step's contract), but a PR cut before LIVE's
+      # state surfaces here in the PR checks instead of only at merge time.
+      # Gated on VERCEL_TOKEN: fork PRs have no secrets → skip-not-fail, and
+      # the loud guard below fails a missing token on the canonical repo
+      # instead of a silently green skip.
+      - name: Fail loudly if VERCEL_TOKEN is missing (PR)
+        if: ${{ github.event_name == 'pull_request' && github.repository == 'LCHEROURI/portfolio-app-freebuff' && env.VERCEL_TOKEN == '' }}
+        run: |
+          echo "::error::VERCEL_TOKEN secret missing — the PR stale-head guard cannot run."
+          echo "Add it under GitHub -> Settings -> Secrets and variables -> Actions, then re-run."
+          exit 1
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+      - name: Verify PR head is not stale vs live (stale-guard)
+        if: ${{ github.event_name == 'pull_request' && env.VERCEL_TOKEN != '' }}
+        run: node scripts/verify-deployed-hash-gate.mjs --stale-guard --head "${{ github.event.pull_request.head.sha }}"
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
   # Drift guard for the launch checklist: parses docs/launch.md's §4 gate
   # table and asserts every documented command is actually runnable from
   # package.json (npm scripts exist, target files exist, node scripts/ gates

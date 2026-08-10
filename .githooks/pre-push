@@ -13,9 +13,10 @@
 #       instant; FAILS the push when the Data volume is over 90% full, and
 #       WARNS non-blocking over 85% — a full disk breaks SQLite writes and
 #       the Chrome/npm verifiers, so it is checked FIRST)
-#   0. scripts/verify-deployed-hash.mjs  (needs VERCEL_TOKEN — resolves the
-#      canonical production URL via the v13 by-host lookup and asserts it
-#      serves the last PUSHED commit; a bare fallback needs no team scope)
+#   0. scripts/verify-deployed-hash-gate.mjs --stale-guard (needs VERCEL_TOKEN
+#      — the direction-aware rollback guard, the SAME implementation the CI
+#      validate job runs: live an ancestor of HEAD → forward deploy → pass;
+#      live NOT an ancestor → BLOCK; invalid token → warn + continue)
 #   0.5 scripts/verify-token-health.mjs  (needs VERCEL_TOKEN — cheap, no Chrome)
 #   0.6 scripts/lint-import-surface.mjs  (no secrets, pure static, near-instant)
 #   0.6b scripts/lint-dead-words.mjs      (dead-feature phrasing — no secrets, pure static)
@@ -52,9 +53,10 @@ if [ "${SKIP_VERIFY_SIGNIN:-0}" = "1" ]; then
 fi
 
 # Only guard pushes that touch main. Capture the remote tip (the last commit
-# already on origin/main) so the deployed-hash gate can assert production is
-# actually serving it — closing the infer-vs-verify gap: a push that "succeeded"
-# but never deployed is caught before the next push piles on top.
+# already on origin/main) — it is used only for the first-push skip below
+# (an all-zeros tip means nothing has ever deployed, so there is nothing for
+# the stale-guard to compare); the guard itself delegates its entire verdict
+# to the gate driver.
 PUSHES_TO_MAIN=0
 REMOTE_MAIN_SHA=""
 while read -r _local_ref _local_sha remote_ref _remote_sha; do
@@ -217,46 +219,55 @@ else
   echo "pre-push: verify suite not present — skipping disk headroom check"
 fi
 
-# ── 0. Deployed-hash gate (needs VERCEL_TOKEN; asserts the LAST pushed ──────
-#    commit is what production is actually serving). The commit being pushed
-#    right now cannot be live yet — Vercel deploys after the push lands — so
-#    the meaningful assertion is against the remote tip (origin/main), the
-#    commit the previous push claimed to ship. If that deploy silently failed
-#    or is still in progress, this blocks the next push with a clear message
-#    instead of letting the gap grow.
+# ── 0. Deployed-hash stale-guard gate (needs VERCEL_TOKEN; direction-aware ──
+#    rollback protection before every main push). Delegates its ENTIRE verdict
+#    to scripts/verify-deployed-hash-gate.mjs --stale-guard — the SAME
+#    direction-aware implementation the CI validate job runs (push-time and
+#    PR-time variants), so the local hook and CI can never disagree about what
+#    is safe to push. The driver resolves the live commit via the shared
+#    verify-deployed-hash.mjs (v13 by-host lookup, bare fallback) and decides:
+#    live an ancestor of HEAD → forward deploy → PASS (the post-deploy gate
+#    proves the new build after Vercel finishes); live NOT an ancestor
+#    (rollback/diverged) → STALE-HEAD BLOCK, exit 1; invalid/revoked token →
+#    exit 2 (warn + continue — CI has its own token and verifies there). An
+#    undeterminable live commit fails loudly (exit 1) — a push that cannot be
+#    verified must not go out silently.
 # Skips (with a notice) when: the token is unavailable, the remote tip is all
-# zeros (first push to an empty main — nothing to have deployed yet), or the
-# script file is missing.
-if [ -f scripts/verify-deployed-hash.mjs ]; then
+# zeros (first push to an empty main — nothing to have deployed yet), the
+# gate script file is missing, or SKIP_VERIFY_DEPLOYED_HASH=1.
+if [ -f scripts/verify-deployed-hash-gate.mjs ]; then
   if [ -z "$VERCEL" ]; then
-    echo "pre-push: VERCEL_TOKEN not set — skipping deployed-hash proof"
+    echo "pre-push: VERCEL_TOKEN not set — skipping deployed-hash stale-guard"
   elif [ "${REMOTE_MAIN_SHA//0/}" = "" ]; then
-    echo "pre-push: first push to main (no previous remote commit) — skipping deployed-hash proof"
+    echo "pre-push: first push to main (no previous remote commit) — skipping deployed-hash stale-guard"
+  elif [ "${SKIP_VERIFY_DEPLOYED_HASH:-0}" = "1" ]; then
+    echo "pre-push: SKIP_VERIFY_DEPLOYED_HASH=1 — skipping deployed-hash stale-guard"
   else
-    # The hash gate resolves the CANONICAL production URL directly via the v13
-    # by-host lookup (with a bare unscoped fallback) and asserts it serves the
-    # pushed commit. Targeting the canonical URL also subsumes the old
-    # alias-routing drift watch: if the alias pointed at an older/newer
-    # deployment, --expect would fail here directly — and this path needs NO
-    # team-scope resolution, so a team-scoped token or a missing defaultTeamId
-    # can never send it down the v6 list branch (the exact failure the gate
-    # used to hit). CI's verify-deployed-hash.yml still runs the
-    # deployment-specific-vs-canonical drift watch, where both URLs are known.
-    # Note: right after a deploy the alias can TRANSIENTLY lag propagation
-    # (tens of seconds), so run_with_retry retries once after a 30s backoff —
-    # a transient lag clears on the retry and the push proceeds, a genuine
-    # mismatch fails both attempts and aborts. rc=2 (Vercel flagged
-    # invalidToken:true) is FATAL: waiting cannot revive a revoked token, so
-    # the gate aborts with the paste-a-fresh-token message instead of the
-    # generic deploy-failed error.
-    FATAL_RC=2 FATAL_MSG="VERCEL_TOKEN is invalid or revoked — paste a fresh token from https://vercel.com/account/tokens into .env.local, then re-push" \
-    run_with_retry 90 "production deployed-hash matches origin/main (${REMOTE_MAIN_SHA:0:12}…)" \
-      "production is NOT serving the last pushed commit — the deploy may have failed, is still in progress, or the canonical alias routes elsewhere. Fix or wait, then re-push" \
-      "alias propagation" \
-      node scripts/verify-deployed-hash.mjs --url "$PRODUCTION_URL" --expect "$REMOTE_MAIN_SHA"
+    # Deliberately NOT run_with_retry: the gate's verdicts are directional
+    # (forward deploy = pass, stale head = block) and an undeterminable live
+    # commit must fail loudly — a retry wrapper would collapse every failure
+    # to a bare 1 and hide the reason. Exit routing mirrors the driver: 0 →
+    # safe to push; 1 → BLOCKED (abort); 2 → invalid/revoked token (warn +
+    # continue — waiting cannot revive a revoked token, and CI's own token
+    # verifies the push after deploy).
+    echo "pre-push: verifying production deployed-hash stale-guard…"
+    if timebox 90 node scripts/verify-deployed-hash-gate.mjs --stale-guard; then
+      echo "pre-push: deployed-hash stale-guard passed ✓"
+    else
+      hash_rc=$?
+      if [ "$hash_rc" -eq 142 ]; then
+        echo "pre-push: deployed-hash stale-guard exceeded 90s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
+        exit 1
+      elif [ "$hash_rc" -eq 2 ]; then
+        echo "pre-push: VERCEL_TOKEN is invalid or revoked — continuing WITHOUT the live-vs-HEAD comparison (paste a fresh token into .env.local; CI verifies with its own token)" >&2
+      else
+        echo "pre-push: ✗ BLOCKED — live is not an ancestor of your local HEAD; pushing would roll the site back or clobber history. Pull/rebase first, or re-run with SKIP_VERIFY_DEPLOYED_HASH=1" >&2
+        exit 1
+      fi
+    fi
   fi
 else
-  echo "pre-push: verify suite not present — skipping deployed-hash proof"
+  echo "pre-push: verify-deployed-hash-gate.mjs not present — skipping deployed-hash stale-guard"
 fi
 
 # ── 0.5 Token-health gate (needs VERCEL_TOKEN; cheap, no Chrome) ───────────

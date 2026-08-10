@@ -79,6 +79,60 @@ describe('.github/workflows/ci.yml · validate job (docs-render coverage)', () =
   });
 });
 
+describe('.github/workflows/ci.yml · validate job (stale-head guards, ported from the cook repo)', () => {
+  // The validate job block — scoped exactly like the docs-render describe
+  // above so step names can never match in another job's comments.
+  const validateBlock = CI.slice(CI.indexOf('\n  validate:'), CI.indexOf('\n  verify-launch-checklist:'));
+
+  it('runs the push-time stale-guard, gated on push + VERCEL_TOKEN', () => {
+    expect(validateBlock).toContain('name: Verify pushed head is not stale vs live (stale-guard)');
+    expect(validateBlock).toContain('node scripts/verify-deployed-hash-gate.mjs --stale-guard');
+    expect(validateBlock).toContain("if: ${{ github.event_name == 'push' && env.VERCEL_TOKEN != '' }}");
+    expect(validateBlock).toContain('VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}');
+  });
+
+  it('fails loudly when VERCEL_TOKEN is missing on a main push (no silent skip)', () => {
+    expect(validateBlock).toContain('name: Fail loudly if VERCEL_TOKEN is missing (main push)');
+    expect(validateBlock).toContain("github.event_name == 'push'");
+    expect(validateBlock).toContain("github.repository == 'LCHEROURI/portfolio-app-freebuff'");
+    expect(validateBlock).toContain("env.VERCEL_TOKEN == ''");
+    expect(validateBlock).toContain('exit 1');
+  });
+
+  it('runs the PR-time stale-guard pinned to the PR head via --head, gated on pull_request + VERCEL_TOKEN', () => {
+    expect(validateBlock).toContain('name: Verify PR head is not stale vs live (stale-guard)');
+    expect(validateBlock).toContain('node scripts/verify-deployed-hash-gate.mjs --stale-guard --head "${{ github.event.pull_request.head.sha }}"');
+    expect(validateBlock).toContain("if: ${{ github.event_name == 'pull_request' && env.VERCEL_TOKEN != '' }}");
+    expect(validateBlock).toContain('VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}');
+  });
+
+  it('fails loudly when VERCEL_TOKEN is missing on a PR (no silent skip on the canonical repo)', () => {
+    expect(validateBlock).toContain('name: Fail loudly if VERCEL_TOKEN is missing (PR)');
+    expect(validateBlock).toContain("github.event_name == 'pull_request'");
+    expect(validateBlock).toContain("github.repository == 'LCHEROURI/portfolio-app-freebuff'");
+    expect(validateBlock).toContain('exit 1');
+  });
+
+  it('keeps the push stale-guard strictly push-only and the PR stale-guard strictly PR-only', () => {
+    // Negative locks, mirroring the cook repo's contract: the push step must
+    // never fire on pull_request (a PR head is legitimately behind live main)
+    // and the PR step must never fire on push (the push contract belongs to
+    // the step above). Scoped to each step block so the sibling step's gating
+    // can never satisfy the negative.
+    const pushStep = validateBlock.slice(
+      validateBlock.indexOf('name: Verify pushed head is not stale vs live (stale-guard)'),
+      validateBlock.indexOf('\n      # PR-time stale-head guard'),
+    );
+    expect(pushStep).toContain("github.event_name == 'push'");
+    expect(pushStep).not.toContain('pull_request');
+    const prStep = validateBlock.slice(
+      validateBlock.indexOf('name: Verify PR head is not stale vs live (stale-guard)'),
+    );
+    expect(prStep).toContain("github.event_name == 'pull_request'");
+    expect(prStep).not.toContain("github.event_name == 'push'");
+  });
+});
+
 describe('.github/workflows/ci.yml · verify-auth-domains job (push-time domains gate)', () => {
   it('still verifies the deployed authorized domains and the auto-authorize SA key', () => {
     const authDomainsBlock = CI.slice(CI.indexOf('verify-auth-domains:'), CI.indexOf('verify-prod-signin:'));

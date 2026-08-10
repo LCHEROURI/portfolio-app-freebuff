@@ -87,31 +87,47 @@ describe('.githooks/pre-push · shared verifier runners', () => {
   });
 });
 
-describe('.githooks/pre-push · deployed-hash gate (gate 0)', () => {
+describe('.githooks/pre-push · deployed-hash stale-guard gate (gate 0)', () => {
   it('lists the deployed-hash gate in the header gate inventory', () => {
-    expect(hook).toContain('0. scripts/verify-deployed-hash.mjs');
-    expect(hook).toContain('serves the last PUSHED commit');
+    expect(hook).toContain('0. scripts/verify-deployed-hash-gate.mjs --stale-guard');
+    expect(hook).toContain('direction-aware rollback guard');
   });
 
-  it('routes the hash check through run_with_retry with the 90s budget', () => {
-    expect(hook).toMatch(/^\s*run_with_retry 90 "production deployed-hash matches origin\/main/m);
+  it('delegates the ENTIRE verdict to the gate driver --stale-guard (line-anchored exec)', () => {
+    // The unification contract: the hook runs the SAME implementation CI
+    // runs — a line-anchored exec catches a re-introduced second invocation
+    // or a silently dropped --stale-guard flag. The invocation is wrapped in
+    // the shared timebox (90s budget) and routed by exit code below.
+    expect(hook).toMatch(/^\s*if timebox 90 node scripts\/verify-deployed-hash-gate\.mjs --stale-guard; then\s*$/m);
   });
 
-  it('passes FATAL_RC=2 so a revoked token aborts WITHOUT the wasted 30s retry', () => {
-    // Start-anchored on purpose: the env-prefix line continues into the
-    // run_with_retry call, so a bare toContain('FATAL_RC=2') could match a
-    // comment. The prefix is load-bearing — dropping it would silently
-    // reintroduce the revoked-token wasted-retry bug with no test catching
-    // it.
-    expect(hook).toMatch(/^\s*FATAL_RC=2 FATAL_MSG=/m);
-    expect(hook).toContain('paste a fresh token from https://vercel.com/account/tokens');
+  it('contains NO reimplemented ancestry logic (merge-base / is-ancestor)', () => {
+    // The whole point of the unification: the hook carries ZERO verdict
+    // logic — the driver decides. If bash ancestry code ever sneaks back in,
+    // the hook and the driver have drifted and this fails (the same negative
+    // lock the cook repo's hook test carries).
+    expect(hook).not.toMatch(/merge-base/);
+    expect(hook).not.toMatch(/is-ancestor/);
   });
 
-  it('asserts the canonical URL serves the pushed remote tip (line-anchored exec)', () => {
-    // Line-anchored: the exec must carry --url with the canonical production
-    // URL and --expect with the remote tip — the gate's whole purpose. A
-    // regression that dropped either flag would fail here.
-    expect(hook).toMatch(/^\s*node scripts\/verify-deployed-hash\.mjs --url "\$PRODUCTION_URL" --expect "\$REMOTE_MAIN_SHA"\s*$/m);
+  it('routes the driver exit codes: 0 = pass, 2 = warn + continue, else = BLOCKED abort', () => {
+    // Exit routing is the hook's ONLY remaining job besides scoping. 2
+    // (invalid/revoked token) must NOT abort — waiting cannot revive a
+    // revoked token, and CI verifies with its own token — while a stale head
+    // (exit 1) must abort with the BLOCKED message.
+    expect(hook).toContain('continuing WITHOUT the live-vs-HEAD comparison');
+    expect(hook).toContain('✗ BLOCKED — live is not an ancestor of your local HEAD');
+    expect(hook).toContain('SKIP_VERIFY_DEPLOYED_HASH=1');
+    // The BLOCKED branch must actually abort (exit 1), and the exit-2 branch
+    // must NOT (it falls through to the next gate).
+    const blocked = hook.indexOf('✗ BLOCKED');
+    expect(blocked).toBeGreaterThan(-1);
+    const afterBlocked = hook.slice(blocked, blocked + 400);
+    expect(afterBlocked).toContain('exit 1');
+  });
+
+  it('keeps the SKIP_VERIFY_DEPLOYED_HASH escape hatch as a skip, not a failure', () => {
+    expect(hook).toContain('SKIP_VERIFY_DEPLOYED_HASH=1 — skipping deployed-hash stale-guard');
   });
 
   it('keeps the first-push skip (all-zeros remote tip has nothing to verify)', () => {
@@ -119,7 +135,7 @@ describe('.githooks/pre-push · deployed-hash gate (gate 0)', () => {
   });
 
   it('sits before the token-health gate (0.5) in the run order', () => {
-    const gate0 = hook.indexOf('# ── 0. Deployed-hash gate');
+    const gate0 = hook.indexOf('# ── 0. Deployed-hash stale-guard gate');
     const gate05 = hook.indexOf('# ── 0.5 Token-health gate');
     expect(gate0).toBeGreaterThan(-1);
     expect(gate05).toBeGreaterThan(gate0);
@@ -156,7 +172,7 @@ describe('.githooks/pre-push · disk headroom gate (gate 0.05)', () => {
     // without the verify suite proceeds, matching every other gate.
     const gateBlock = hook.slice(
       hook.indexOf('# ── 0.05 Disk headroom gate'),
-      hook.indexOf('# ── 0. Deployed-hash gate'),
+      hook.indexOf('# ── 0. Deployed-hash stale-guard gate'),
     );
     expect(gateBlock).toContain('skipping disk headroom check');
     expect(gateBlock).toContain('[ -f scripts/verify-disk-headroom.mjs ]');
@@ -164,7 +180,7 @@ describe('.githooks/pre-push · disk headroom gate (gate 0.05)', () => {
 
   it('runs BEFORE the deployed-hash gate (0) so a full disk aborts fast', () => {
     const gate005 = hook.indexOf('# ── 0.05 Disk headroom gate');
-    const gate0 = hook.indexOf('# ── 0. Deployed-hash gate');
+    const gate0 = hook.indexOf('# ── 0. Deployed-hash stale-guard gate');
     expect(gate005).toBeGreaterThan(-1);
     expect(gate0).toBeGreaterThan(gate005);
   });
