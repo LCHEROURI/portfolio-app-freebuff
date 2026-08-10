@@ -339,7 +339,14 @@ ok('signed in — Command Center shell rendered');
 
 // ── 5. Model Comparison: generate two recommendations ───────────────────────
 console.log('\n[5] Opening /model-comparison');
-await main.send('Page.navigate', { url: `${APP}/model-comparison` });
+// Pin the theme with the app's own ?theme=dark override: the byte gate's
+// panels capture must be OS-independent. --headless=new follows the OS
+// prefers-color-scheme, so a developer's macOS appearance switch (Auto mode)
+// silently flips the captured theme and breaks the committed dark PNGs — the
+// exact failure that hit the 9c18fd2→8728e2c push (12:30 pass vs 12:45 fail).
+// The committed review-sheet pair is dark; ?theme=dark reproduces it byte-
+// identically regardless of the machine's appearance.
+await main.send('Page.navigate', { url: `${APP}/model-comparison?theme=dark` });
 await sleepMs(4000);
 let recommendButtons = 0;
 for (let i = 0; i < 15; i++) {

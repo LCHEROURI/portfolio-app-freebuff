@@ -97,6 +97,29 @@ describe('scripts/verify-review-sheet.mjs · --check byte gate', () => {
   });
 });
 
+describe('scripts/verify-review-sheet.mjs · theme-stable capture (?theme=dark)', () => {
+  // The byte gate's panels capture must be OS-independent: --headless=new
+  // follows the machine's prefers-color-scheme, so a developer's macOS
+  // appearance switch (Auto mode) silently flips the captured theme and
+  // breaks the committed DARK PNGs — the exact failure that hit the
+  // 9c18fd2→8728e2c push (byte gate passed at 12:30, failed at 12:45 when the
+  // Mac auto-switched Dark→Light). The app's own ?theme=dark override pins
+  // the render byte-for-byte regardless of the machine's appearance.
+  it('navigates to /model-comparison with the app-native ?theme=dark override', () => {
+    expect(script).toContain('`${APP}/model-comparison?theme=dark`');
+  });
+
+  it('every Page.navigate targeting model-comparison carries the override', () => {
+    const navs = [...script.matchAll(/Page\.navigate[\s\S]{0,60}?url: `[^`]*model-comparison[^`]*`/g)].map((m) => m[0]);
+    expect(navs.length).toBeGreaterThan(0);
+    for (const nav of navs) expect(nav).toContain('?theme=dark');
+  });
+
+  it('never navigates to a bare /model-comparison (the OS-theme dependence must not return)', () => {
+    expect(script).not.toMatch(/\$\{APP\}\/model-comparison`/);
+  });
+});
+
 describe('scripts/verify-review-sheet.mjs · headless Chrome spawn flags', () => {
   // The Chrome spawn args live between `spawn(CHROME, [` and `], { stdio:
   // 'ignore' })`. Scoping to that block keeps every assertion honest: a flag
