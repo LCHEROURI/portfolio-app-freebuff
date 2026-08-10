@@ -37,7 +37,7 @@ deep detail; when they disagree, the deeper prose wins.
 
 > **Going live?** The operational go-live companion lives in
 > [**docs/launch.md**](docs/launch.md) — project identity, env vars across the
-> three secret stores, and the exact commands behind the 13 verification
+> three secret stores, and the exact commands behind the 18 verification
 > gates. This section is the overview; that checklist is the drill-down.
 
 ### Architecture in one paragraph
@@ -95,9 +95,9 @@ Data flow at a glance:
 └──────────────────────────────────────────────────────┘
 ```
 
-### The 17 verification gates
+### The 18 verification gates
 
-`npm run verify:all` runs all seventeen against the production URL (or
+`npm run verify:all` runs all eighteen against the production URL (or
 `--app <url>` for a preview) and exits nonzero on any failure. Each gate
 reads its secrets from env, then `.env.local`:
 
@@ -120,6 +120,7 @@ reads its secrets from env, then `.env.local`:
 | deployed-hash | `VERCEL_TOKEN` | production actually serves the expected commit |
 | import-surface | — | no unused or re-exported imports across scripts/ + lib/ + app/ |
 | dead-words | — | removed-feature phrasing never returns to code or docs |
+| read-limits | — | `lib/firestore.ts` still reads activity newest-first with `limit(200)` and reports with `limit(60)` — the bounded-read guard that keeps verify suites + CI under the Firestore daily read budget (an unbounded activity read charged ~5× the rows the UI shows) |
 
 `verify:all` also preflights three static drift guards
 (`verify-launch-checklist.mjs` + `launch-checklist-gates.mjs`): the §4
@@ -139,7 +140,7 @@ When each gate runs:
 ```text
    ┌───────────────────────────────────────────────────────────────┐
    │  LOCAL — every git push (.githooks/pre-push)                  │
-   │  runs the 17 verify:all gates + drift guards (timeboxed); a  │
+   │  runs the 18 verify:all gates + drift guards (timeboxed); a  │
    │  hook gates 0.6/0.6b/0.6c/0.6d (lints + render byte gates);   │
    │  dirty tree or any failure ABORTS the push                    │
    └──────────────────────────────┬────────────────────────────────┘

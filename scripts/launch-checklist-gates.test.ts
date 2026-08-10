@@ -29,7 +29,7 @@ describe('crossCheckVerifyAllGates (live repo)', () => {
       docCommands: gates,
       verifyAllSrc,
       npmScripts,
-      expectedCount: 17,
+      expectedCount: 18,
     });
     expect(failures).toEqual([]);
   });
@@ -44,27 +44,27 @@ describe('crossCheckVerifyAllGates (live repo)', () => {
       docCommands: gates,
       verifyAllSrc: renamed,
       npmScripts,
-      expectedCount: 17,
+      expectedCount: 18,
     });
     expect(failures.join('\n')).toContain('zombie-words');
     expect(failures.join('\n')).toContain('dead-words');
   });
 
   it('catches a gate dropped from verify-all.mjs GATE_NAMES', () => {
-    // dead-words is the LAST name in the literal and the LAST GATES entry,
+    // read-limits is the LAST name in the literal and the LAST GATES entry,
     // so both removals are exact single-token edits that leave every other
     // array intact.
     const dropped = verifyAllSrc
-      .replace(/'dead-words'\]/, ']')
-      .replace(/  \{ name: 'dead-words'[^\n]*\n/, '');
+      .replace(/'read-limits'\]/, ']')
+      .replace(/  \{ name: 'read-limits'[^\n]*\n/, '');
     const failures = crossCheckVerifyAllGates({
       docCommands: gates,
       verifyAllSrc: dropped,
       npmScripts,
-      expectedCount: 17,
+      expectedCount: 18,
     });
-    expect(failures.join('\n')).toContain('declares 16 gate names');
-    expect(failures.join('\n')).toContain('dead-words');
+    expect(failures.join('\n')).toContain('declares 17 gate names');
+    expect(failures.join('\n')).toContain('read-limits');
   });
 });
 

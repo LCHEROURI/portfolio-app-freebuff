@@ -6,7 +6,7 @@ prove it works. Written after the go-live pass on **2026-08-05/06** so the
 next launch (or a new maintainer) doesn't re-derive any of it.
 
 > **New here?** Start with the README's **Handoff — read this first** section
-> (`../README.md#handoff--read-this-first`) — architecture, the 13
+> (`../README.md#handoff--read-this-first`) — architecture, the 18
 > verification gates, and the three-secret-store reality in one page. This
 > checklist is the operational go-live companion to that overview.
 
@@ -90,8 +90,9 @@ Each exits nonzero on failure. Read secrets from env, then `.env.local`.
 | `npm run verify:deployed-hash -- --expect <sha>` | `VERCEL_TOKEN` | Production is actually serving the expected commit — the exact gate the `deployed-hash` CI workflow and pre-push hook run. Pass the commit you expect to be live (`git rev-parse origin/main` for the last pushed commit; `--check-local` compares against local HEAD instead) |
 | `npm run verify:import-surface` | — | Static import-surface lint over `scripts/` + `lib/` + `app/` (TS-compiler-AST scan): no re-exported imports and no unused imports. No secrets, no network — also wired into `npm run lint`, the pre-push hook (gate 0.6), and CI's lint step |
 | `npm run verify:dead-words` | — | Repo-wide sweep for dead-feature phrasing in code comments and docs: the removed report-email wording plus the removed integrations (the old data store, the delivery sender) can never silently return. The env-identifier phrases are **derived from `REMOVED_ENV_VARS` in `lib/integrationVarLinks.ts`** — the same source of truth the Integrations lock test loops over — so the banned list and the lock can never drift: add a removed identifier to the array and both extend automatically. Fails loudly if the array is missing or empty. Skips `docs/reviews/` (historical records), the linter's own files (which must quote the phrases), the source-of-truth array lines, and the removed-var lock lines in `lib/integrationVarLinks.test.ts` (which must quote the dead names to prove they resolve to null). No secrets, no network — also wired into `npm run lint`, the pre-push hook (gate 0.6b), and CI's lint step |
+| `npm run verify:read-limits` | — | Static guard that the Firestore read-budget fix stays in place: `lib/firestore.ts` must still read the activity feed newest-first with `limit(200)` (matching the store's 200-entry cap) and the reports feed with `limit(60)` — the bounds that keep a full pre-push suite + CI verify-deployed day under the Spark 50k-read daily budget (the owner's activity collection alone held ~1.1k docs, so an unbounded read charged ~5× the rows the UI can show). A future edit that unbounds either feed (drops the `orderBy('__name__','desc')` or the limit, or routes the collection through the unbounded `listAll` helper) fails the run. No secrets, no network — also wired into `npm run lint` and CI's lint step |
 
-Run **all seventeen in one command** with `npm run verify:all` — it preflights the
+Run **all eighteen in one command** with `npm run verify:all` — it preflights the
 drift guard above, runs every gate sequentially against the production URL
 (or `--app <url>` to target a preview/local server), dedupes the two
 auth-domains rows (they share one script), and prints a summary table,
@@ -134,7 +135,7 @@ When each gate runs (same picture as the README handoff section):
 ```text
    ┌───────────────────────────────────────────────────────────────┐
    │  LOCAL — every git push (.githooks/pre-push)                  │
-   │  runs the 17 verify:all gates + drift guards (timeboxed); a  │
+   │  runs the 18 verify:all gates + drift guards (timeboxed); a  │
    │  hook gates 0.6/0.6b/0.6c/0.6d (lints + render byte gates);   │
    │  dirty tree or any failure ABORTS the push                    │
    └──────────────────────────────┬────────────────────────────────┘
@@ -243,7 +244,7 @@ screenshots match; the review-sheet capture runs in deterministic mode). After
 every individual gate passes, it
 asserts the working tree is clean (nothing staged, unstaged, or untracked — a
 dirty tree means the pushed commit cannot match the code you just ran) and
-runs the complete seventeen-gate suite against production, printing a single
+runs the complete eighteen-gate suite against production, printing a single
 `SHIP READY` / `SHIP BLOCKED` verdict. Any nonzero exit aborts the push — so
 the same one-command verdict the go-live checklist uses is enforced at the
 point of no return. `SKIP_VERIFY_SIGNIN=1` bypasses it like every other gate.
@@ -324,7 +325,7 @@ installer's note).
 2. **Vercel** — all env vars from §2 set on **Production** (and the GitHub secrets from §3).
 3. **Rules** — `npx firebase deploy --only firestore:rules --project portfolio-app-freebuff2`.
 4. **Push to `main`** — Vercel auto-deploys; the pre-push hook runs the local gates; CI runs the post-deploy gates.
-5. **Run the full verify suite** against the production URL (§4). All seventeen gates must pass.
+5. **Run the full verify suite** against the production URL (§4). All eighteen gates must pass.
 6. **Manual smoke** — sign in on the production URL with email/password, then Google; open Command Center; click AI Explain and confirm the briefing card renders with the `DeepSeek Chat` badge.
 
 ## 6. What was verified at go-live (2026-08-06)
