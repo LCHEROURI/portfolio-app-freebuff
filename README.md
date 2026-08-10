@@ -135,6 +135,46 @@ the committed screenshots match; the review-sheet capture runs in
 deterministic mode) — and `npm run ship:go` commits, pushes, waits for the
 Vercel deploy, then re-runs `ship:ready` against the live build.
 
+### Firestore read budget & the Blaze decision
+
+The live-app verification gates read the PRODUCTION Firestore (that is
+their job), so the daily read budget is part of the verification story:
+
+- **Bounded-read guard** (`read-limits` gate): `lib/firestore.ts` reads
+  activity newest-first with `limit(200)` and reports with `limit(60)`. An
+  unbounded activity read charged ~5× the rows the UI shows — a full suite
+  + CI day used to brush the Spark cap.
+- **Verification sandbox** (`portfolio-app-freebuff-verify2`, a second
+  Spark project): the `firestore-rules` probe runs there, so probe reads
+  never touch production at all (the result transfers via the
+  sandbox↔production rules-parity admin check).
+- **Production is on Blaze (pay-as-you-go), not Spark — deliberately.**
+  Spark's hard 50k document-reads/day cap kept failing the suite's live
+  gates mid-run with `429 RESOURCE_EXHAUSTED` on heavy verification days,
+  blocking pushes until the midnight-PT reset. Blaze has **no monthly
+  fee**: the 50k free reads/day still apply, and overage bills at ~$0.06
+  per 100k reads — effectively $0.00 for this app's usage, so a heavy day
+  costs a fraction of a cent instead of failing. The bounded-read guard +
+  sandbox were built first to shrink reads, but only Blaze removes the
+  hard cap; that review is why the production project is on Blaze today.
+
+### The firestore-rules SKIP steady state
+
+The `firestore-rules` gate probes the sandbox only while the sandbox's
+Auth is provisioned — and provisioning Auth in a Firebase project is a
+**console-only, one-time click**: no API or CLI can do it. Until that
+click lands (Get started → Email/Password → Enable → Save at
+`https://console.firebase.google.com/project/portfolio-app-freebuff-verify2/authentication`),
+the gate reports a **loud SKIP**: exit 0, a `sandbox-auth` SKIP sub-row,
+and a SKIPPED parent row in the verify:all summary — deliberately never a
+fake green, never a push blocker. This is the accepted steady state: the
+rules themselves are still proven, because the sandbox runs the same
+deployed rules as production (both pushed by `npm run deploy:rules`) and
+the rules-parity sub-check verifies that equality. The SKIP loses only the
+live user-probe against the sandbox, nothing else. The earlier
+GCP-created sandbox (`portfolio-app-freebuff-verify`) was orphaned when
+the env stores and docs moved to `-verify2`.
+
 When each gate runs:
 
 ```text
