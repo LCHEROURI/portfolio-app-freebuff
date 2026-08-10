@@ -108,7 +108,7 @@ reads its secrets from env, then `.env.local`:
 | token-health | `VERCEL_TOKEN` | the stored Vercel token is alive (name + expiry) |
 | vercel-env | `VERCEL_TOKEN` (+ Vercel CLI) | Vercel prod env matches `.env.local` (Vercel's system-injected build vars like `VERCEL_OIDC_TOKEN` rotate every deploy and are exempted as informational; real project vars like `VERCEL_TOKEN`/`VERCEL_TEAM_ID` stay value-compared) |
 | cron-reports | `CRON_SECRET` | deployed cron 401s without auth; daily/weekly report bodies carry the friendly model heading + raw-id footer; no report send envelope |
-| firestore-rules | `VERIFY_FIREBASE_PROJECT_ID`, `VERIFY_FIREBASE_WEB_API_KEY` | rules isolation probed in the verification sandbox (a second Spark project, zero production reads) + a sandbox↔production rules-parity sub-check so the result transfers |
+| firestore-rules | `VERIFY_FIREBASE_PROJECT_ID`, `VERIFY_FIREBASE_WEB_API_KEY` | rules isolation probed in the verification sandbox (a second Spark project, zero production reads) + a sandbox↔production rules-parity sub-check so the result transfers; loud SKIP (exit 0, `sandbox-auth` sub-row, SKIPPED parent row) while the sandbox Auth is unprovisioned, so the batch can ship before the one-time console click |
 | auth-domains | `FIREBASE_WEB_API_KEY` | shipping domain is in the Firebase authorized list |
 | prod-signin | `FIREBASE_WEB_API_KEY`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` (+ Chrome) | real sign-in releases into the app and Firestore syncs |
 | google-idp | `FIREBASE_WEB_API_KEY`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | Google IdP record enabled with a classic web client |
@@ -644,7 +644,7 @@ packaged smoke tests run against the deployed URL after each push to `main`
 | Script | What it proves | Required GitHub secret |
 | --- | --- | --- |
 | `npm run verify:cron-reports` | Deployed `/api/cron/reports` 401s without auth; daily + weekly report bodies carry the friendly `(DeepSeek Chat)` heading and the raw-id `Model:` footer | `CRON_SECRET` |
-| `npm run verify:firestore-rules` | Merged rules on the shared project: portfolio write/read under the user's uid, cross-user denied, meal-planner owner grants + stranger denials (mints + deletes a throwaway user) | `FIREBASE_WEB_API_KEY` |
+| `npm run verify:firestore-rules` | Probes rules isolation in the **verification sandbox** (`portfolio-app-freebuff-verify` — zero production reads): portfolio write/read under the user's uid, cross-user denied, plus a sandbox↔production rules-parity sub-check. Loud SKIP (exit 0) until the sandbox Auth is provisioned (one-time console click) | `VERIFY_FIREBASE_PROJECT_ID`, `VERIFY_FIREBASE_WEB_API_KEY` |
 | `npm run verify:auth-domains` | Deployed `/api/status?project=<domain>` reports `authDomains.ok` for the shipping domain (defaults to the production URL; pass `--domain <preview-url>` to validate a preview before it ships) | `FIREBASE_WEB_API_KEY` |
 
 Set `CRON_SECRET` and `FIREBASE_WEB_API_KEY` in **GitHub → Settings → Secrets

@@ -62,6 +62,13 @@ describe('parseSubResultMarkers · valid markers', () => {
       { name: 'deployed-hash/check-local', label: '  ↳ Local HEAD matches deployed (deployed)', pass: true },
     ]);
   });
+
+  it('parses a SKIP verdict as pass:"skip" — a loud skip, never a pass', () => {
+    const rows = parseSubResultMarkers('VERIFY-SUBRESULT|sandbox-auth|SKIP\n', 'firestore-rules');
+    expect(rows).toEqual([
+      { name: 'firestore-rules/sandbox-auth', label: '  ↳ Sandbox Auth provisioning (console click pending) (deployed)', pass: 'skip' },
+    ]);
+  });
 });
 
 describe('parseSubResultMarkers · unknown marker names', () => {
@@ -82,7 +89,7 @@ describe('parseSubResultMarkers · malformed lines are rejected', () => {
       'VERIFY-SUBRESULT',                    // no segments
       'VERIFY-SUBRESULT|auth-gate',          // missing verdict
       'VERIFY-SUBRESULT|auth-gate|PASS|extra', // extra segment
-      'VERIFY-SUBRESULT|auth-gate|maybe',    // non-PASS/FAIL verdict
+      'VERIFY-SUBRESULT|auth-gate|maybe',    // non-PASS/FAIL/SKIP verdict (SKIP is the only third verdict)
       'verify-subresult|auth-gate|PASS',     // wrong case prefix
       ' VERIFY-SUBRESULT|auth-gate|PASS',    // leading space
       'prefix VERIFY-SUBRESULT|auth-gate|PASS', // embedded
@@ -135,6 +142,28 @@ describe('verify-all.mjs · conv-db gate (local) suffix contract', () => {
     expect(parseSubResultMarkers('VERIFY-SUBRESULT|wal-idle|PASS\n', 'conv-db', undefined, '(local)')).toEqual([
       { name: 'conv-db/wal-idle', label: '  ↳ Conv DB WAL at/below threshold (idle) (local)', pass: true },
     ]);
+  });
+});
+
+// ── verify-all.mjs · loud-SKIP verdict rendering ────────────────────────────
+// A capture gate that runs but reports every sub-check as SKIP (e.g.
+// verify-firestore-rules while the sandbox Auth is unprovisioned) must render
+// as a SKIPPED parent row — never a silent green pass — and the summary's
+// status/column logic must treat the 'skip' verdict as SKIPPED, not PASS
+// (the 'skip' string is truthy, so the plain `r.pass ? 'PASS'` branch would
+// otherwise mislabel it). These source locks hold the chain together.
+
+describe('verify-all.mjs · loud-SKIP verdict rendering', () => {
+  const src = readFileSync(join(process.cwd(), 'scripts', 'verify-all.mjs'), 'utf8');
+
+  it('overrides a capture gate whose sub-markers are ALL SKIP to a skipped parent row (loud skip, never a pass)', () => {
+    expect(src).toMatch(/const allSkipped = subs\.length > 0 && subs\.every\(\(s\) => s\.pass === 'skip'\)/);
+    expect(src).toMatch(/pass: allSkipped && pass \? 'skip' : pass/);
+  });
+
+  it('renders the skip verdict as SKIPPED in the summary status column (before the truthy PASS branch)', () => {
+    expect(src).toMatch(/r\.pass === 'skip' \? 'SKIPPED'/);
+    expect(src).toMatch(/r\.pass === 'skip' \|\| r\.sub/);
   });
 });
 

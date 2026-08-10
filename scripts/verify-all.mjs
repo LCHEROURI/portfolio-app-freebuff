@@ -322,24 +322,33 @@ const runOne = async (gate) => {
       ? `    ✗ TIMED OUT after ${TIMEOUT_SEC}s`
       : `    ✗ exited with code ${code}`);
   }
-  results.push({ gate, pass, timedOut, ms });
+  const subs = capture
+    ? parseSubResultMarkers(captured, gate.name, undefined, gate.subSuffix)
+    : [];
+  // A capture gate that ran but reported every sub-check as SKIP (e.g. the
+  // rules gate while the sandbox Auth is unprovisioned) is a LOUD SKIP, not a
+  // pass: the parent row renders SKIPPED (and the sub-row names the reason)
+  // so the summary can never be read as a green check. The override only
+  // masks a genuinely green exit — a nonzero exit still records a failure
+  // and the sub-rows still render.
+  const allSkipped = subs.length > 0 && subs.every((s) => s.pass === 'skip');
+  results.push({ gate, pass: allSkipped && pass ? 'skip' : pass, timedOut, ms });
 
-  // Sub-result rows: parse any VERIFY-SUBRESULT|<name>|<PASS|FAIL> markers
-  // the gate emitted and surface each as its own row directly under the
-  // parent gate's row. Only rows with a real marker are added — a gate that
-  // fails before emitting its markers contributes nothing extra (its own FAIL
-  // row already tells the story). The parent gate's exit code still governs
-  // pass/fail for the whole run; the sub-row is visibility, not a second gate.
-  if (capture) {
-    for (const sub of parseSubResultMarkers(captured, gate.name, undefined, gate.subSuffix)) {
-      results.push({
-        gate: { name: sub.name, label: sub.label, secrets: [], sub: true },
-        pass: sub.pass,
-        timedOut: false,
-        ms: 0,
-        sub: true,
-      });
-    }
+  // Sub-result rows: parse any VERIFY-SUBRESULT|<name>|<PASS|FAIL|SKIP>
+  // markers the gate emitted and surface each as its own row directly under
+  // the parent gate's row. Only rows with a real marker are added — a gate
+  // that fails before emitting its markers contributes nothing extra (its own
+  // FAIL row already tells the story). The parent gate's exit code still
+  // governs pass/fail for the whole run; the sub-row is visibility, not a
+  // second gate.
+  for (const sub of subs) {
+    results.push({
+      gate: { name: sub.name, label: sub.label, secrets: [], sub: true },
+      pass: sub.pass,
+      timedOut: false,
+      ms: 0,
+      sub: true,
+    });
   }
 };
 
@@ -415,6 +424,7 @@ console.log('══════════════════════�
 const statusOf = (r) =>
   r.pass === null ? 'SKIPPED'
   : r.pass === 'covered' ? 'COVERED'
+  : r.pass === 'skip' ? 'SKIPPED'
   : r.pass ? 'PASS'
   : r.timedOut ? `TIMEOUT (${TIMEOUT_SEC}s)`
   : 'FAIL';
@@ -423,7 +433,7 @@ const rw = Math.max(...results.map((r) => requiresOf(r.gate).length), 'REQUIRES'
 console.log(`  ${pad('GATE', w)}  ${pad('STATUS', 7)}  ${pad('REQUIRES', rw)}  TIME`);
 console.log(`  ${'-'.repeat(w)}  -------  ${'-'.repeat(rw)}  -----`);
 for (const r of results) {
-  const time = r.pass === null || r.pass === 'covered' || r.sub ? '—' : `${(r.ms / 1000).toFixed(1)}s`;
+  const time = r.pass === null || r.pass === 'covered' || r.pass === 'skip' || r.sub ? '—' : `${(r.ms / 1000).toFixed(1)}s`;
   console.log(`  ${pad(r.gate.label, w)}  ${pad(statusOf(r), 7)}  ${pad(requiresOf(r.gate), rw)}  ${time}`);
 }
 console.log('══════════════════════════════════════════════════════════');  console.log('  ✓ = secret present (env or .env.local) · ✗ = missing — most gates');

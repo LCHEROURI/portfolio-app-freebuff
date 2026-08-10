@@ -4,12 +4,18 @@
 // verify-all.mjs runs each gate as a child process and, for "capture" gates,
 // scans their piped stdout for machine-readable sub-result markers:
 //
-//   VERIFY-SUBRESULT|<name>|<PASS|FAIL>
+//   VERIFY-SUBRESULT|<name>|<PASS|FAIL|SKIP>
 //
 // Each marker becomes its own indented row under the parent gate's row in the
-// summary table. This module owns that contract so it can be unit-tested in
+// summary table. SKIP is a third, deliberate verdict: a gate that cannot run
+// its probes yet (e.g. verify-firestore-rules while the sandbox Auth is
+// unprovisioned) reports a loud skip — exit 0, but a SKIPPED row, never a
+// silent green. verify-all renders a capture gate whose sub-markers are ALL
+// SKIP as a SKIPPED parent row too.
+//
+// This module owns that contract so it can be unit-tested in
 // isolation: a gate that emits a malformed line (wrong segment count, a
-// non-PASS/FAIL verdict, trailing junk) has that line silently ignored, and an
+// non-PASS/FAIL/SKIP verdict, trailing junk) has that line silently ignored, and an
 // unknown marker name falls back to its raw name rather than a stale label.
 //
 // Read-only against the working tree; no imports, no side effects.
@@ -26,6 +32,7 @@ export const SUBRESULT_LABELS = {
   'portfolio-write-read': 'Portfolio write/read',
   'cross-user-denied': 'Cross-user write denied',
   'rules-parity': 'Sandbox rules match production',
+  'sandbox-auth': 'Sandbox Auth provisioning (console click pending)',
   'authgate-render': 'AuthGate renders',
   'provider-ui': 'Provider controls render (email + Google button)',
   'email-idp-config': 'Email/Password IdP config (admin)',
@@ -68,8 +75,9 @@ export const SUBRESULT_LABELS = {
 };
 
 // The exact marker shape a gate may emit. Anything else on the line is
-// ignored — this regex IS the contract a test locks against.
-const MARKER_RE = /^VERIFY-SUBRESULT\|([^|]+)\|(PASS|FAIL)\s*$/;
+// ignored — this regex IS the contract a test locks against. Verdicts:
+// PASS | FAIL | SKIP (a loud skip — the probe couldn't run yet, exit 0).
+const MARKER_RE = /^VERIFY-SUBRESULT\|([^|]+)\|(PASS|FAIL|SKIP)\s*$/;
 
 /**
  * Parse VERIFY-SUBRESULT markers out of a gate's captured stdout.
@@ -84,7 +92,7 @@ const MARKER_RE = /^VERIFY-SUBRESULT\|([^|]+)\|(PASS|FAIL)\s*$/;
  *   '(deployed)' for the live-app gates. A local-only gate passes its own
  *   suffix (e.g. '(local)') so its sub-rows are not mislabeled as deployed
  *   checks — the conv-db gate emits wal-* markers from the local machine.
- * @returns {Array<{name: string, label: string, pass: boolean}>}
+ * @returns {Array<{name: string, label: string, pass: true | false | 'skip'}>}
  */
 export function parseSubResultMarkers(captured, gateName, labels = SUBRESULT_LABELS, suffix = '(deployed)') {
   const rows = [];
@@ -94,7 +102,7 @@ export function parseSubResultMarkers(captured, gateName, labels = SUBRESULT_LAB
     rows.push({
       name: `${gateName}/${m[1]}`,
       label: `  ↳ ${labels[m[1]] ?? m[1]} ${suffix}`,
-      pass: m[2] === 'PASS',
+      pass: m[2] === 'PASS' ? true : m[2] === 'SKIP' ? 'skip' : false,
     });
   }
   return rows;

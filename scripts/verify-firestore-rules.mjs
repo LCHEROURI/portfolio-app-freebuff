@@ -23,6 +23,16 @@
 // The sandbox must therefore carry the same firestore.rules file (deploy with
 // `npm run deploy:rules`, which pushes the repo file to BOTH projects).
 //
+// SANDOX-SKIP: provisioning Auth in a brand-new Firebase project is a
+// console-only step (the first click can't be scripted). Until that one-time
+// click lands, the sandbox signUp probe returns CONFIGURATION_NOT_FOUND. In
+// sandbox mode that is a LOUD SKIP, not a hard fail — the sandbox is a
+// convenience that absorbs probe reads; its unprovisioned state must not
+// block every push. The skip emits a `sandbox-auth` SKIP sub-marker and exits
+// 0, and verify-all renders the parent row SKIPPED so it can't be mistaken
+// for a green check. A CONFIGURATION_NOT_FOUND against PRODUCTION (fallback
+// mode) is a real anomaly and still hard-fails.
+//
 // Usage:
 //   node scripts/verify-firestore-rules.mjs
 //
@@ -114,6 +124,24 @@ const signUp = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:s
   headers: { 'content-type': 'application/json' },
   body: JSON.stringify({ email: `rules-probe-${Date.now()}@e2e.local`, password: 'ProbePass-123!', returnSecureToken: true }),
 }).then((r) => r.json());
+
+// Sandbox Auth not provisioned yet: the sandbox project has no Identity
+// Platform config until someone clicks Get started once in the Firebase
+// console. That is a LOUD SKIP in sandbox mode (the sandbox is a convenience;
+// its absence must not block pushes), surfaced as a SKIPPED parent row + a
+// `sandbox-auth` sub-row in verify:all — never a silent green. In production
+// fallback mode the same error is a REAL anomaly and still hard-fails below.
+if (inSandboxMode && signUp.error?.message === 'CONFIGURATION_NOT_FOUND') {
+  console.error('\n✗ SKIP: sandbox Auth not provisioned (CONFIGURATION_NOT_FOUND)');
+  console.error(`  The verification sandbox ${projectId} has no Identity Platform/Auth config yet.`);
+  console.error(`  One-time console click: https://console.firebase.google.com/project/${projectId}/authentication →`);
+  console.error('  Get started → Email/Password → Enable → Save, then re-run this gate.');
+  console.error('  Production read quota untouched — no production document reads were made.');
+  console.log('VERIFY-SUBRESULT|sandbox-auth|SKIP');
+  console.error('\nRESULT: SKIP (sandbox auth not provisioned — probes deferred)');
+  process.exit(0);
+}
+
 uid = signUp.localId;
 const token = signUp.idToken;
 if (!token) {
