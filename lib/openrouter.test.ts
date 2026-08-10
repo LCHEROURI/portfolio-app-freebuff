@@ -2,17 +2,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   DEFAULT_OPENROUTER_MODEL,
+  buildMonthlyBriefingMessages,
   buildRecommendationMessages,
   buildSummaryMessages,
   buildTopThreeMessages,
   chatCompletion,
   getOpenRouterModel,
   isOpenRouterConfigured,
+  narrateMonthlyBriefing,
   narrateTopThree,
   parseJsonObject,
   recommendWinner,
   summarizeReport,
   withExecutiveSummary,
+  withMonthlyBriefing,
   withTopThreeNarration,
   withWinnerRecommendations,
 } from './openrouter';
@@ -524,5 +527,106 @@ describe('withWinnerRecommendations', () => {
     ]);
     expect(out).not.toContain('Model:');
     expect(out).toContain('## 🏆 AI winner recommendations');
+  });
+});
+
+// ─── Monthly AI briefing ────────────────────────────────────────────────────
+
+describe('narrateMonthlyBriefing', () => {
+  const input = {
+    facts: {
+      velocity: ['Gemini Build (Google AI Studio / Gemini 1.5 Pro) — 70%'],
+      leadingModel: 'DeepSeek Chat (best 9.2/10)',
+      trends: ['DeepSeek Chat — best 9.2/10, avg 8.9/10 across 3 evaluation(s)'],
+      drift: ['2 open task(s) stale or overdue', 'oldest: Aging task (created Jan 2, 2026)'],
+      deployments: ['1 of 2 deployment(s) healthy this month'],
+      completedCount: 5,
+    },
+  };
+
+  it('returns null without calling the provider when unconfigured', async () => {
+    setKey();
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(narrateMonthlyBriefing(input)).resolves.toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('returns null when the provider errors (never throws)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}) })));
+    await expect(narrateMonthlyBriefing(input)).resolves.toBeNull();
+  });
+
+  it('returns the paragraph and model on success', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      mockJson({ choices: [{ message: { content: '  {"paragraph": "DeepSeek Chat led the month while the backlog drifted to 2 stale tasks."}  ' } }], model: 'deepseek/deepseek-chat' }),
+    ));
+    const result = await narrateMonthlyBriefing(input);
+    expect(result).toEqual({
+      paragraph: 'DeepSeek Chat led the month while the backlog drifted to 2 stale tasks.',
+      model: 'deepseek/deepseek-chat',
+    });
+  });
+
+  it('returns null when the reply is not usable JSON', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      mockJson({ choices: [{ message: { content: 'The month was busy.' } }] }),
+    ));
+    await expect(narrateMonthlyBriefing(input)).resolves.toBeNull();
+  });
+
+  it('returns null when the reply has an empty paragraph', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      mockJson({ choices: [{ message: { content: '{"paragraph": ""}' } }] }),
+    ));
+    await expect(narrateMonthlyBriefing(input)).resolves.toBeNull();
+  });
+
+  it('passes a per-user model override through to the provider', async () => {
+    const fetchMock = vi.fn(async () =>
+      mockJson({ choices: [{ message: { content: '{"paragraph": "A strong month."}' } }], model: 'anthropic/claude-3.5-sonnet' }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const result = await narrateMonthlyBriefing({ ...input, model: 'anthropic/claude-3.5-sonnet' });
+    expect(result?.model).toBe('anthropic/claude-3.5-sonnet');
+    const body = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+    expect(body.model).toBe('anthropic/claude-3.5-sonnet');
+  });
+
+  it('embeds the deterministic facts (velocity / trends / drift) in the prompt', () => {
+    const messages = buildMonthlyBriefingMessages(input);
+    expect(messages).toHaveLength(2);
+    expect(messages[0].role).toBe('system');
+    expect(messages[1].content).toContain('Velocity: Gemini Build (Google AI Studio / Gemini 1.5 Pro) — 70%');
+    expect(messages[1].content).toContain('Leading model: DeepSeek Chat (best 9.2/10)');
+    expect(messages[1].content).toContain('Backlog: 2 open task(s) stale or overdue · oldest: Aging task');
+    expect(messages[1].content).toContain('Tasks completed: 5');
+  });
+});
+
+describe('withMonthlyBriefing', () => {
+  it('returns the body unchanged when there is no briefing', () => {
+    expect(withMonthlyBriefing('# body', null, null)).toBe('# body');
+  });
+
+  it('prepends a headed section with the friendly model label and raw footer', () => {
+    const out = withMonthlyBriefing(
+      '# body',
+      'DeepSeek Chat led the month while the backlog drifted.',
+      'deepseek/deepseek-chat',
+    );
+    expect(out).toContain('## 📈 AI monthly briefing (DeepSeek Chat)');
+    expect(out).toContain('DeepSeek Chat led the month while the backlog drifted.');
+    expect(out).toContain('Model: `deepseek/deepseek-chat`');
+    expect(out).toContain('# body');
+    // The briefing + footer sit above the deterministic body.
+    expect(out.indexOf('DeepSeek Chat led the month')).toBeLessThan(out.indexOf('# body'));
+    expect(out.indexOf('Model: `deepseek/deepseek-chat`')).toBeLessThan(out.indexOf('# body'));
+  });
+
+  it('omits the footer when no model is known', () => {
+    const out = withMonthlyBriefing('# body', 'A strong month.', null);
+    expect(out).not.toContain('Model:');
+    expect(out).toContain('## 📈 AI monthly briefing');
   });
 });

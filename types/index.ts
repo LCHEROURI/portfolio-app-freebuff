@@ -262,7 +262,7 @@ export interface ActivityEntry {
 export interface Report {
   id: string;
   userId: string;
-  kind: 'daily' | 'weekly';
+  kind: 'daily' | 'weekly' | 'monthly';
   title: string;
   body: string; // markdown-ish plain text
   attentionCount: number;
@@ -494,7 +494,7 @@ export const ActivityEntrySchema = z.object({
 export const ReportSchema = z.object({
   id: idString,
   userId: idString,
-  kind: z.enum(['daily', 'weekly']),
+  kind: z.enum(['daily', 'weekly', 'monthly']),
   title: z.string(),
   body: z.string(),
   attentionCount: z.number().int().min(0),

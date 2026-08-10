@@ -12,7 +12,7 @@ import { Modal } from '@/components/ui/Modal';
 import { LastScanStrip } from '@/components/dashboard/LastScanStrip';
 import { useStore } from '@/lib/store';
 import { downloadPrintPdf, fetchAiSummary } from '@/lib/liveData';
-import { buildDailyReportBody, buildWeeklyReportBody, timeAgo } from '@/lib/engine';
+import { buildDailyReportBody, buildMonthlyReportBody, buildWeeklyReportBody, timeAgo } from '@/lib/engine';
 import { modelLabel } from '@/lib/labels';
 import { reportPrintMeta, type PrintDoc } from '@/lib/printDoc';
 import { downloadPrintHtml, usePrint } from '@/lib/usePrint';
@@ -81,7 +81,7 @@ const rowPrint = (r: Report): PrintReport => ({
 
 export default function ReportsPage() {
   const store = useStore();
-  const [generating, setGenerating] = useState<'daily' | 'weekly' | null>(null);
+  const [generating, setGenerating] = useState<'daily' | 'weekly' | 'monthly' | null>(null);
   const [preview, setPreview] = useState<ReportPreview | null>(null);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   // Shared print lifecycle: prefers a styled preview window (popup-blocked
@@ -107,11 +107,13 @@ export default function ReportsPage() {
   // Build the report and open a preview modal instead of saving immediately, so
   // the user sees the exact report body (freshness section + AI summary)
   // before it is saved.
-  const buildPreview = async (kind: 'daily' | 'weekly') => {
+  const buildPreview = async (kind: 'daily' | 'weekly' | 'monthly') => {
     setGenerating(kind);
     const built = kind === 'daily'
       ? buildDailyReportBody(store)
-      : buildWeeklyReportBody(store);
+      : kind === 'weekly'
+        ? buildWeeklyReportBody(store)
+        : buildMonthlyReportBody(store);
     // AI executive summary is an enhancement: when OpenRouter is unconfigured
     // or the call fails, the deterministic report body is previewed unchanged.
     let aiSummary: string | undefined;
@@ -182,7 +184,7 @@ export default function ReportsPage() {
     <div>
       <PageHeader
         title="Reports"
-        description="Daily and weekly snapshots of attention items, tasks, deployments, and model performance."
+        description="Daily, weekly, and monthly snapshots of attention items, tasks, deployments, and model performance."
         action={
           <div className="flex gap-2">
             <button type="button" className="btn-secondary" disabled={generating !== null} onClick={() => buildPreview('daily')}>
@@ -191,11 +193,14 @@ export default function ReportsPage() {
             <button type="button" className="btn-primary" disabled={generating !== null} onClick={() => buildPreview('weekly')}>
               <RefreshCw size={15} className={generating === 'weekly' ? 'animate-spin' : ''} aria-hidden="true" /> Generate Weekly
             </button>
+            <button type="button" className="btn-secondary" disabled={generating !== null} onClick={() => buildPreview('monthly')}>
+              <RefreshCw size={15} className={generating === 'monthly' ? 'animate-spin' : ''} aria-hidden="true" /> Generate Monthly
+            </button>
           </div>
         }
       />
 
-      <div className="mb-6 grid gap-3 text-sm sm:grid-cols-2">
+      <div className="mb-6 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
         <Card className="flex items-center gap-3">
           <Clock4 size={18} className="shrink-0 text-turmeric-500" aria-hidden="true" />
           <p className="text-pepper-600 dark:text-pepper-200">
@@ -206,6 +211,12 @@ export default function ReportsPage() {
           <Clock4 size={18} className="shrink-0 text-eggplant-500" aria-hidden="true" />
           <p className="text-pepper-600 dark:text-pepper-200">
             <strong>Weekly report</strong> — {store.profile.weeklyReportEnabled ? `day ${store.profile.weeklyReportDay} at ${store.profile.weeklyReportTime}` : 'disabled in settings'}.
+          </p>
+        </Card>
+        <Card className="flex items-center gap-3">
+          <CalendarClock size={18} className="shrink-0 text-basil-500" aria-hidden="true" />
+          <p className="text-pepper-600 dark:text-pepper-200">
+            <strong>Monthly report</strong> — composed by the automation engine on the 1st of each month (velocity, winner trends, backlog drift).
           </p>
         </Card>
       </div>
@@ -223,13 +234,13 @@ export default function ReportsPage() {
       />
 
       {recent.length === 0 ? (
-        <EmptyState icon={<FileText size={32} aria-hidden="true" />} title="No reports yet" description="Generate a daily or weekly report to see it here." />
+        <EmptyState icon={<FileText size={32} aria-hidden="true" />} title="No reports yet" description="Generate a daily, weekly, or monthly report to see it here." />
       ) : (
         <div className="space-y-4">
           {recent.map((r) => (
             <details key={r.id} className="card-base group">
               <summary className="flex cursor-pointer list-none items-center gap-3">
-                <Badge tone={r.kind === 'daily' ? 'turmeric' : 'eggplant'}>{r.kind}</Badge>
+                <Badge tone={r.kind === 'daily' ? 'turmeric' : r.kind === 'weekly' ? 'eggplant' : 'basil'}>{r.kind}</Badge>
                 <span className="flex-1 font-semibold">{r.title}</span>
                 <span className="text-xs text-pepper-400">{r.attentionCount} attention items · {timeAgo(r.createdAt)}</span>
                 <button

@@ -131,6 +131,11 @@ const generateDaily = async () => {
   await screen.findByRole('dialog');
 };
 
+const generateMonthly = async () => {
+  fireEvent.click(screen.getByRole('button', { name: /Generate Monthly/i }));
+  await screen.findByRole('dialog');
+};
+
 const saveFromPreview = async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Save report' }));
 };
@@ -638,5 +643,34 @@ describe('ReportsPage — local scan freshness preview', () => {
 
     const scheduleLink = screen.getByRole('link', { name: 'Schedule' });
     expect(scheduleLink).toHaveAttribute('href', '/settings#scan-schedule');
+  });
+});
+
+// ─── Monthly report ─────────────────────────────────────────────────────────
+
+describe('ReportsPage — monthly report', () => {
+  it('previews and saves a monthly report with the AI summary and monthly sections', async () => {
+    queue = [{ ok: true, configured: true, summary: 'Focus on the drifting backlog first.', model: 'deepseek/deepseek-chat' }];
+    render(<ReportsPage />);
+
+    await generateMonthly();
+
+    // The preview modal shows the AI summary callout and the monthly sections.
+    expect(within(screen.getByRole('dialog')).getByText('AI executive summary')).toBeInTheDocument();
+    expect(within(screen.getByRole('dialog')).getByText('Focus on the drifting backlog first.')).toBeInTheDocument();
+    expect(within(screen.getByRole('dialog')).getByText(/## Velocity — what advanced this month/)).toBeInTheDocument();
+    expect(within(screen.getByRole('dialog')).getByText(/## Backlog drift/)).toBeInTheDocument();
+
+    // The kind badge of the new row reads monthly once saved.
+    await saveFromPreview();
+
+    const saved = await waitFor(() => {
+      const r = savedReports.find((x) => x.kind === 'monthly');
+      expect(r).toBeDefined();
+      return r!;
+    });
+    expect(saved.aiSummary).toBe('Focus on the drifting backlog first.');
+    expect(saved.body).toContain('# Monthly Command Center Report');
+    expect(await screen.findByText('monthly')).toBeInTheDocument();
   });
 });

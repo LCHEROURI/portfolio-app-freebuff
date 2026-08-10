@@ -10,7 +10,11 @@
 //      (model label, not raw id) AND the raw-id footer line.
 //   3. The daily report body carries the top-three narration heading with the
 //      friendly label, the raw-id footer, and the structured narration field.
-//   4. No report in either response carries an `email` envelope (the
+//   4. The monthly report body carries the executive-summary heading + raw
+//      footer, the '# Monthly Command Center Report' title, and (when live data
+//      produced one) the '## 📈 AI monthly briefing' section with the structured
+//      briefing field.
+//   5. No report in any response carries an `email` envelope (the
 //      emailed-report feature is gone — a silent re-introduction fails CI just
 //      like the unit tests in app/api/cron/reports/route.test.ts).
 //
@@ -80,7 +84,7 @@ const getJson = async (path, headers = {}) => {
 };
 
 // 1. Auth gate.
-console.log(`\n[1/5] Auth gate at ${BASE}`);
+console.log(`\n[1/6] Auth gate at ${BASE}`);
 const anon = await getJson('/api/cron/reports?kind=daily');
 if (anon.status !== 401) fail(`expected 401 without auth, got ${anon.status}`, 'auth-gate');
 else ok('unauthenticated request rejected with 401');
@@ -96,7 +100,7 @@ const auth = { authorization: `Bearer ${SECRET}` };
 //     deployed CRON_SECRET no longer matches the value we resolved (from
 //     --secret / env / .env.local). Surface that as a clear, actionable failure
 //     instead of the confusing cascade of missing-body failures that follows.
-console.log('\n[2/5] Secret drift guard (authenticated probe)');
+console.log('\n[2/6] Secret drift guard (authenticated probe)');
 const probe = await getJson('/api/cron/reports?kind=weekly', auth);
 if (probe.status === 401) {
   fail('deployed CRON_SECRET differs from the value provided (401 on an authenticated call). '
@@ -108,7 +112,7 @@ if (probe.status === 401) {
 }
 
 // 3. Weekly report body: friendly heading + raw footer + winner recommendation.
-console.log('\n[3/5] Weekly report body (?kind=weekly&previewBody=1)');
+console.log('\n[3/6] Weekly report body (?kind=weekly&previewBody=1)');
 const weekly = await getJson('/api/cron/reports?kind=weekly&previewBody=1', auth);
 const weeklyReport = weekly.json?.reports?.find((r) => r.kind === 'weekly');
 const weeklyBody = weeklyReport?.body ?? '';
@@ -166,7 +170,7 @@ if (!failures) {
 //    graceful fallback must omit the narration cleanly while the executive
 //    summary and raw footer still ship. This keeps the check green on quiet
 //    days without letting regressions sneak through.
-console.log('\n[4/5] Daily report body (?kind=daily&previewBody=1)');
+console.log('\n[4/6] Daily report body (?kind=daily&previewBody=1)');
 const daily = await getJson('/api/cron/reports?kind=daily&previewBody=1', auth);
 const dailyReport = daily.json?.reports?.find((r) => r.kind === 'daily');
 const dailyBody = dailyReport?.body ?? '';
@@ -192,13 +196,50 @@ if (!failures && narration) {
   ok(`daily narration.model=${narration.model}, projectIds=${JSON.stringify(narration.projectIds ?? [])}`);
 }
 
-// 5. Email-envelope sweep: the emailed-report feature was removed, so NO
+// 5. Monthly report body: the newest cadence. The monthly report is forced via
+//    ?kind=monthly so the check does not depend on the calendar date. The
+//    executive summary always ships; the AI monthly briefing (velocity / winner
+//    trends / backlog drift) is data-dependent — when present it must carry the
+//    friendly heading and structured paragraph, never the raw id inline.
+console.log('\n[5/6] Monthly report body (?kind=monthly&previewBody=1)');
+const monthly = await getJson('/api/cron/reports?kind=monthly&previewBody=1', auth);
+const monthlyReport = monthly.json?.reports?.find((r) => r.kind === 'monthly');
+const monthlyBody = monthlyReport?.body ?? '';
+if (!monthlyBody) fail('monthly body missing from response', 'monthly-body');
+if (!monthlyBody.includes('## ✨ AI executive summary (DeepSeek Chat)'))
+  fail('monthly body missing executive-summary friendly heading', 'monthly-body');
+if (!monthlyBody.includes('Model: `deepseek/deepseek-chat`'))
+  fail('monthly body missing raw-id footer', 'monthly-body');
+if (!monthlyBody.includes('# Monthly Command Center Report'))
+  fail('monthly body missing report title', 'monthly-body');
+if (!monthlyBody.includes('## Velocity — what advanced this month'))
+  fail('monthly body missing velocity section', 'monthly-body');
+if (!monthlyBody.includes('## Backlog drift'))
+  fail('monthly body missing backlog-drift section', 'monthly-body');
+const briefing = monthlyReport?.briefing;
+if (briefing) {
+  if (!monthlyBody.includes('## 📈 AI monthly briefing (DeepSeek Chat)'))
+    fail('monthly body missing briefing heading "(DeepSeek Chat)"', 'monthly-body');
+  if (monthlyBody.includes('AI monthly briefing (deepseek/deepseek-chat)'))
+    fail('monthly briefing heading prints the raw model id inline', 'monthly-body');
+  if (!briefing.paragraph) fail('monthly structured briefing.paragraph missing', 'monthly-body');
+  if (briefing.model !== 'deepseek/deepseek-chat') fail('monthly briefing.model mismatch', 'monthly-body');
+  ok(`monthly AI briefing present with friendly label + raw footer (${briefing.paragraph.length} chars)`);
+} else {
+  // Graceful fallback: no live facts to narrate → section must be absent.
+  if (monthlyBody.includes('AI monthly briefing'))
+    fail('briefing is null but the body still contains a briefing section', 'monthly-body');
+  ok('no monthly briefing in live data — deterministic monthly body shipped (graceful path)');
+}
+if (!failures) ok(`monthly body carries exec summary + monthly sections (${monthlyBody.length} chars)`);
+
+// 6. Email-envelope sweep: the emailed-report feature was removed, so NO
 //    report may carry an `email` envelope ({ sent, emailId, reason }) and the
 //    responses themselves must not have a top-level email field either. This
 //    mirrors the unit tests (route.test.ts asserts not.toHaveProperty('email'))
 //    against the deployed build, so a future re-introduction fails CI before
 //    it can ship.
-console.log('\n[5/5] Email-envelope sweep (no report may carry an email envelope)');
+console.log('\n[6/6] Email-envelope sweep (no report may carry an email envelope)');
 let envelopeHits = 0;
 const sweepReports = (reports, label) => {
   for (const r of reports ?? []) {
@@ -208,14 +249,14 @@ const sweepReports = (reports, label) => {
     }
   }
 };
-for (const [label, resp] of [['weekly', weekly.json], ['daily', daily.json]]) {
+for (const [label, resp] of [['weekly', weekly.json], ['daily', daily.json], ['monthly', monthly.json]]) {
   sweepReports(resp?.reports, label);
   if (resp && 'email' in resp) {
     envelopeHits += 1;
     fail(`${label} response carries a top-level email envelope: ${JSON.stringify(resp.email)}`);
   }
 }
-if (envelopeHits === 0) ok('no report in the weekly or daily response carries an email envelope');
+if (envelopeHits === 0) ok('no report in the weekly, daily, or monthly response carries an email envelope');
 // Machine-readable markers for verify:all: each sub-check result becomes its
 // own row in the runner's summary table, so every cron sub-contract (401 gate,
 // secret drift, weekly body, daily body, no-email envelope) is visible at a
@@ -225,6 +266,7 @@ console.log(`VERIFY-SUBRESULT|auth-gate|${(sectionFails['auth-gate'] ?? 0) === 0
 console.log(`VERIFY-SUBRESULT|secret-drift|${(sectionFails['secret-drift'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
 console.log(`VERIFY-SUBRESULT|weekly-body|${(sectionFails['weekly-body'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
 console.log(`VERIFY-SUBRESULT|daily-body|${(sectionFails['daily-body'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
+console.log(`VERIFY-SUBRESULT|monthly-body|${(sectionFails['monthly-body'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
 console.log(`VERIFY-SUBRESULT|email-envelope-sweep|${envelopeHits === 0 ? 'PASS' : 'FAIL'}`);
 
 console.error(`\nRESULT: ${failures === 0 ? 'PASS' : `FAIL (${failures})`}`);

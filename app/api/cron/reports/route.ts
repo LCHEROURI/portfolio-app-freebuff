@@ -1,13 +1,15 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
 import {
-  buildDailyReportBody, buildTopThree, buildWeeklyReportBody, buildWinnerCandidates,
+  buildDailyReportBody, buildMonthlyBriefingFacts, buildMonthlyReportBody,
+  buildTopThree, buildWeeklyReportBody, buildWinnerCandidates,
   runAutomationRules,
   type AppState, type AutomationAlert,
 } from '@/lib/engine';
 import {
-  narrateTopThree, recommendWinner, summarizeReport,
-  withExecutiveSummary, withTopThreeNarration, withWinnerRecommendations,
+  narrateMonthlyBriefing, narrateTopThree, recommendWinner, summarizeReport,
+  withExecutiveSummary, withMonthlyBriefing, withTopThreeNarration,
+  withWinnerRecommendations,
   type WinnerRecommendationSection,
 } from '@/lib/openrouter';
 import type { ReportPreviewPayload } from '@/lib/reportPreview';
@@ -24,9 +26,12 @@ import {
 // for anything else, so the endpoint is not publicly triggerable.
 //
 // Behavior:
-//   ?kind=auto   (default) → daily report every run; weekly report when the
-//                            UTC weekday matches REPORT_WEEKLY_DAY (default 1=Mon)
-//   ?kind=daily / ?kind=weekly → force just that report (for manual testing)
+//   ?kind=auto   (default) → daily report every run; weekly report when the UTC
+//                            weekday matches REPORT_WEEKLY_DAY (default 1=Mon);
+//                            monthly report when the UTC day-of-month matches
+//                            REPORT_MONTHLY_DAY (default 1)
+//   ?kind=daily / ?kind=weekly / ?kind=monthly → force just that report
+//                            (for manual testing)
 //   ?previewBody=1 → dev-only: include each report's composed body in the
 //                    JSON response (still requires the CRON_SECRET bearer), so
 //                    the exact report text can be verified without opening an
@@ -78,15 +83,19 @@ export async function GET(req: NextRequest) {
   // 2. Resolve run parameters.
   const ownerId = process.env.REPORT_OWNER_ID ?? 'demo-user';
   const rawKind = req.nextUrl.searchParams.get('kind') ?? 'auto';
-  const kind: 'auto' | 'daily' | 'weekly' =
-    rawKind === 'daily' || rawKind === 'weekly' ? rawKind : 'auto';
+  const kind: 'auto' | 'daily' | 'weekly' | 'monthly' =
+    rawKind === 'daily' || rawKind === 'weekly' || rawKind === 'monthly' ? rawKind : 'auto';
   // Dev-only verification aid: include the composed report body in the response.
   const previewBody = req.nextUrl.searchParams.get('previewBody') === '1';
   // Dev-only plain-text preview: when set, the composed body is returned as
   // text/plain.
   const textPreview = previewBody && req.nextUrl.searchParams.get('format') === 'text';
   const weeklyDay = Number(process.env.REPORT_WEEKLY_DAY ?? 1);
+  // Monthly cadence is by UTC day-of-month (1-31; values past the last day of
+  // a short month simply never match, so the cron skips that month cleanly).
+  const monthlyDay = Number(process.env.REPORT_MONTHLY_DAY ?? 1);
   const todayUtc = new Date().getUTCDay();
+  const todayUtcDate = new Date().getUTCDate();
 
   // 3. Assemble the live snapshot and evaluate the 14 rules.
   const snapshot = await loadLiveSnapshot(ownerId);
@@ -113,6 +122,7 @@ export async function GET(req: NextRequest) {
 
   const wantDaily = kind === 'auto' || kind === 'daily';
   const wantWeekly = kind === 'auto' ? todayUtc === weeklyDay : kind === 'weekly';
+  const wantMonthly = kind === 'auto' ? todayUtcDate === monthlyDay : kind === 'monthly';
   // Each report entry carries the shared preview payload (kind/title/body/
   // attentionCount/aiModel/narration) so the ?previewBody=1 response and the
   // Reports page preview modal agree on structure by construction.
@@ -127,10 +137,11 @@ export async function GET(req: NextRequest) {
   // budget.
   const pending: Array<{
     r: { title: string; body: string; attentionCount: number };
-    kind: 'daily' | 'weekly';
+    kind: 'daily' | 'weekly' | 'monthly';
   }> = [];
   if (wantDaily) pending.push({ r: buildDailyReportBody(state), kind: 'daily' });
   if (wantWeekly) pending.push({ r: buildWeeklyReportBody(state), kind: 'weekly' });
+  if (wantMonthly) pending.push({ r: buildMonthlyReportBody(state), kind: 'monthly' });
 
   // Weekly AI winner recommendations: projects with multiple active versions,
   // no winner, and evaluations (rule 10). Bounded to 3 projects so a slow
@@ -174,12 +185,20 @@ export async function GET(req: NextRequest) {
 
   const winnerPromise = buildWinnerSections();
 
+  // The deterministic monthly facts, computed once when the monthly report is
+  // due — the AI briefing narrates exactly these figures (never invented ones).
+  const monthlyFacts = wantMonthly ? buildMonthlyBriefingFacts(state) : null;
+
   const summarized = await Promise.all(pending.map(async ({ r, kind }) => {
     const ai = await summarizeReport({ kind, title: r.title, body: r.body, attentionCount: r.attentionCount });
     // The 'why these three matter today' briefing is a daily feature; weekly
-    // reports keep the executive summary + winner recommendation instead.
+    // reports keep the executive summary + winner recommendation; monthly
+    // reports get the velocity/trends/drift briefing instead.
     const narration = kind === 'daily'
       ? await narrateTopThree({ actions: topThreeActions })
+      : null;
+    const briefing = kind === 'monthly' && monthlyFacts
+      ? await narrateMonthlyBriefing({ facts: monthlyFacts })
       : null;
     // Awaited inside the map so weekly bodies always render the freshest winner
     // sections; the promise is computed once, in parallel with the summaries.
@@ -187,6 +206,9 @@ export async function GET(req: NextRequest) {
     let body = withExecutiveSummary(withAlertsSection(r.body, alerts), ai?.summary ?? null, ai?.model ?? null);
     if (kind === 'daily') {
       body = withTopThreeNarration(body, narration?.paragraph ?? null, narration?.model ?? null);
+    }
+    if (kind === 'monthly') {
+      body = withMonthlyBriefing(body, briefing?.paragraph ?? null, briefing?.model ?? null);
     }
     if (kind === 'weekly') {
       body = withWinnerRecommendations(body, winnerSections);
@@ -202,6 +224,8 @@ export async function GET(req: NextRequest) {
       narration,
       // Structured winner recommendations (weekly only) for the same reason.
       winnerRecommendations: winnerSections,
+      // Structured monthly briefing (monthly only) for the same reason.
+      briefing,
     };
   }));
 
@@ -211,12 +235,13 @@ export async function GET(req: NextRequest) {
     reports.push({
       kind: s.kind, title: s.title, attentionCount: s.attentionCount,
       aiModel: s.model, narrationModel: s.narration?.model ?? null,
-      // The full preview payload (body + structured narration) rides along so
-      // the shared ReportPreviewPayload type is always satisfied; the response
-      // below strips the heavy fields unless ?previewBody=1 asks for them.
+      // The full preview payload (body + structured narration/briefing) rides
+      // along so the shared ReportPreviewPayload type is always satisfied; the
+      // response below strips the heavy fields unless ?previewBody=1 asks.
       body: s.body,
       narration: s.narration,
       winnerRecommendations: s.winnerRecommendations,
+      briefing: s.briefing,
     });
 
     // Log a report_generated activity doc (Firestore, camelCase like the client

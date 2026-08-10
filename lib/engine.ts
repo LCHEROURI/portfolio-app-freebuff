@@ -656,6 +656,139 @@ export const buildWeeklyReportBody = (state: AppState): { title: string; body: s
 };
 
 // ============================================================================
+// MONTHLY REPORT
+// ============================================================================
+
+/** The rolling window the monthly report reasons over (30 days). */
+export const MONTHLY_WINDOW_MS = 30 * 86_400_000;
+
+/**
+ * Structured facts the monthly AI briefing narrates. Kept separate from the
+ * deterministic body so the cron can hand the AI the same figures the text
+ * renders (never invented numbers) — mirroring how the daily top-three
+ * narration receives the exact actions it must describe.
+ */
+export interface MonthlyBriefingFacts {
+  /** Versions with activity in the window and progress > 0 (velocity). */
+  velocity: string[];
+  /** Best model this month, e.g. 'DeepSeek Chat (best 9/10)'. */
+  leadingModel: string | null;
+  /** Evaluation trend line per model in the window, best first. */
+  trends: string[];
+  /** Aging/overdue open-task facts for the drift section. */
+  drift: string[];
+  /** Deployment health this month. */
+  deployments: string[];
+  /** Tasks completed within the window. */
+  completedCount: number;
+}
+
+/**
+ * The deterministic facts behind the monthly report: what advanced (velocity),
+ * which model led on evaluations (winner trends), and how the backlog aged
+ * (drift). Consumed by buildMonthlyReportBody for the text and by the cron's
+ * AI briefing for the narrative, so the two can never disagree.
+ */
+export const buildMonthlyBriefingFacts = (state: AppState): MonthlyBriefingFacts => {
+  const since = Date.now() - MONTHLY_WINDOW_MS;
+
+  const velocity = state.versions
+    .filter((v) => new Date(v.lastActivityAt).getTime() > since && v.progress > 0)
+    .map((v) => `${v.versionName} (${v.builder} / ${v.model}) — ${v.progress}%`);
+
+  const monthEvals = state.evaluations.filter((e) => new Date(e.evaluatedAt).getTime() > since);
+  const byModel = new Map<string, number[]>();
+  for (const e of monthEvals) {
+    byModel.set(e.model, [...(byModel.get(e.model) ?? []), e.overallScore]);
+  }
+  const rows = Array.from(byModel.entries())
+    .map(([model, scores]) => ({
+      model,
+      count: scores.length,
+      best: Math.max(...scores),
+      avg: scores.reduce((a, b) => a + b, 0) / scores.length,
+    }))
+    .sort((a, b) => b.best - a.best);
+  const trends = rows.map((r) => `${modelLabel(r.model)} — best ${r.best}/10, avg ${r.avg.toFixed(1)}/10 across ${r.count} evaluation(s)`);
+  const leadingModel = rows[0] ? `${modelLabel(rows[0].model)} (best ${rows[0].best}/10)` : null;
+
+  const open = state.tasks.filter((t) => t.status !== 'COMPLETED' && t.status !== 'CANCELED');
+  const drifted = open.filter((t) => {
+    const created = t.createdAt ? new Date(t.createdAt).getTime() : 0;
+    return created < since || isOverdue(t.dueDate);
+  });
+  const oldest = [...drifted].sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''))[0];
+  const drift = [`${drifted.length} open task(s) stale or overdue`];
+  if (oldest) drift.push(`oldest: ${oldest.title} (created ${formatDate(oldest.createdAt)})`);
+  for (const t of drifted.slice(0, 8)) {
+    drift.push(t.dueDate ? `due ${formatDate(t.dueDate)}: ${t.title}` : `no due date: ${t.title}`);
+  }
+
+  const monthDeploys = state.deployments.filter((d) => {
+    const at = d.lastDeploymentAt ? new Date(d.lastDeploymentAt).getTime() : 0;
+    return at > since;
+  });
+  const healthy = monthDeploys.filter((d) => d.healthStatus === 'HEALTHY').length;
+  const deployments = monthDeploys.length
+    ? [`${healthy} of ${monthDeploys.length} deployment(s) healthy this month`]
+    : ['no deployments this month'];
+
+  const completedCount = state.tasks.filter((t) => {
+    const done = t.completedAt ? new Date(t.completedAt).getTime() : 0;
+    return done > since;
+  }).length;
+
+  return { velocity, leadingModel, trends, drift, deployments, completedCount };
+};
+
+/**
+ * Deterministic monthly report: project velocity (what advanced this month),
+ * winner trends (which model led evaluations), and backlog drift (how the
+ * open-task backlog aged). This is the source of truth the AI briefing
+ * narrates — AI only ever rephrases these facts.
+ */
+export const buildMonthlyReportBody = (state: AppState): { title: string; body: string; attentionCount: number } => {
+  const metrics = computeMetrics(state);
+  const queue = buildPriorityQueue(state);
+  const f = buildMonthlyBriefingFacts(state);
+
+  const lines: string[] = [
+    `# Monthly Command Center Report — ${new Date().toLocaleDateString()}`,
+    '',
+    `**Active projects:** ${metrics.activeProjects}  ·  **Tasks completed this month:** ${f.completedCount}  ·  ${f.deployments[0] ?? 'no deployments'}  ·  **Attention items:** ${metrics.needingAttention}`,
+    '',
+    '## Velocity — what advanced this month',
+    ...(f.velocity.length
+      ? f.velocity.map((v) => `- ${v}`)
+      : ['- No measurable progress this month.']),
+    '',
+    '## Winner trends — model performance this month',
+    ...(f.trends.length
+      ? f.trends.map((t, i) => `- ${i + 1}. ${t}`)
+      : ['- No evaluations this month.']),
+    ...(f.leadingModel ? [`- **Leading model this month:** ${f.leadingModel}.`] : []),
+    '',
+    '## Backlog drift',
+    `- ${f.drift.length ? f.drift.join(' · ') : 'No stale or overdue open tasks 🎉'}`,
+    ...(f.drift.length > 2 ? f.drift.slice(2).map((d) => `  - ${d}`) : []),
+    '',
+    '## Deployment health this month',
+    ...(state.deployments.length
+      ? state.deployments
+          .filter((d) => (d.lastDeploymentAt ? new Date(d.lastDeploymentAt).getTime() > Date.now() - MONTHLY_WINDOW_MS : true))
+          .map((d) => `- ${d.projectName} [${d.environment}] → ${d.healthStatus} (${d.responseTimeMs ?? '?'}ms)`)
+      : ['- No deployments tracked.']),
+    '',
+    '## Priority queue',
+    ...(queue.length
+      ? queue.map((q) => `${q.ruleNumber}. [${q.severity.toUpperCase()}] ${q.title}${staleScanMarker(state, q)}`)
+      : ['- Queue is clear.']),
+  ];
+
+  return { title: `Monthly Report ${new Date().toLocaleDateString()}`, body: lines.join('\n'), attentionCount: metrics.needingAttention };
+};
+
+// ============================================================================
 // MODEL COMPARISON
 // ============================================================================
 

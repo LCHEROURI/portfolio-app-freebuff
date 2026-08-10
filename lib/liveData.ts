@@ -86,7 +86,7 @@ export const fetchLiveDeployments = (userId: string) =>
 
 // ─── AI report summaries (OpenRouter via /api/ai/summarize) ──────────────────
 export interface AiSummaryInput {
-  kind: 'daily' | 'weekly';
+  kind: 'daily' | 'weekly' | 'monthly';
   title: string;
   body: string;
   attentionCount: number;

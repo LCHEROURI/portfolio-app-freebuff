@@ -44,13 +44,14 @@ vi.mock('@/lib/openrouter', async (importOriginal) => {
     ...mod,
     summarizeReport: vi.fn(async () => ({ summary: 'Executive summary text.', model: 'deepseek/deepseek-chat' })),
     narrateTopThree: vi.fn(),
+    narrateMonthlyBriefing: vi.fn(),
     recommendWinner: vi.fn(),
   };
 });
 
 import { GET } from './route';
 import { loadLiveSnapshot } from '@/lib/server/reporting/data';
-import { narrateTopThree, recommendWinner } from '@/lib/openrouter';
+import { narrateMonthlyBriefing, narrateTopThree, recommendWinner } from '@/lib/openrouter';
 import { firestoreUpsert, isFirestoreAdminConfigured } from '@/lib/server/firestoreAdmin';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -144,6 +145,7 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.CRON_SECRET;
+  delete process.env.REPORT_MONTHLY_DAY;
   vi.clearAllMocks();
 });
 
@@ -232,6 +234,84 @@ describe('GET /api/cron/reports — weekly report', () => {
     expect(body).not.toContain('Why these three matter today');
     expect(body).toContain('AI executive summary');
     expect(body).toContain('# Weekly Command Center Report');
+  });
+});
+
+// ─── Monthly report ─────────────────────────────────────────────────────────
+
+describe('GET /api/cron/reports — monthly report', () => {
+  it('does not call narrateTopThree or add the narration section to monthly reports', async () => {
+    await GET(makeReq('monthly'));
+    expect(narrateTopThree).not.toHaveBeenCalled();
+    const res = await GET(makePreviewReq('monthly'));
+    const json = (await res.json()) as { reports: Array<{ body: string }> };
+    const body = json.reports[0].body;
+    expect(body).not.toContain('Why these three matter today');
+    expect(body).toContain('AI executive summary');
+    expect(body).toContain('# Monthly Command Center Report');
+    // The monthly themes are deterministic sections of the body.
+    expect(body).toContain('## Velocity — what advanced this month');
+    expect(body).toContain('## Backlog drift');
+  });
+
+  it('prepends the AI monthly briefing section when the narration is available', async () => {
+    vi.mocked(narrateMonthlyBriefing).mockResolvedValue({
+      paragraph: 'DeepSeek Chat led the month on evaluations while the backlog drifted to stale tasks.',
+      model: 'deepseek/deepseek-chat',
+    });
+    const res = await GET(makePreviewReq('monthly'));
+    const json = (await res.json()) as {
+      reports: Array<{ body: string; briefing: { paragraph: string; model: string } | null }>;
+    };
+    const body = json.reports[0].body;
+    expect(body).toContain('## 📈 AI monthly briefing (DeepSeek Chat)');
+    expect(body).toContain('DeepSeek Chat led the month on evaluations while the backlog drifted to stale tasks.');
+    expect(body).toContain('Model: `deepseek/deepseek-chat`');
+    // The structured briefing rides along so verifiers don't parse prose.
+    expect(json.reports[0].briefing?.paragraph).toContain('led the month');
+    expect(json.reports[0].briefing?.model).toBe('deepseek/deepseek-chat');
+  });
+
+  it('omits the briefing section (keeps the deterministic body) when narrateMonthlyBriefing returns null', async () => {
+    vi.mocked(narrateMonthlyBriefing).mockResolvedValue(null);
+    const res = await GET(makePreviewReq('monthly'));
+    const json = (await res.json()) as { reports: Array<{ body: string }> };
+    expect(json.reports[0].body).not.toContain('AI monthly briefing');
+    expect(json.reports[0].body).toContain('# Monthly Command Center Report');
+  });
+
+  it('does not call narrateMonthlyBriefing for daily or weekly reports', async () => {
+    await GET(makeReq('daily'));
+    await GET(makeReq('weekly'));
+    expect(narrateMonthlyBriefing).not.toHaveBeenCalled();
+  });
+
+  it('composes the monthly report in auto mode on REPORT_MONTHLY_DAY', async () => {
+    process.env.REPORT_MONTHLY_DAY = String(new Date().getUTCDate());
+    const res = await GET(makePreviewReq('auto'));
+    const json = (await res.json()) as { reports: Array<{ kind: string }> };
+    expect(json.reports.some((r) => r.kind === 'monthly')).toBe(true);
+    // Auto mode still composes the daily report on the same run.
+    expect(json.reports.some((r) => r.kind === 'daily')).toBe(true);
+  });
+
+  it('skips the monthly report in auto mode when the day does not match', async () => {
+    const today = new Date().getUTCDate();
+    process.env.REPORT_MONTHLY_DAY = String(today === 1 ? 2 : 1);
+    const res = await GET(makePreviewReq('auto'));
+    const json = (await res.json()) as { reports: Array<{ kind: string }> };
+    expect(json.reports.some((r) => r.kind === 'monthly')).toBe(false);
+    expect(json.reports.some((r) => r.kind === 'daily')).toBe(true);
+  });
+
+  it('returns the composed monthly body as text/plain', async () => {
+    const res = await GET(makeTextPreviewReq('monthly'));
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toContain('text/plain');
+    const text = await res.text();
+    expect(text).toContain('# Monthly Command Center Report');
+    expect(text).toContain('## ✨ AI executive summary (DeepSeek Chat)');
+    expect(text).not.toContain('Why these three matter today');
   });
 });
 

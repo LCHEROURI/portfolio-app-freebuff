@@ -28,6 +28,7 @@ export const SUBRESULT_LABELS = {
   'secret-drift': 'Deployed CRON_SECRET matches local',
   'weekly-body': 'Weekly body: heading + footer',
   'daily-body': 'Daily body: narration + footer',
+  'monthly-body': 'Monthly body: briefing + sections',
   'email-envelope-sweep': 'Email-envelope sweep',
   'portfolio-write-read': 'Portfolio write/read',
   'cross-user-denied': 'Cross-user write denied',

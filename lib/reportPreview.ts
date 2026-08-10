@@ -8,11 +8,11 @@
 // component) imports the type too.
 // ============================================================================
 
-import type { TopThreeNarration, WinnerRecommendationSection } from '@/lib/openrouter';
+import type { MonthlyBriefing, TopThreeNarration, WinnerRecommendationSection } from '@/lib/openrouter';
 
 /** A report preview: the exact report body plus the AI fields that produced it. */
 export interface ReportPreviewPayload {
-  kind: 'daily' | 'weekly';
+  kind: 'daily' | 'weekly' | 'monthly';
   title: string;
   body: string;
   attentionCount: number;
@@ -26,4 +26,10 @@ export interface ReportPreviewPayload {
    * compute winner picks, so it stays optional here.
    */
   winnerRecommendations?: WinnerRecommendationSection[];
+  /**
+   * Structured monthly AI briefing (monthly reports). The cron route always
+   * provides it; the client-side Reports preview does not compute a briefing,
+   * so it stays optional here.
+   */
+  briefing?: MonthlyBriefing | null;
 }

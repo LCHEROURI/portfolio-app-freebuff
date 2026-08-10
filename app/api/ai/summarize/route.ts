@@ -5,7 +5,7 @@ import { getRequestUserId } from '@/lib/server/user';
 import { isOpenRouterConfigured, summarizeReport, type SummarizeReportInput } from '@/lib/openrouter';
 
 const SummarizeSchema = z.object({
-  kind: z.enum(['daily', 'weekly']).default('daily'),
+  kind: z.enum(['daily', 'weekly', 'monthly']).default('daily'),
   title: z.string().max(200).default(''),
   body: z.string().min(1).max(50_000),
   attentionCount: z.number().int().min(0).default(0),

@@ -107,7 +107,7 @@ reads its secrets from env, then `.env.local`:
 | conv-db | — | Local WAL maintenance on the machine's conversation DB: TRUNCATE checkpoint when the `-wal` sidecar exceeds 2 MiB (busy-retry), idles at/below the threshold, skips-not-fail when sqlite3/DB absent. Emits `wal-idle`/`wal-truncated`/`wal-busy`/`wal-error` sub-rows (local suffix). Local-only like disk-headroom, never in CI |
 | token-health | `VERCEL_TOKEN` | the stored Vercel token is alive (name + expiry) |
 | vercel-env | `VERCEL_TOKEN` (+ Vercel CLI) | Vercel prod env matches `.env.local` (Vercel's system-injected build vars like `VERCEL_OIDC_TOKEN` rotate every deploy and are exempted as informational; real project vars like `VERCEL_TOKEN`/`VERCEL_TEAM_ID` stay value-compared) |
-| cron-reports | `CRON_SECRET` | deployed cron 401s without auth; daily/weekly report bodies carry the friendly model heading + raw-id footer; no report send envelope |
+| cron-reports | `CRON_SECRET` | deployed cron 401s without auth; daily/weekly/monthly report bodies carry the friendly model heading + raw-id footer (monthly also proves the velocity/backlog-drift sections + the AI monthly briefing); no report send envelope |
 | firestore-rules | `VERIFY_FIREBASE_PROJECT_ID`, `VERIFY_FIREBASE_WEB_API_KEY` | rules isolation probed in the verification sandbox (a second Spark project, zero production reads) + a sandbox↔production rules-parity sub-check so the result transfers; loud SKIP (exit 0, `sandbox-auth` sub-row, SKIPPED parent row) while the sandbox Auth is unprovisioned, so the batch can ship before the one-time console click |
 | auth-domains | `FIREBASE_WEB_API_KEY` | shipping domain is in the Firebase authorized list |
 | prod-signin | `FIREBASE_WEB_API_KEY`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` (+ Chrome) | real sign-in releases into the app and Firestore syncs |
@@ -541,7 +541,7 @@ only need an env change + redeploy to take effect.
 | **GitHub** | `Repositories` — branches, latest commit, PRs, issues, workflow status | flag `NEXT_PUBLIC_LIVE_REPOS=1` · `GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPOS` |
 | **Vercel** | `Deployments` — latest deploy per project + live health checks (HTTP status + response time) | flag `NEXT_PUBLIC_LIVE_DEPLOYMENTS=1` · `VERCEL_TOKEN`, `VERCEL_TEAM_ID` |
 | **OpenRouter (AI)** | Executive summaries, "Today's Top Three" narration, winner recommendations (AI Explain) | flag `NEXT_PUBLIC_ENABLE_AI_BRIEFINGS=1` (auto-fires the briefing on load) · `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` |
-| **Automation Engine** | Scheduled daily/weekly report generation (in-app Reports page) | (no build-time flag) · `CRON_SECRET`, `REPORT_OWNER_ID` (+ optional `REPORT_WEEKLY_DAY`, `REPORT_STALE_DAYS`) |
+| **Automation Engine** | Scheduled daily/weekly/monthly report generation (in-app Reports page) | (no build-time flag) · `CRON_SECRET`, `REPORT_OWNER_ID` (+ optional `REPORT_WEEKLY_DAY`, `REPORT_MONTHLY_DAY`, `REPORT_STALE_DAYS`) |
 
 **Setup (full detail in `.env.example`):**
 
@@ -609,7 +609,7 @@ route.
 > (`npm run scanner`) reports those and the store overlays them onto the live
 > GitHub feed (see `mergeScannerOverlay` in `lib/store.tsx`).
 
-### 🤖 Automation Engine — scheduled daily/weekly report generation
+### 🤖 Automation Engine — scheduled daily/weekly/monthly report generation
 
 The 14 rules aren't just a dashboard widget — a **Vercel Cron job**
 (`vercel.json` → `/api/cron/reports`) evaluates them against the **live data**
@@ -622,6 +622,10 @@ yesterday tasks, failed deployments, unpushed commits, priority queue, and
 "Today's Top Three" actions.
 - **Weekly (07:00 UTC every Monday, or `REPORT_WEEKLY_DAY`):** projects advanced,
 deployment health, model performance breakdown, and winner recommendations.
+- **Monthly (1st of each month, or `REPORT_MONTHLY_DAY`):** project velocity (what
+advanced in the 30-day window), winner trends (which model led evaluations),
+backlog drift (stale/overdue open tasks), and deployment health — each also
+narrated by the AI monthly briefing.
 
 **Setup:**
 
@@ -630,7 +634,7 @@ deployment health, model performance breakdown, and winner recommendations.
 CRON_SECRET=<long-random-string>   # Vercel Cron sends this as the auth header
 
 # 2. Optional: REPORT_OWNER_ID (default demo-user), REPORT_WEEKLY_DAY (1=Mon),
-#    REPORT_STALE_DAYS (7)
+#    REPORT_MONTHLY_DAY (1=1st), REPORT_STALE_DAYS (7)
 
 # 3. Redeploy — Vercel registers the cron from vercel.json automatically.
 ```
@@ -663,8 +667,9 @@ curl -H "Authorization: Bearer $CRON_SECRET" \
   "https://portfolio-app-freebuff.vercel.app/api/cron/reports?kind=daily&previewBody=1&format=text"
 ```
 
-The packaged smoke test asserts the auth gate, the friendly model heading, and
-the raw-id footer for both daily and weekly bodies:
+The packaged smoke test asserts the auth gate, the friendly model heading, the
+raw-id footer, and the monthly sections for the daily, weekly, and monthly
+bodies:
 
 ```bash
 npm run verify:cron-reports               # against the production URL

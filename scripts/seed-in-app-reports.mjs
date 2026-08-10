@@ -2,7 +2,7 @@
 // ============================================================================
 // scripts/seed-in-app-reports.mjs — pull composed reports into the in-app feed.
 //
-// Nothing is emailed: the cron route still composes the daily/weekly
+// Nothing is emailed: the cron route still composes the daily/weekly/monthly
 // bodies (exposed via ?previewBody=1) but never sends them. This script closes
 // the loop for the in-app Reports page — it calls the cron route with the same
 // CRON_SECRET bearer, takes the composed reports out of the JSON response, and
@@ -94,8 +94,8 @@ async function main() {
       }
     })();
   const OWNER = flag('--owner') ?? process.env.REPORT_OWNER_ID ?? 'demo-user';
-  const KIND_FLAG = flag('--kind', 'both'); // daily | weekly | both
-  const KINDS = KIND_FLAG === 'both' ? ['daily', 'weekly'] : [KIND_FLAG];
+  const KIND_FLAG = flag('--kind', 'both'); // daily | weekly | monthly | both
+  const KINDS = KIND_FLAG === 'both' ? ['daily', 'weekly', 'monthly'] : [KIND_FLAG];
   const DRY = args.includes('--dry-run');
 
   if (!SECRET) {
