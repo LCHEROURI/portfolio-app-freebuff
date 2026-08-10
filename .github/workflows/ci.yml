@@ -195,14 +195,16 @@ jobs:
       # re-verifies stay exempt: forks never carry these secrets, and a
       # workflow_dispatch re-verify shows its skipped steps to the operator.
       - name: Fail loudly if a verify secret is missing (main push)
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'LCHEROURI/portfolio-app-freebuff' && (env.CRON_SECRET == '' || env.FIREBASE_WEB_API_KEY == '' || env.FIREBASE_SERVICE_ACCOUNT == '' || env.REPORT_OWNER_ID == '' || env.VERCEL_TOKEN == '') }}
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'LCHEROURI/portfolio-app-freebuff' && (env.CRON_SECRET == '' || env.FIREBASE_WEB_API_KEY == '' || env.FIREBASE_SERVICE_ACCOUNT == '' || env.REPORT_OWNER_ID == '' || env.VERCEL_TOKEN == '' || env.VERIFY_FIREBASE_WEB_API_KEY == '' || env.VERIFY_FIREBASE_PROJECT_ID == '') }}
         run: |
           echo "::error::Required GitHub Actions secret(s) missing on main push:"
           [ -z "$CRON_SECRET" ] && echo "  - CRON_SECRET (gates 'Verify deployed cron report bodies')"
-          [ -z "$FIREBASE_WEB_API_KEY" ] && echo "  - FIREBASE_WEB_API_KEY (gates 'Verify deployed Firestore rules', 'Verify Google sign-in IdP config', 'Verify deployed deployments feed', and 'Verify deployed PDF route')"
+          [ -z "$FIREBASE_WEB_API_KEY" ] && echo "  - FIREBASE_WEB_API_KEY (gates 'Verify Google sign-in IdP config', 'Verify deployed deployments feed', and 'Verify deployed PDF route')"
           [ -z "$FIREBASE_SERVICE_ACCOUNT" ] && echo "  - FIREBASE_SERVICE_ACCOUNT (gates 'Verify deployed review-sheet print-all contract' and 'Verify deployed PDF route')"
           [ -z "$REPORT_OWNER_ID" ] && echo "  - REPORT_OWNER_ID (gates 'Verify deployed PDF route' — the owner session minted for the PDF POST)"
           [ -z "$VERCEL_TOKEN" ] && echo "  - VERCEL_TOKEN (gates 'Verify Vercel token health')"
+          [ -z "$VERIFY_FIREBASE_WEB_API_KEY" ] && echo "  - VERIFY_FIREBASE_WEB_API_KEY (gates 'Verify Firestore rules (verification sandbox)')"
+          [ -z "$VERIFY_FIREBASE_PROJECT_ID" ] && echo "  - VERIFY_FIREBASE_PROJECT_ID (gates 'Verify Firestore rules (verification sandbox)')"
           echo "Add them under GitHub -> Settings -> Secrets and variables -> Actions, then re-run this job."
           exit 1
         env:
@@ -211,6 +213,8 @@ jobs:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           REPORT_OWNER_ID: ${{ secrets.REPORT_OWNER_ID }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERIFY_FIREBASE_WEB_API_KEY: ${{ secrets.VERIFY_FIREBASE_WEB_API_KEY }}
+          VERIFY_FIREBASE_PROJECT_ID: ${{ secrets.VERIFY_FIREBASE_PROJECT_ID }}
         
 
       # Vercel token health: proves the CI VERCEL_TOKEN (the same secret the
@@ -236,12 +240,18 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
 
-      - name: Verify deployed Firestore rules
-        if: ${{ env.FIREBASE_WEB_API_KEY != '' }}
+      # Firestore rules isolation, probed in the VERIFICATION SANDBOX (the
+      # second Spark project) so CI never touches the production read quota.
+      # The gate also asserts sandbox↔production rules parity via the admin
+      # rules API (FIREBASE_SERVICE_ACCOUNT reads both — an admin read, not a
+      # document read), so the sandbox probe result transfers to production.
+      - name: Verify Firestore rules (verification sandbox)
+        if: ${{ env.VERIFY_FIREBASE_WEB_API_KEY != '' && env.VERIFY_FIREBASE_PROJECT_ID != '' }}
         run: node scripts/verify-firestore-rules.mjs
         env:
-          FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
-          NEXT_PUBLIC_FIREBASE_PROJECT_ID: portfolio-app-freebuff2
+          VERIFY_FIREBASE_WEB_API_KEY: ${{ secrets.VERIFY_FIREBASE_WEB_API_KEY }}
+          VERIFY_FIREBASE_PROJECT_ID: ${{ secrets.VERIFY_FIREBASE_PROJECT_ID }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
 
       # Google sign-in IdP smoke check: asserts the SDK surface the Google
       # popup actually reads — accounts:createAuthUri with providerId

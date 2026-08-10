@@ -32,7 +32,10 @@ describe('parseCiGateSteps (live repo)', () => {
     const byRun = new Map(steps.map((s) => [s.run, s]));
     expect(byRun.get('verify-token-health.mjs').gatingSecrets).toEqual(['VERCEL_TOKEN']);
     expect(byRun.get('verify-cron-reports.mjs').gatingSecrets).toEqual(['CRON_SECRET']);
-    expect(byRun.get('verify-firestore-rules.mjs').gatingSecrets).toEqual(['FIREBASE_WEB_API_KEY']);
+    // The rules gate probes the verification sandbox (second Spark project)
+    // so CI never touches the production read quota; both sandbox vars are
+    // gated.
+    expect(byRun.get('verify-firestore-rules.mjs').gatingSecrets).toEqual(['VERIFY_FIREBASE_WEB_API_KEY', 'VERIFY_FIREBASE_PROJECT_ID']);
     expect(byRun.get('verify-google-idp.mjs').gatingSecrets).toEqual(['FIREBASE_WEB_API_KEY']);
     expect(byRun.get('verify-auth-domains.mjs').gatingSecrets).toEqual(['FIREBASE_WEB_API_KEY']);
     expect(byRun.get('verify-prod-signin.mjs').gatingSecrets).toEqual(['FIREBASE_WEB_API_KEY']);

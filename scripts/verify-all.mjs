@@ -141,7 +141,7 @@ const GATES = [
   // a sub-contract is visible at a glance instead of being buried in the
   // gate's full output.
   { name: 'cron-reports', label: 'Cron report bodies', script: 'verify:cron-reports', baseFlag: '--base', secrets: ['CRON_SECRET'], capture: true },
-  { name: 'firestore-rules', label: 'Firestore rules isolation', script: 'verify:firestore-rules', secrets: ['NEXT_PUBLIC_FIREBASE_PROJECT_ID', 'FIREBASE_WEB_API_KEY'], capture: true },
+  { name: 'firestore-rules', label: 'Firestore rules isolation', script: 'verify:firestore-rules', secrets: ['VERIFY_FIREBASE_PROJECT_ID', 'VERIFY_FIREBASE_WEB_API_KEY'], capture: true },
   { name: 'auth-domains', label: 'Authorized domains', script: 'verify:auth-domains', appFlag: '--app', secrets: ['FIREBASE_WEB_API_KEY'] },
   { name: 'prod-signin', label: 'Production sign-in + Firestore sync', script: 'verify:prod-signin', appFlag: '--app', secrets: ['FIREBASE_WEB_API_KEY', 'NEXT_PUBLIC_FIREBASE_PROJECT_ID'], note: 'Chrome', capture: true },
   { name: 'google-idp', label: 'Google IdP record', script: 'verify:google-idp', secrets: ['FIREBASE_WEB_API_KEY', 'NEXT_PUBLIC_FIREBASE_PROJECT_ID'], capture: true },

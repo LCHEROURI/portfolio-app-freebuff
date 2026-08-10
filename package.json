@@ -42,6 +42,7 @@
     "ship:go": "node scripts/ship-go.mjs",
     "verify:deployed-hash": "node scripts/verify-deployed-hash.mjs",
     "verify:launch-checklist": "node scripts/verify-launch-checklist.mjs",
+    "deploy:rules": "firebase deploy --only firestore:rules --project portfolio-app-freebuff2 && firebase deploy --only firestore:rules --project portfolio-app-freebuff-verify",
     "gha:status": "node scripts/gha-status.mjs",
     "authorize:domain": "node scripts/authorize-domain.mjs",
     "seed:winner-candidates": "node scripts/seed-winner-candidates.mjs",

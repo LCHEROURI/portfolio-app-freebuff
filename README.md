@@ -108,7 +108,7 @@ reads its secrets from env, then `.env.local`:
 | token-health | `VERCEL_TOKEN` | the stored Vercel token is alive (name + expiry) |
 | vercel-env | `VERCEL_TOKEN` (+ Vercel CLI) | Vercel prod env matches `.env.local` (Vercel's system-injected build vars like `VERCEL_OIDC_TOKEN` rotate every deploy and are exempted as informational; real project vars like `VERCEL_TOKEN`/`VERCEL_TEAM_ID` stay value-compared) |
 | cron-reports | `CRON_SECRET` | deployed cron 401s without auth; daily/weekly report bodies carry the friendly model heading + raw-id footer; no report send envelope |
-| firestore-rules | `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `FIREBASE_WEB_API_KEY` | user-isolated rules: own-uid write/read, cross-user denied |
+| firestore-rules | `VERIFY_FIREBASE_PROJECT_ID`, `VERIFY_FIREBASE_WEB_API_KEY` | rules isolation probed in the verification sandbox (a second Spark project, zero production reads) + a sandbox↔production rules-parity sub-check so the result transfers |
 | auth-domains | `FIREBASE_WEB_API_KEY` | shipping domain is in the Firebase authorized list |
 | prod-signin | `FIREBASE_WEB_API_KEY`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` (+ Chrome) | real sign-in releases into the app and Firestore syncs |
 | google-idp | `FIREBASE_WEB_API_KEY`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | Google IdP record enabled with a classic web client |

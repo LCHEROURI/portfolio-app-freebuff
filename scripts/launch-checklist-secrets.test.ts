@@ -51,8 +51,8 @@ describe('crossCheckVerifyAllSecrets (live repo)', () => {
     // Simulate the runner gaining a new required secret (firestore-rules →
     // + REPORT_OWNER_ID) while the doc row is untouched.
     const drifted = verifyAllSrc.replace(
-      "secrets: ['NEXT_PUBLIC_FIREBASE_PROJECT_ID', 'FIREBASE_WEB_API_KEY'], capture: true",
-      "secrets: ['NEXT_PUBLIC_FIREBASE_PROJECT_ID', 'FIREBASE_WEB_API_KEY', 'REPORT_OWNER_ID'], capture: true",
+      "secrets: ['VERIFY_FIREBASE_PROJECT_ID', 'VERIFY_FIREBASE_WEB_API_KEY'], capture: true",
+      "secrets: ['VERIFY_FIREBASE_PROJECT_ID', 'VERIFY_FIREBASE_WEB_API_KEY', 'REPORT_OWNER_ID'], capture: true",
     );
     const failures = crossCheckVerifyAllSecrets({ rows, header, verifyAllSrc: drifted, npmScripts });
     expect(failures.join('\n')).toContain('REPORT_OWNER_ID');

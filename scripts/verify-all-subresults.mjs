@@ -25,6 +25,7 @@ export const SUBRESULT_LABELS = {
   'email-envelope-sweep': 'Email-envelope sweep',
   'portfolio-write-read': 'Portfolio write/read',
   'cross-user-denied': 'Cross-user write denied',
+  'rules-parity': 'Sandbox rules match production',
   'authgate-render': 'AuthGate renders',
   'provider-ui': 'Provider controls render (email + Google button)',
   'email-idp-config': 'Email/Password IdP config (admin)',

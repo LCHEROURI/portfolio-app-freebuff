@@ -126,14 +126,17 @@ describe('.github/workflows/ci.yml · verify-deployed job (post-deploy smoke gat
     expect(verifyDeployedBlock).toContain('CRON_SECRET: ${{ secrets.CRON_SECRET }}');
   });
 
-  it('still runs the deployed Firestore rules step, gated on FIREBASE_WEB_API_KEY, pinned to freebuff2', () => {
+  it('still runs the Firestore rules step, gated on the verification-sandbox pair', () => {
+    // The rules gate probes the VERIFICATION SANDBOX (a second Spark project)
+    // so CI never touches the production read quota; it must never fall back
+    // to production here. Both sandbox vars are gated (a missing one skips
+    // only on forks), and the service account is passed so the gate's
+    // sandbox↔production rules-parity sub-check can run.
     expect(verifyDeployedBlock).toMatch(/run: node scripts\/verify-firestore-rules\.mjs/);
-    expect(verifyDeployedBlock).toContain("if: ${{ env.FIREBASE_WEB_API_KEY != '' }}");
-    expect(verifyDeployedBlock).toContain('FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}');
-    // The project-id pin is part of the rules gate: the rules verifier must
-    // always probe the freebuff2 project, never a bare freebuff that a
-    // copy-paste could reintroduce.
-    expect(verifyDeployedBlock).toContain('NEXT_PUBLIC_FIREBASE_PROJECT_ID: portfolio-app-freebuff2');
+    expect(verifyDeployedBlock).toContain("if: ${{ env.VERIFY_FIREBASE_WEB_API_KEY != '' && env.VERIFY_FIREBASE_PROJECT_ID != '' }}");
+    expect(verifyDeployedBlock).toContain('VERIFY_FIREBASE_WEB_API_KEY: ${{ secrets.VERIFY_FIREBASE_WEB_API_KEY }}');
+    expect(verifyDeployedBlock).toContain('VERIFY_FIREBASE_PROJECT_ID: ${{ secrets.VERIFY_FIREBASE_PROJECT_ID }}');
+    expect(verifyDeployedBlock).toContain('FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}');
   });
 
   it('still runs the Google sign-in IdP config step, gated on FIREBASE_WEB_API_KEY', () => {
