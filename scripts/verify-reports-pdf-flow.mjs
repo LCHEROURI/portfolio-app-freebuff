@@ -31,6 +31,15 @@
 // Emits VERIFY-SUBRESULT markers (reports-pdf-* / cc-pdf-* / mc-pdf-*) for
 // verify-all.mjs's summary table.
 //
+// Cold-start hardening: the deployed /api/print/pdf route boots headless
+// Chromium on demand, and when Vercel scales the function down between runs
+// the FIRST UI click of the session repeatedly missed the download window on
+// a cold instance while the second and third clicks landed fine. The gate
+// therefore sends one authenticated warm-up render (a direct Node fetch,
+// deliberately NOT through the page so the CDP Network POST count the race
+// proof uses stays untouched) before the first click, and each download wait
+// polls up to 120s.
+//
 // Usage:
 //   node scripts/verify-reports-pdf-flow.mjs [--app https://...]
 //
@@ -198,6 +207,22 @@ main.on((m) => {
   }
 });
 
+// ── 2b. Warm the serverless PDF renderer before the first UI click ─────────
+// The deployed route boots headless Chromium on demand; a scaled-down
+// function instance makes the FIRST click of the session take 60-120s (and
+// repeatedly missed the old 60s window) while the second and third clicks
+// land in seconds on the warm instance. One authenticated warm-up render — a
+// minimal PrintDoc (`title` alone satisfies PrintDocSchema) sent directly
+// from Node, NOT through the page — warms the function AND leaves the CDP
+// Network POST count that the double-click race proof asserts untouched.
+const warmup = await fetch(`${APP}/api/print/pdf`, {
+  method: 'POST',
+  headers: { authorization: `Bearer ${exchange.idToken}`, 'content-type': 'application/json' },
+  body: JSON.stringify({ title: 'PDF renderer warm-up' }),
+});
+if (warmup.ok) ok('PDF renderer warmed (HTTP 200)');
+else console.log(`  ↳ warm-up returned HTTP ${warmup.status} — continuing (the first click may hit a cold start)`);
+
 // ── 3. Inject the owner session ─────────────────────────────────────────────
 console.log(`\n[3] Injecting the owner session, then loading ${APP}/reports`);
 await main.send('Page.navigate', { url: `${APP}/reports` });
@@ -295,14 +320,14 @@ const clickDownloadAndVerify = async ({ selectorExpr, baseline, section, label, 
   // header". The app always names PDFs via printPdfFileName (…pdf), so filter
   // on the extension and keep polling past any crash-dump artifacts.
   let file = null;
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < 120; i++) {
     await sleepMs(1000);
     const files = readdirSync(DOWNLOADS).filter((f) => f.endsWith('.pdf') && !f.endsWith('.crdownload'));
     const fresh = files.filter((f) => !baseline.has(f));
     if (fresh.length > 0) { file = fresh[0]; break; }
   }
   if (!file) {
-    fail(`${label}: no real PDF download appeared within 60s of the click`, section);
+    fail(`${label}: no real PDF download appeared within 120s of the click`, section);
     return false;
   }
   const filePath = `${DOWNLOADS}/${file}`;

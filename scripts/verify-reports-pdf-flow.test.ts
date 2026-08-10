@@ -42,6 +42,17 @@ describe('scripts/verify-reports-pdf-flow.mjs · source contract', () => {
     expect(SCRIPT).toContain("url.includes('/api/print/pdf')");
   });
 
+  it('warms the serverless PDF renderer with a DIRECT fetch before the first click', () => {
+    // The first UI click repeatedly missed the download window on a cold
+    // serverless instance while the second and third clicks landed fine. The
+    // warm-up must be a Node-side fetch (NOT through the page) so the CDP
+    // Network POST count the race proof asserts stays untouched, and it must
+    // carry the owner idToken so it exercises the real authenticated path.
+    expect(SCRIPT).toContain("JSON.stringify({ title: 'PDF renderer warm-up' })");
+    expect(SCRIPT).toContain("authorization: `Bearer ${exchange.idToken}`");
+    expect(SCRIPT).toContain("fetch(`${APP}/api/print/pdf`");
+  });
+
   it('drives a rapid second click once the busy lock engages (double-click race proof)', () => {
     // The live lock proof: after the first click the page disables the button
     // (pdfBusy); the gate waits for the committed disabled state, attempts a
@@ -68,7 +79,7 @@ describe('scripts/verify-reports-pdf-flow.mjs · source contract', () => {
     // dir. The gate must filter on the .pdf extension — grabbing the first new
     // file would fail the %PDF- check with a confusing bad-header error.
     expect(SCRIPT).toContain("f.endsWith('.pdf') && !f.endsWith('.crdownload')");
-    expect(SCRIPT).toContain('no real PDF download appeared within 60s');
+    expect(SCRIPT).toContain('no real PDF download appeared within 120s');
   });
 
   it('asserts the downloaded file is a real PDF, not a stub', () => {
