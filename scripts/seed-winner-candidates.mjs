@@ -163,12 +163,18 @@ const get = async (collection, id) => {
 
 const ts = () => new Date().toISOString();
 
-// ─── Fixed ids → idempotent upsert ──────────────────────────────────────────
-const PROJECT_ID = 'p-winner-demo';
-const VERSION_A = 'v-winner-gemini';
-const VERSION_B = 'v-winner-codex';
-const EVAL_A = 'e-winner-gemini';
-const EVAL_B = 'e-winner-codex';
+// ─── Deterministic-per-owner ids → idempotent re-seed, zero cross-owner ─────
+// Every fixture doc id is namespaced under a stable per-owner prefix (derived
+// from the uid, same convention as seed-live-data's fixtureNamespace) so two
+// owners can NEVER share a doc id: seeding under a throwaway owner must not
+// overwrite — and --clear must not delete — the same-named docs of a real
+// account that happens to use the same fixture.
+const ns = (id) => `${(String(OWNER).replace(/[^a-zA-Z0-9]/g, '') || 'u').slice(0, 8).toLowerCase()}-${id}`;
+const PROJECT_ID = ns('p-winner-demo');
+const VERSION_A = ns('v-winner-gemini');
+const VERSION_B = ns('v-winner-codex');
+const EVAL_A = ns('e-winner-gemini');
+const EVAL_B = ns('e-winner-codex');
 
 const project = {
   id: PROJECT_ID,

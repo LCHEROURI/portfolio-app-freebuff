@@ -11,8 +11,13 @@
 //
 // Docs are written in the SAME camelCase shape the client FirestoreService
 // (lib/firestore.ts) stores — the doc id IS the entity id, foreign keys are the
-// exact entity ids, and every doc carries `userId = --owner`. Deterministic ids
-// make re-runs idempotent (PATCH upsert), exactly like seed-winner-candidates.
+// exact entity ids, and every doc carries `userId = --owner`. Ids are
+// deterministic PER OWNER (a stable prefix derived from the owner uid, see
+// fixtureNamespace below) so re-runs against the same owner are idempotent
+// (PATCH upsert) while two DIFFERENT owners can never share a doc id — a
+// fixture seeded under a throwaway uid (e.g. the verify-review-sheet gate)
+// must not overwrite the same-named docs of the real owner, or its --clear
+// would delete them.
 //
 // Usage:
 //   node scripts/seed-live-data.mjs [--owner <uid>] [--clear] [--list]
@@ -42,36 +47,53 @@ import { readLocalEnv } from './local-env.mjs';
 /** Read an env var from process.env, falling back to .env.local for CLI runs. */
 export const readEnv = (name) => readLocalEnv(name);
 
-// ─── Deterministic fixture (ids are fixed → idempotent upsert) ───────────────
+// ─── Deterministic-per-owner fixture (stable ids → idempotent re-seed) ───────
 // Shapes mirror lib/seed.ts exactly: a signed-in account with a couple of
 // parallel-build projects, tracked repos, a failed prod deploy, overdue + due
 // soon tasks, evaluations, a rule-10 winner candidate, and recent activity.
+
+/**
+ * Stable per-owner id prefix. Derived from the owner uid so re-seeding the
+ * SAME owner is idempotent (same ids) while two DIFFERENT owners can never
+ * share a doc id. Same convention as migrateLocalDemoToFirestore's
+ * shortUid namespacing in lib/firestore.ts.
+ */
+export const fixtureNamespace = (owner) =>
+  (String(owner).replace(/[^a-zA-Z0-9]/g, '') || 'u').slice(0, 8).toLowerCase();
+
 export const buildLiveFixture = (owner) => {
   const now = Date.now();
   const hoursAgo = (h) => new Date(now - h * 3_600_000).toISOString();
   const daysAgo = (d, h = 0) => new Date(now - d * 86_400_000 - h * 3_600_000).toISOString();
   const minutesAgo = (m) => new Date(now - m * 60_000).toISOString();
 
-  const P_WMP = 'p-wmp';          // Weeknight Meal Planner
-  const V_WMP_A = 'v-wmp-gemini'; // Gemini build
-  const V_WMP_B = 'v-wmp-kimi';   // Kimi K3 build
-  const R_WMP = 'r-wmp';
-  const D_WMP = 'd-wmp';
-  const T_WMP_1 = 't-wmp-1';
-  const T_WMP_2 = 't-wmp-2';
-  const E_WMP_A = 'e-wmp-gemini';
-  const E_WMP_B = 'e-wmp-kimi';
+  // Every fixture id (except the profile, whose id IS the owner uid) is
+  // namespaced under the owner's prefix. The constants below are the single
+  // source for BOTH the entry ids and the foreign-key fields (projectId,
+  // repositoryId, deploymentIds, …), so wrapping the constants propagates the
+  // namespace everywhere and the graph stays internally consistent.
+  const ns = (id) => `${fixtureNamespace(owner)}-${id}`;
 
-  const P_CHEF = 'p-chef';        // Classic Chef Video Guide
-  const V_CHEF = 'v-chef-codex';
-  const R_CHEF = 'r-chef';
-  const D_CHEF = 'd-chef';
-  const T_CHEF = 't-chef-1';
-  const E_CHEF = 'e-chef-codex';
+  const P_WMP = ns('p-wmp');          // Weeknight Meal Planner
+  const V_WMP_A = ns('v-wmp-gemini'); // Gemini build
+  const V_WMP_B = ns('v-wmp-kimi');   // Kimi K3 build
+  const R_WMP = ns('r-wmp');
+  const D_WMP = ns('d-wmp');
+  const T_WMP_1 = ns('t-wmp-1');
+  const T_WMP_2 = ns('t-wmp-2');
+  const E_WMP_A = ns('e-wmp-gemini');
+  const E_WMP_B = ns('e-wmp-kimi');
 
-  const P_RESTO = 'p-resto';      // Restaurant Social Media Manager (blocked)
-  const V_RESTO = 'v-resto-lovable';
-  const T_RESTO = 't-resto-1';
+  const P_CHEF = ns('p-chef');        // Classic Chef Video Guide
+  const V_CHEF = ns('v-chef-codex');
+  const R_CHEF = ns('r-chef');
+  const D_CHEF = ns('d-chef');
+  const T_CHEF = ns('t-chef-1');
+  const E_CHEF = ns('e-chef-codex');
+
+  const P_RESTO = ns('p-resto');      // Restaurant Social Media Manager (blocked)
+  const V_RESTO = ns('v-resto-lovable');
+  const T_RESTO = ns('t-resto-1');
 
   return [
     // ── Weeknight Meal Planner — parallel Gemini + Kimi builds, no winner ──

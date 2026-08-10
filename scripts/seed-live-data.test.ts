@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildLiveFixture } from './seed-live-data.mjs';
+import { buildLiveFixture, fixtureNamespace } from './seed-live-data.mjs';
 
 // ── buildLiveFixture ─────────────────────────────────────────────────────────
 describe('buildLiveFixture', () => {
@@ -43,12 +43,13 @@ describe('buildLiveFixture', () => {
     expect(fixture.some((f) => f.collection === 'repositories' && f.doc.hasUnpushedCommits)).toBe(true);
 
     // Rule-10 candidate: a project with two active versions, no winner, and evals.
-    const wmp = fixture.find((f) => f.id === 'p-wmp');
+    const wmpId = `${fixtureNamespace('uid-1')}-p-wmp`;
+    const wmp = fixture.find((f) => f.id === wmpId);
     expect(wmp?.doc.winningVersionId ?? wmp?.doc.winnerSelected).toBeUndefined();
-    const wmpVersions = fixture.filter((f) => f.collection === 'project_versions' && f.doc.projectId === 'p-wmp');
+    const wmpVersions = fixture.filter((f) => f.collection === 'project_versions' && f.doc.projectId === wmpId);
     expect(wmpVersions.length).toBeGreaterThan(1);
     expect(wmpVersions.every((v) => !v.doc.isWinner)).toBe(true);
-    expect(fixture.some((f) => f.collection === 'model_evaluations' && f.doc.projectId === 'p-wmp')).toBe(true);
+    expect(fixture.some((f) => f.collection === 'model_evaluations' && f.doc.projectId === wmpId)).toBe(true);
     void byId;
   });
 
@@ -56,5 +57,27 @@ describe('buildLiveFixture', () => {
     const a = buildLiveFixture('uid-9').map((f) => `${f.collection}/${f.id}`);
     const b = buildLiveFixture('uid-9').map((f) => `${f.collection}/${f.id}`);
     expect(a).toEqual(b);
+  });
+
+  it('namespaces ids per owner so two owners can never share a doc id', () => {
+    // The regression this locks: the fixture ids used to be FIXED, so seeding
+    // under a throwaway uid (verify-review-sheet's gate) PATCH-overwrote the
+    // same-named docs of the real owner, and its --clear then deleted them —
+    // destroying the owner's data on every suite run. With per-owner
+    // namespacing the two fixtures share zero collection/id pairs.
+    const real = buildLiveFixture('real-owner-uid-1');
+    const throwaway = buildLiveFixture('throwaway-uid-2');
+    const ids = (f) => new Set(f.map((x) => `${x.collection}/${x.id}`));
+    const overlap = [...ids(real)].filter((k) => ids(throwaway).has(k));
+    expect(overlap).toEqual([]);
+
+    // Every non-profile fixture id carries the owner's stable prefix.
+    for (const { collection, id } of real) {
+      if (collection === 'profiles') {
+        expect(id).toBe('real-owner-uid-1'); // profile id IS the uid
+      } else {
+        expect(String(id).startsWith(`${fixtureNamespace('real-owner-uid-1')}-`)).toBe(true);
+      }
+    }
   });
 });
