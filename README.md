@@ -791,6 +791,50 @@ caught before it silently breaks a deploy or CI run:
 npm run verify:token-health          # reports the active token's name + expiry
 ```
 
+### Re-proving the gate's teeth in seconds
+
+The deployed-hash gate's FAIL and the hook's BLOCK paths are easy to
+reproduce with a throwaway detached worktree at an older commit — the live
+site is always at (or ahead of) your recent commits, so the comparison
+necessarily mismatches. One command each, no copy-paste (the runner
+creates the worktree, copies the CURRENT hook/driver artifacts in, asserts
+the expected verdict actually appeared, and always cleans up, exiting 1 if
+the proof did not reproduce — so it is independent of the worktree
+commit's age):
+
+```bash
+npm run verify:teeth-proofs         # ALL three teeth in one command
+npm run verify:gate-stale-proof     # BOTH gate teeth in one command (FAIL + stale-guard)
+npm run verify:hook-block-proof     # Hook BLOCK path    → expects ✗ BLOCKED
+# granular: npm run verify:gate-fail-proof → expects RESULT: FAIL · npm run verify:stale-guard-proof → expects ✗ STALE-HEAD BLOCK
+```
+
+The granular one-liners document exactly what each script runs under the
+hood (each needs the worktree commit to carry the gate driver — `HEAD~1`
+normally is):
+
+**Gate FAIL path** (expect `RESULT: FAIL` and `gate exit=1`):
+
+```bash
+git worktree add --detach /tmp/portfolio-hash-proof HEAD~1 && (cd /tmp/portfolio-hash-proof && node scripts/verify-deployed-hash-gate.mjs; echo "gate exit=$?"); git worktree remove /tmp/portfolio-hash-proof --force
+```
+
+**CI stale-guard mode** (expect `✗ STALE-HEAD BLOCK` and `gate exit=1` —
+the direction-aware verdict the CI validate step runs):
+
+```bash
+git worktree add --detach /tmp/portfolio-stale-guard HEAD~1 && (cd /tmp/portfolio-stale-guard && node scripts/verify-deployed-hash-gate.mjs --stale-guard; echo "gate exit=$?"); git worktree remove /tmp/portfolio-stale-guard --force
+```
+
+**Hook BLOCK path** (expect `✗ BLOCKED` and `hook exit=1`):
+
+```bash
+git worktree add --detach /tmp/portfolio-hook-block HEAD~1 && mkdir -p /tmp/portfolio-hook-block/.githooks && cp .githooks/pre-push /tmp/portfolio-hook-block/.githooks/ && cp scripts/verify-deployed-hash-gate.mjs scripts/verify-deployed-hash.mjs /tmp/portfolio-hook-block/scripts/ && (cd /tmp/portfolio-hook-block && printf 'refs/heads/main a refs/heads/main b\n' | bash .githooks/pre-push; echo "hook exit=$?"); git worktree remove /tmp/portfolio-hook-block --force
+```
+
+All are read-only against git and Vercel — nothing is pushed, deployed, or
+modified; only temporary worktrees are created and removed.
+
 ### Local Repository Scanner companion
 
 ```bash
