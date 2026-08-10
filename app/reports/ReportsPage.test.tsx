@@ -529,6 +529,65 @@ describe('ReportsPage — download PDF', () => {
     expect(createObjectURL).toHaveBeenCalledTimes(1);
     expect((pdfBody as { title: string }).title).toBe('Daily Report 8/7/2026');
   });
+
+  it('disables every Download PDF button while a download is in flight (double-click race lock)', async () => {
+    const { clickSpy } = stubDownloadWindow();
+    // A deferred promise held open so pdfBusy stays true mid-flight; released
+    // manually to complete the download and re-enable the buttons.
+    let release!: (res: Response) => void;
+    const pendingPdf = new Promise<Response>((res) => { release = res; });
+    let pdfCalls = 0;
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/scans')) {
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true, repos: [] }) } as Response);
+      }
+      if (url.includes('/api/print/pdf')) {
+        pdfCalls += 1;
+        return pendingPdf;
+      }
+      throw new Error(`Unexpected fetch in reports pdf race test: ${url}`);
+    }));
+    queue = [{ ok: true, configured: false, summary: null, model: null }];
+    savedReports.push({
+      id: 'r-race',
+      userId: 'e2e-user',
+      kind: 'daily',
+      title: 'Daily Report 8/7/2026',
+      body: '# Daily Command Center Report\n\n## Local scan freshness\n- Newest: **LCHEROURI/new-repo** — scanned 1h ago\n',
+      attentionCount: 2,
+      createdAt: new Date().toISOString(),
+    });
+    render(<ReportsPage />);
+
+    await generateDaily();
+    const modalPdf = within(screen.getByRole('dialog')).getByRole('button', { name: 'Download PDF' });
+    const rowPdf = screen.getByRole('button', { name: 'Download PDF of Daily Report 8/7/2026' });
+    expect(modalPdf).toBeEnabled();
+
+    fireEvent.click(modalPdf);
+
+    // pdfBusy is set synchronously before the request is awaited: every
+    // Download PDF button (modal + rows) is disabled for the whole flight, so
+    // a second click cannot start a concurrent POST. The fetch itself fires
+    // after getAuthToken resolves, so wait for it before counting.
+    expect(modalPdf).toBeDisabled();
+    expect(rowPdf).toBeDisabled();
+    await waitFor(() => expect(pdfCalls).toBe(1));
+    fireEvent.click(rowPdf);
+    // The disabled row button is inert — still exactly one in-flight POST.
+    expect(pdfCalls).toBe(1);
+
+    // Complete the flight: the download lands and the buttons re-enable.
+    release({
+      ok: true, status: 200,
+      blob: async () => new Blob(['%PDF-1.4'], { type: 'application/pdf' }),
+    } as unknown as Response);
+    await waitFor(() => expect(clickSpy).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(modalPdf).toBeEnabled());
+    expect(rowPdf).toBeEnabled();
+    expect(pdfCalls).toBe(1);
+  });
 });
 
 // ─── Local scan freshness preview ───────────────────────────────────────────
