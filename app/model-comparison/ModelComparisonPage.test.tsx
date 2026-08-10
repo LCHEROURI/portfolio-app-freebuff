@@ -559,4 +559,54 @@ describe('ModelComparisonPage — download all recommendations PDF', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Headless Chrome not available here.');
   });
+
+  it('disables the Download PDF button while a download is in flight (double-click race lock)', async () => {
+    const { clickSpy } = stubDownloadWindow();
+    // A deferred promise held open so pdfBusy stays true mid-flight; released
+    // manually to complete the download and re-enable the button.
+    let release!: (res: Response) => void;
+    const pendingPdf = new Promise<Response>((res) => { release = res; });
+    let pdfCalls = 0;
+    vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/api/print/pdf')) {
+        pdfCalls += 1;
+        return pendingPdf;
+      }
+      throw new Error(`Unexpected fetch in model-comparison pdf race test: ${url}`);
+    }));
+    // A saved recommendation (no AI run) still exposes the header button.
+    storeShape.projects = [{
+      ...project,
+      overallStatus: 'WINNER_SELECTED',
+      winningVersionId: 'v-gemini',
+      winnerRecommendation: 'Saved recommendation note.',
+      winnerRecommendationModel: 'deepseek/deepseek-chat',
+    }];
+    render(<ModelComparisonPage />);
+
+    const pdfButton = screen.getByRole('button', { name: 'Download all winner recommendations as PDF' });
+    expect(pdfButton).toBeEnabled();
+
+    fireEvent.click(pdfButton);
+
+    // pdfBusy is set synchronously before the request is awaited: the button
+    // is disabled for the whole flight, so a second click cannot start a
+    // concurrent POST. The fetch itself fires after getAuthToken resolves, so
+    // wait for it before counting.
+    expect(pdfButton).toBeDisabled();
+    await waitFor(() => expect(pdfCalls).toBe(1));
+    fireEvent.click(pdfButton);
+    // The disabled button is inert — still exactly one in-flight POST.
+    expect(pdfCalls).toBe(1);
+
+    // Complete the flight: the download lands and the button re-enables.
+    release({
+      ok: true, status: 200,
+      blob: async () => new Blob(['%PDF-1.4'], { type: 'application/pdf' }),
+    } as unknown as Response);
+    await waitFor(() => expect(clickSpy).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(pdfButton).toBeEnabled());
+    expect(pdfCalls).toBe(1);
+  });
 });
