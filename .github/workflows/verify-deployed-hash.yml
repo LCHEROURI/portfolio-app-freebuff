@@ -104,16 +104,25 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
-      # Alias-routing drift watch: for PRODUCTION deployments only, assert the
-      # canonical alias (portfolio-app-freebuff.vercel.app) serves the SAME
-      # commit as the deployment-specific target_url just verified above. The
-      # script's --compare-url mode compares the primary (--url) against the
-      # canonical alias; a mismatch means routing points at a different build
-      # than the one the previous step proved live. Previews are skipped: a
-      # preview URL legitimately differs from the canonical production alias,
-      # so the comparison would false-fail there.
+      # Alias-routing drift watch: for THIS project's PRODUCTION deployments
+      # only, assert the canonical alias (portfolio-app-freebuff.vercel.app)
+      # serves the SAME commit as the deployment-specific target_url just
+      # verified above. The script's --compare-url mode compares the primary
+      # (--url) against the canonical alias; a mismatch means routing points
+      # at a different build than the one the previous step proved live.
+      # Previews are skipped: a preview URL legitimately differs from the
+      # canonical production alias, so the comparison would false-fail there.
+      #
+      # The environment gating matters: Vercel's GitHub integration labels
+      # deployments as "Production – <project-name>" (en-dash, U+2013) — NOT
+      # the literal "Production" — and this repo is connected to TWO Vercel
+      # projects (portfolio-app-freebuff and the leftover
+      # reviewmaestro-reconstructed), so a bare `== 'Production'` silently
+      # matched nothing and a bare `startsWith 'Production'` would fire on the
+      # other project's deployments and false-fail the alias comparison.
+      # startsWith on THIS project's exact label is the precise match.
       - name: Alias-routing drift watch (production)
-        if: ${{ env.VERCEL_TOKEN != '' && github.event.deployment_status.environment == 'Production' }}
+        if: ${{ env.VERCEL_TOKEN != '' && startsWith(github.event.deployment_status.environment, 'Production – portfolio-app-freebuff') }}
         run: |
           node scripts/verify-deployed-hash.mjs \
             --url "${{ github.event.deployment_status.target_url }}" \
@@ -134,9 +143,11 @@ jobs:
       # reproduce is allowed to fail. Production-only: the proof resolves the
       # canonical PRODUCTION alias, so on preview deployments (where the
       # checkout is the PR head) the comparison would be meaningless.
-      # Gated on VERCEL_TOKEN like the hash steps.
+      # Gated on VERCEL_TOKEN like the hash steps; scoped to THIS project's
+      # production label (en-dash suffix) for the same reason as the
+      # alias-routing step above.
       - name: Verify gate-stale proof after deploy (teeth)
-        if: ${{ env.VERCEL_TOKEN != '' && github.event.deployment_status.environment == 'Production' }}
+        if: ${{ env.VERCEL_TOKEN != '' && startsWith(github.event.deployment_status.environment, 'Production – portfolio-app-freebuff') }}
         run: node scripts/verify-gate-stale-ci.mjs
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
