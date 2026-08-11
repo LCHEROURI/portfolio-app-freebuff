@@ -114,15 +114,18 @@ jobs:
       # canonical production alias, so the comparison would false-fail there.
       #
       # The environment gating matters: Vercel's GitHub integration labels
-      # deployments as "Production – <project-name>" (en-dash, U+2013) — NOT
-      # the literal "Production" — and this repo is connected to TWO Vercel
-      # projects (portfolio-app-freebuff and the leftover
-      # reviewmaestro-reconstructed), so a bare `== 'Production'` silently
-      # matched nothing and a bare `startsWith 'Production'` would fire on the
-      # other project's deployments and false-fail the alias comparison.
-      # startsWith on THIS project's exact label is the precise match.
+      # deployments "Production – <project-name>" (en-dash, U+2013) when
+      # MULTIPLE projects are linked to one repo (the disambiguation case —
+      # this repo used to have a second project, reviewmaestro-reconstructed),
+      # but bare "Production" when a single project is linked. A bare
+      # `== 'Production'` silently matched nothing in the two-project regime;
+      # a bare `startsWith 'Production'` would fire on the OTHER project's
+      # deployments and false-fail the alias comparison. The dual-form gate
+      # accepts EITHER the bare label (single-project regime — what this repo
+      # now sees after the leftover project was disconnected) OR this project's
+      # exact suffixed label (multi-project regime) — and nothing else.
       - name: Alias-routing drift watch (production)
-        if: ${{ env.VERCEL_TOKEN != '' && startsWith(github.event.deployment_status.environment, 'Production – portfolio-app-freebuff') }}
+        if: ${{ env.VERCEL_TOKEN != '' && (github.event.deployment_status.environment == 'Production' || startsWith(github.event.deployment_status.environment, 'Production – portfolio-app-freebuff')) }}
         run: |
           node scripts/verify-deployed-hash.mjs \
             --url "${{ github.event.deployment_status.target_url }}" \
@@ -145,9 +148,11 @@ jobs:
       # checkout is the PR head) the comparison would be meaningless.
       # Gated on VERCEL_TOKEN like the hash steps; scoped to THIS project's
       # production label (en-dash suffix) for the same reason as the
-      # alias-routing step above.
+      # alias-routing step above — but the dual form also accepts the bare
+      # 'Production' label (single-project regime, which this repo reverted to
+      # once the leftover project was disconnected).
       - name: Verify gate-stale proof after deploy (teeth)
-        if: ${{ env.VERCEL_TOKEN != '' && startsWith(github.event.deployment_status.environment, 'Production – portfolio-app-freebuff') }}
+        if: ${{ env.VERCEL_TOKEN != '' && (github.event.deployment_status.environment == 'Production' || startsWith(github.event.deployment_status.environment, 'Production – portfolio-app-freebuff')) }}
         run: node scripts/verify-gate-stale-ci.mjs
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}

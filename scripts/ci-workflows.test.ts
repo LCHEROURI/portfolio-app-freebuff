@@ -491,16 +491,20 @@ describe('.github/workflows/verify-deployed-hash.yml · deployment_status deploy
     expect(DEPLOYED_HASH).toContain("if: ${{ env.VERCEL_TOKEN != '' }}");
   });
 
-  it('keeps the production alias-routing drift watch (--compare-url), scoped to THIS project\'s real production label', () => {
+  it('keeps the production alias-routing drift watch (--compare-url), scoped to THIS project\'s production label', () => {
     expect(DEPLOYED_HASH).toContain('--compare-url "https://portfolio-app-freebuff.vercel.app"');
     // Vercel labels environments "Production – <project-name>" (en-dash,
-    // U+2013), NOT the literal "Production" — a bare == 'Production' matched
-    // NOTHING and silently skipped this step. The lock asserts the precise
-    // startsWith form on THIS project's label so a revert to the broken
-    // literal (or a bare 'Production' prefix that would fire on the leftover
-    // reviewmaestro project's deployments) fails here.
+    // U+2013) ONLY when multiple projects are linked to one repo (the
+    // disambiguation case — this repo used to have the leftover
+    // reviewmaestro-reconstructed project); a single linked project gets the
+    // bare "Production" label. The lock asserts the DUAL form — bare
+    // 'Production' OR this project's exact suffixed label — so the gate fires
+    // in BOTH regimes and never on the other project's deployments (a revert
+    // to a bare `== 'Production'` or a bare 'Production' prefix fails here).
+    const dualForm = "(github.event.deployment_status.environment == 'Production' || startsWith(github.event.deployment_status.environment, 'Production – portfolio-app-freebuff'))";
+    expect(DEPLOYED_HASH).toContain(dualForm);
     expect(DEPLOYED_HASH).toContain("startsWith(github.event.deployment_status.environment, 'Production – portfolio-app-freebuff')");
-    expect(DEPLOYED_HASH).not.toContain("environment == 'Production'");
+    expect(DEPLOYED_HASH).not.toMatch(/startsWith\(github\.event\.deployment_status\.environment, 'Production – portfolio-app-freebuff'\) \}\}/);
   });
 
   it('wires the full EXPECTED_LIVE_FLAGS set into the deployed-hash job env', () => {
@@ -526,13 +530,14 @@ describe('.github/workflows/verify-deployed-hash.yml · deployment_status deploy
     // so only a proof that CAN reproduce is allowed to fail.
     expect(DEPLOYED_HASH).toContain('name: Verify gate-stale proof after deploy (teeth)');
     expect(DEPLOYED_HASH).toContain('run: node scripts/verify-gate-stale-ci.mjs');
-    // Scoped to THIS project's production label (en-dash suffix) — the same
-    // silent-skip bug the alias-routing step had. The if must match the real
-    // "Production – portfolio-app-freebuff" label via startsWith, never a
-    // bare == 'Production' (matched nothing) or a bare 'Production' prefix
-    // (would fire on the reviewmaestro duplicate project's events).
-    expect(DEPLOYED_HASH).toContain("if: ${{ env.VERCEL_TOKEN != '' && startsWith(github.event.deployment_status.environment, 'Production – portfolio-app-freebuff') }}");
-    expect(DEPLOYED_HASH).not.toMatch(/environment == 'Production'/);
+    // Scoped to THIS project's production label — the same silent-skip bug
+    // the alias-routing step had. The if must use the DUAL form (bare
+    // 'Production' for the single-project regime this repo reverted to after
+    // the leftover project was disconnected, OR the en-dash suffixed label
+    // for the multi-project regime), never a bare == 'Production' prefix
+    // that would fire on another project's events.
+    expect(DEPLOYED_HASH).toContain("if: ${{ env.VERCEL_TOKEN != '' && (github.event.deployment_status.environment == 'Production' || startsWith(github.event.deployment_status.environment, 'Production – portfolio-app-freebuff')) }}");
+    expect(DEPLOYED_HASH).not.toMatch(/startsWith\(github\.event\.deployment_status\.environment, 'Production – portfolio-app-freebuff'\) \}\}/);
     expect(DEPLOYED_HASH).toContain('loud SKIP');
   });
 });
