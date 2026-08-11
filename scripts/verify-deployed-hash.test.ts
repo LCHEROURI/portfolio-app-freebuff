@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import {
   compareDrift,
@@ -250,5 +251,27 @@ describe('resolveByHost', () => {
     const dep = await resolveByHost('portfolio-app-freebuff-ok.vercel.app', 'deployment URL', TOKEN, TEAM);
     expect(dep.sha).toBe('ea3e4b11f2d49c17');
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ── plain-mode project filter (projectId, not name) ──────────────────────────
+// The v6 deployments LIST endpoint filters by PROJECT ID, not name — passing
+// `project=<name>` is silently ignored and the report returns the team's
+// latest deployment regardless of project (which could be the OTHER app's
+// commit). CI never uses this list branch (the post-deploy gates always pass
+// --url), so these locks protect the local report's trustworthiness.
+const SCRIPT_SRC = readFileSync('scripts/verify-deployed-hash.mjs', 'utf8');
+
+describe('plain-mode project filter', () => {
+  it('filters the v6 list query by projectId from the vercel link file, not the project name', () => {
+    expect(SCRIPT_SRC).toContain("projectId = JSON.parse(readFileSync(resolve(process.cwd(), '.vercel/project.json'), 'utf8'))?.projectId ?? null;");
+    expect(SCRIPT_SRC).toContain('projectId ? `projectId=${encodeURIComponent(projectId)}` : `project=${PROJECT}`');
+  });
+
+  it('keeps the name fallback only for pre-link repos, and documents why the id is required', () => {
+    expect(SCRIPT_SRC).toContain('SILENTLY IGNORED');
+    expect(SCRIPT_SRC).toContain('name fallback only applies before the repo is linked');
+    expect(SCRIPT_SRC).toContain('CI never uses');
+    expect(SCRIPT_SRC).toContain('this list branch');
   });
 });
