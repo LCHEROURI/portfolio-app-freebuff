@@ -507,6 +507,21 @@ describe('.github/workflows/verify-deployed-hash.yml · deployment_status deploy
       expect(DEPLOYED_HASH).toContain(`${key}: '${value}'`);
     }
   });
+
+  it('machine-reproves the gate-stale teeth after every PRODUCTION deploy (verify-gate-stale-ci.mjs)', () => {
+    // The wrapper runs the gate-stale proof (FAIL path + stale-guard) against
+    // live from the pushed commit's PARENT after a successful production
+    // deploy, so the stale-guard teeth are proven on the real runner — not
+    // just via the npm one-liners. Production-only: the proof resolves the
+    // canonical PRODUCTION alias, so on preview deployments (PR-head
+    // checkout) the comparison would be meaningless. The wrapper itself is
+    // skip-not-fail on the transient edge (alias promotion lag / API hiccup),
+    // so only a proof that CAN reproduce is allowed to fail.
+    expect(DEPLOYED_HASH).toContain('name: Verify gate-stale proof after deploy (teeth)');
+    expect(DEPLOYED_HASH).toContain('run: node scripts/verify-gate-stale-ci.mjs');
+    expect(DEPLOYED_HASH).toContain("if: ${{ env.VERCEL_TOKEN != '' && github.event.deployment_status.environment == 'Production' }}");
+    expect(DEPLOYED_HASH).toContain('loud SKIP');
+  });
 });
 
 describe('.github/workflows/gallery-stability.yml · scheduled double-capture byte-stability', () => {

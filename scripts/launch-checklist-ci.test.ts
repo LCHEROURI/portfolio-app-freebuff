@@ -379,4 +379,47 @@ jobs:
     expect(failures.join('\n')).toContain('ghost-gate');
     expect(failures.join('\n')).toContain('does not declare');
   });
+
+  it('accepts a listed CI-enforcement wrapper (gate-stale teeth) via the mapped-gate secret fallback', () => {
+    // verify-gate-stale-ci.mjs is a CI-ONLY enforcement wrapper — it exists
+    // to machine-prove the teeth proofs on the runner and has no
+    // launch-checklist row. Its VERCEL_TOKEN gating resolves through the
+    // workflow's mapped gate (deployed-hash declares VERCEL_TOKEN), exactly
+    // like a step that runs no gate script.
+    const FIXTURE_TEETH = `
+jobs:
+  verify-deployed-hash:
+    steps:
+      - name: Verify gate-stale proof after deploy (teeth)
+        if: \${{ env.VERCEL_TOKEN != '' }}
+        run: node scripts/verify-gate-stale-ci.mjs
+`;
+    const failures = crossCheckDeploymentStatusGates({
+      workflows: [{ name: 'deployed-hash', gate: 'deployed-hash', src: FIXTURE_TEETH }],
+      verifyAllSrc: FIXTURE_SRC,
+      npmScripts: SCRIPTS,
+    });
+    expect(failures).toEqual([]);
+  });
+
+  it('still flags an UNLISTED unmapped script — the enforcement allowlist is explicit, not a backdoor', () => {
+    // The exemption is scoped to the allowlist: a future unmapped script
+    // that is NOT listed as CI-enforcement must still fail, so enforcement
+    // wrappers can never sneak in silently.
+    const FIXTURE_GHOST = `
+jobs:
+  verify-deployed-hash:
+    steps:
+      - name: Verify something else
+        if: \${{ env.VERCEL_TOKEN != '' }}
+        run: node scripts/verify-some-other-thing.mjs
+`;
+    const failures = crossCheckDeploymentStatusGates({
+      workflows: [{ name: 'deployed-hash', gate: 'deployed-hash', src: FIXTURE_GHOST }],
+      verifyAllSrc: FIXTURE_SRC,
+      npmScripts: SCRIPTS,
+    });
+    expect(failures.join('\n')).toContain('maps to no gate');
+    expect(failures.join('\n')).toContain('verify-some-other-thing.mjs');
+  });
 });

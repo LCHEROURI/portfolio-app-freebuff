@@ -120,3 +120,23 @@ jobs:
             --compare-url "https://portfolio-app-freebuff.vercel.app"
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+      # Machine-reproven teeth: after a successful PRODUCTION deploy, re-run
+      # the gate-stale proof (gate FAIL path + stale-guard) against live from
+      # the pushed commit's PARENT, so the stale-guard teeth are proven on the
+      # real runner after every deploy — not just via the npm one-liners. By
+      # construction, live == the pushed commit right after the deploy, so
+      # both verdicts reproduce from the parent. Skip-not-fail on the
+      # transient edge: right after a deploy the canonical alias can still
+      # serve the previous commit (alias promotion lag) or the API can hiccup
+      # — in those states the verdicts cannot reproduce, so the wrapper prints
+      # a loud SKIP instead of failing the run. Only a proof that CAN
+      # reproduce is allowed to fail. Production-only: the proof resolves the
+      # canonical PRODUCTION alias, so on preview deployments (where the
+      # checkout is the PR head) the comparison would be meaningless.
+      # Gated on VERCEL_TOKEN like the hash steps.
+      - name: Verify gate-stale proof after deploy (teeth)
+        if: ${{ env.VERCEL_TOKEN != '' && github.event.deployment_status.environment == 'Production' }}
+        run: node scripts/verify-gate-stale-ci.mjs
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}

@@ -398,6 +398,17 @@ const INFRA_SECRETS = new Set([
   'FIREBASE_SERVICE_ACCOUNT',
 ]);
 
+// Scripts that are CI-ONLY ENFORCEMENT wrappers, not verify-all gates: they
+// exist to machine-prove a gate's behavior on the runner (e.g. the
+// gate-stale teeth wrapper, which re-runs the teeth proofs after each
+// deploy) and deliberately have no launch-checklist row. Their secret
+// contract falls back to the workflow's mapped gate — the same fallback
+// steps that run no gate script get. The list is explicit ON PURPOSE: a new
+// unmapped script that is NOT listed here still fails the
+// "maps to no gate" check, so enforcement wrappers can never sneak in
+// silently.
+const CI_ENFORCEMENT_SCRIPTS = new Set(['verify-gate-stale-ci.mjs']);
+
 /**
  * Parse a deployment_status workflow (gallery.yml, preview-gate.yml,
  * verify-deployed-hash.yml) into its gated steps. Unlike ci.yml's verify
@@ -511,9 +522,14 @@ export function crossCheckDeploymentStatusGates({ workflows, verifyAllSrc, npmSc
     for (const step of steps) {
       let gate = mappedGate;
       if (step.run) {
-        const resolved = resolveDocCommands([`node scripts/${step.run}`], entries, npmScripts);
-        failures.push(...resolved.failures);
-        if (resolved.results[0]?.gate) gate = resolved.results[0].gate;
+        if (CI_ENFORCEMENT_SCRIPTS.has(step.run)) {
+          // CI-enforcement wrapper: not a gate script — its secrets resolve
+          // to the workflow's mapped gate (explicit allowlist above).
+        } else {
+          const resolved = resolveDocCommands([`node scripts/${step.run}`], entries, npmScripts);
+          failures.push(...resolved.failures);
+          if (resolved.results[0]?.gate) gate = resolved.results[0].gate;
+        }
       }
       const runnerSecrets = secretsByGate.get(gate) ?? [];
       for (const s of step.gatingSecrets) {
