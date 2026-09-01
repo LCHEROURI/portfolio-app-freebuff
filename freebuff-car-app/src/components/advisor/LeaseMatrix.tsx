@@ -24,7 +24,7 @@ const DEFAULT_INPUT: ComparisonInput = {
   newDown: '5000',
   newApr: '6',
   newTerm: '60',
-  leaseMonthly: '399',
+  leaseMonthly: '400',
   leaseDueAtSigning: '2500',
   leaseTerm: '36',
   leaseMileage: '12000',
@@ -265,7 +265,7 @@ export default function LeaseMatrix({ onComplete }: { onComplete?: () => void } 
                 value={input.leaseMonthly}
                 onChange={(e) => update('leaseMonthly', e.target.value)}
                 className="block w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                placeholder="399"
+                placeholder="400"
               />
             </div>
           </div>

@@ -29,7 +29,7 @@ describe('LeaseMatrix', () => {
 
   it('renders default values for lease', () => {
     render(<LeaseMatrix />);
-    expect(screen.getByLabelText('Monthly payment *')).toHaveValue(399);
+    expect(screen.getByLabelText('Monthly payment *')).toHaveValue(400);
     expect(screen.getByLabelText('Due at signing *')).toHaveValue(2500);
     expect(screen.getByLabelText('Lease term *')).toHaveValue('36');
   });
