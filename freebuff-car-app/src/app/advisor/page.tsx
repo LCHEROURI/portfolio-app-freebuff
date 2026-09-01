@@ -12,6 +12,7 @@ import FeeAuditor from '@/components/advisor/FeeAuditor';
 import DealScoreCard from '@/components/advisor/DealScoreCard';
 import ShoppingStrategy from '@/components/advisor/ShoppingStrategy';
 import { useState } from 'react';
+import { useAdvisorState } from '@/hooks/useAdvisorState';
 
 type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
 
@@ -44,7 +45,16 @@ const STEP_DESCRIPTIONS: Record<Step, string> = {
 };
 
 export default function AdvisorPage() {
-  const [step, setStep] = useState<Step>(1);
+  const { state: advisorState, update: updateAdvisorState } = useAdvisorState();
+  const [step, setStep] = useState<Step>(() => {
+    const saved = advisorState.step;
+    return saved >= 1 && saved <= 11 ? (saved as Step) : 1;
+  });
+
+  const goToStep = (s: Step) => {
+    setStep(s);
+    updateAdvisorState({ step: s });
+  };
 
   const stepLabel = STEP_LABELS[step];
 
@@ -87,7 +97,7 @@ export default function AdvisorPage() {
         {step > 1 && (
           <button
             type="button"
-            onClick={() => setStep((s) => (s - 1) as Step)}
+            onClick={() => goToStep(Math.max(1, step - 1) as Step)}
             className="inline-flex items-center gap-1.5 rounded-lg bg-ink-100 px-4 py-2 text-sm font-medium text-ink-700 shadow-sm transition-colors hover:bg-ink-200"
           >
             <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
