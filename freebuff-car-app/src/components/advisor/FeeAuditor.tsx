@@ -41,9 +41,10 @@ function parseAddOns(text: string): string[] {
 
 interface Props {
   onComplete?: () => void;
+  onSaveData?: (data: unknown) => void;
 }
 
-export default function FeeAuditor({ onComplete }: Props = {}) {
+export default function FeeAuditor({ onComplete, onSaveData }: Props = {}) {
   const [state, setState] = useState<FeeState>(DEFAULT_STATE);
   const [errors, setErrors] = useState<Partial<FeeState>>({});
   const [flags, setFlags] = useState<RedFlag[] | null>(null);
@@ -71,6 +72,7 @@ export default function FeeAuditor({ onComplete }: Props = {}) {
     e.preventDefault();
     if (!validate()) return;
     setFlags(quoteRedFlags(parseNonNegative(state.docFee), parseAddOns(state.addOnsText)));
+    onSaveData?.(state);
     onComplete?.();
   }
 

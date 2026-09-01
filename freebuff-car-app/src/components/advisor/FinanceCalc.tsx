@@ -56,9 +56,10 @@ function formatCurrencyCents(value: number): string {
 
 interface Props {
   onComplete?: () => void;
+  onSaveData?: (data: unknown) => void;
 }
 
-export default function FinanceCalc({ onComplete }: Props = {}) {
+export default function FinanceCalc({ onComplete, onSaveData }: Props = {}) {
   const [state, setState] = useState<FinanceState>(DEFAULT_STATE);
   const [errors, setErrors] = useState<Partial<FinanceState>>({});
   const [submitted, setSubmitted] = useState(false);
@@ -104,6 +105,7 @@ export default function FinanceCalc({ onComplete }: Props = {}) {
     e.preventDefault();
     if (!validate()) return;
     setSubmitted(true);
+    onSaveData?.(state);
     onComplete?.();
   }
 

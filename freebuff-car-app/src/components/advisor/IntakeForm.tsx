@@ -39,9 +39,10 @@ function formatCurrency(value: number): string {
 
 interface Props {
   onComplete?: () => void;
+  onSaveData?: (data: unknown) => void;
 }
 
-export default function IntakeForm({ onComplete }: Props = {}) {
+export default function IntakeForm({ onComplete, onSaveData }: Props = {}) {
   const [state, setState] = useState<IntakeState>(DEFAULT_STATE);
   const [errors, setErrors] = useState<IntakeFieldErrors>({});
   const [submitted, setSubmitted] = useState(false);
@@ -75,6 +76,7 @@ export default function IntakeForm({ onComplete }: Props = {}) {
     e.preventDefault();
     if (!validate()) return;
     setSubmitted(true);
+    onSaveData?.(state);
     onComplete?.();
   }
 

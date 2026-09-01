@@ -13,6 +13,7 @@ import DealScoreCard from '@/components/advisor/DealScoreCard';
 import ShoppingStrategy from '@/components/advisor/ShoppingStrategy';
 import { useState } from 'react';
 import { useAdvisorState } from '@/hooks/useAdvisorState';
+import type { AdvisorState } from '@/hooks/useAdvisorState';
 
 type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
 
@@ -56,6 +57,10 @@ export default function AdvisorPage() {
     updateAdvisorState({ step: s });
   };
 
+  const saveData = (key: keyof Omit<AdvisorState, 'step' | 'consent'>) => (data: unknown) => {
+    updateAdvisorState({ [key]: data } as Partial<AdvisorState>);
+  };
+
   const stepLabel = STEP_LABELS[step];
 
   const stepDescription = STEP_DESCRIPTIONS[step];
@@ -70,23 +75,23 @@ export default function AdvisorPage() {
       </div>
 
       {step === 1 ? (
-        <IntakeForm onComplete={() => setStep(2)} />
+        <IntakeForm onComplete={() => goToStep(2)} onSaveData={saveData('intake')} />
       ) : step === 2 ? (
-        <VehicleNeeds onContinue={() => setStep(3)} />
+        <VehicleNeeds onContinue={() => goToStep(3)} />
       ) : step === 3 ? (
-        <FinanceCalc onComplete={() => setStep(4)} />
+        <FinanceCalc onComplete={() => goToStep(4)} onSaveData={saveData('finance')} />
       ) : step === 4 ? (
-        <LeaseMatrix onComplete={() => setStep(5)} />
+        <LeaseMatrix onComplete={() => goToStep(5)} />
       ) : step === 5 ? (
-        <OwnershipBudget onComplete={() => setStep(6)} />
+        <OwnershipBudget onComplete={() => goToStep(6)} />
       ) : step === 6 ? (
-        <ShoppingStrategy onContinue={() => setStep(7)} />
+        <ShoppingStrategy onContinue={() => goToStep(7)} />
       ) : step === 7 ? (
-        <TradeEvaluator onComplete={() => setStep(8)} />
+        <TradeEvaluator onComplete={() => goToStep(8)} onSaveData={saveData('trade')} />
       ) : step === 8 ? (
-        <FeeAuditor onComplete={() => setStep(9)} />
+        <FeeAuditor onComplete={() => goToStep(9)} onSaveData={saveData('fees')} />
       ) : step === 9 ? (
-        <DriveScript onComplete={() => setStep(10)} />
+        <DriveScript onComplete={() => goToStep(10)} />
       ) : step === 10 ? (
         <DealScoreCard onComplete={() => setStep(11)} />
       ) : (

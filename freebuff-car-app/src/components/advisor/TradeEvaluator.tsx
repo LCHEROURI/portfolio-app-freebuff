@@ -30,9 +30,10 @@ function formatCurrency(value: number): string {
 
 interface Props {
   onComplete?: () => void;
+  onSaveData?: (data: unknown) => void;
 }
 
-export default function TradeEvaluator({ onComplete }: Props = {}) {
+export default function TradeEvaluator({ onComplete, onSaveData }: Props = {}) {
   const [state, setState] = useState<TradeState>(DEFAULT_STATE);
   const [errors, setErrors] = useState<Partial<TradeState>>({});
   const [result, setResult] = useState<null | {
@@ -72,6 +73,7 @@ export default function TradeEvaluator({ onComplete }: Props = {}) {
       position: tradePosition(tradeValue, payoff),
       upsideDown: isUpsideDown(tradeValue, payoff),
     });
+    onSaveData?.(state);
     onComplete?.();
   }
 
