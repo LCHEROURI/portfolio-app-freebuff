@@ -190,7 +190,7 @@ export default function OwnershipBudget({ onComplete }: Props = {}) {
   return (
     <form onSubmit={handleSubmit} noValidate className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-navy-900">Step 5 of 8 — Cost of Ownership & Ownership Budget</h2>
+        <h2 className="text-xl font-bold text-navy-900">Step 5 of 10 — Cost of Ownership & Ownership Budget</h2>
         <p className="mt-1 text-ink-600">
           Build a realistic monthly ownership budget. Enter your estimated costs for each category — the calculator
           adds them up and compares the total against your monthly payment.

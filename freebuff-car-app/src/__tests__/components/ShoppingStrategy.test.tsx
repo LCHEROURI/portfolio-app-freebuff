@@ -54,7 +54,7 @@ describe('ShoppingStrategy', () => {
 
   it('renders the step header', () => {
     render(<ShoppingStrategy />);
-    expect(screen.getByText('Step 6 of 8 — Auto Shopping Strategy & Recommendations')).toBeInTheDocument();
+    expect(screen.getByText('Step 6 of 10 — Auto Shopping Strategy & Recommendations')).toBeInTheDocument();
   });
 
   it('renders all 6 needs checkboxes', () => {

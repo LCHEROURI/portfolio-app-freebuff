@@ -85,7 +85,7 @@ export default function TradeEvaluator({ onComplete }: Props = {}) {
   return (
     <form onSubmit={handleSubmit} noValidate className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-navy-900">Step 7 of 8 — Trade-In Analysis</h2>
+        <h2 className="text-xl font-bold text-navy-900">Step 7 of 10 — Trade-In Analysis</h2>
         <p className="mt-1 text-ink-600">
           Enter the trade-in value offered by the dealer and the outstanding payoff on your current
           loan. We will compute your net equity and warn you if you are upside down.

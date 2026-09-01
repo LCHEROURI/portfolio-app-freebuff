@@ -176,7 +176,7 @@ export default function LeaseMatrix({ onComplete }: { onComplete?: () => void } 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-navy-900">Step 4 of 8 — Buy vs. Lease vs. Used</h2>
+        <h2 className="text-xl font-bold text-navy-900">Step 4 of 10 — Buy vs. Lease vs. Used</h2>
         <p className="mt-1 text-ink-600">
           Compare buying new, leasing, and buying used side by side. Adjust any number to see how the trade-offs
           shift.

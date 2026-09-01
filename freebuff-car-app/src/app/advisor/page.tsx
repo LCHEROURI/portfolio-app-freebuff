@@ -7,12 +7,13 @@ import LeaseMatrix from '@/components/advisor/LeaseMatrix';
 import OwnershipBudget from '@/components/advisor/OwnershipBudget';
 import TradeEvaluator from '@/components/advisor/TradeEvaluator';
 import DriveScript from '@/components/advisor/DriveScript';
+import IntelligenceReport from '@/components/advisor/IntelligenceReport';
 import FeeAuditor from '@/components/advisor/FeeAuditor';
 import DealScoreCard from '@/components/advisor/DealScoreCard';
 import ShoppingStrategy from '@/components/advisor/ShoppingStrategy';
 import { useState } from 'react';
 
-type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11;
 
 const STEP_LABELS: Record<Step, string> = {
   1: 'Tell me about your deal',
@@ -25,6 +26,7 @@ const STEP_LABELS: Record<Step, string> = {
   8: 'Dealer quote audit',
   9: 'D.R.I.V.E. negotiation script',
   10: 'Deal score',
+  11: 'Intelligence report',
 };
 
 const STEP_DESCRIPTIONS: Record<Step, string> = {
@@ -38,6 +40,7 @@ const STEP_DESCRIPTIONS: Record<Step, string> = {
   8: 'Itemize the dealer quote and audit fees and add-ons for red flags.',
   9: 'Scripts for the most common dealer tactics — read before you visit.',
   10: 'Your weighted 0-100 deal score with the full breakdown.',
+  11: 'Printable summary of everything you entered and learned.',
 };
 
 export default function AdvisorPage() {
@@ -74,8 +77,10 @@ export default function AdvisorPage() {
         <FeeAuditor onComplete={() => setStep(9)} />
       ) : step === 9 ? (
         <DriveScript onComplete={() => setStep(10)} />
+      ) : step === 10 ? (
+        <DealScoreCard onComplete={() => setStep(11)} />
       ) : (
-        <DealScoreCard onComplete={() => setStep(10)} />
+        <IntelligenceReport />
       )}
 
       <div className="flex items-center justify-between pt-4">

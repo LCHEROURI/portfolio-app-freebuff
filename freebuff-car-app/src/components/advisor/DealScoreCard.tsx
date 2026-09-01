@@ -99,7 +99,7 @@ export default function DealScoreCard({ onComplete }: Props = {}) {
   return (
     <form onSubmit={handleSubmit} noValidate className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-navy-900">Step 8 of 8 — Deal Score</h2>
+        <h2 className="text-xl font-bold text-navy-900">Step 10 of 10 — Deal Score</h2>
         <p className="mt-1 text-ink-600">
           Enter the collected deal inputs. The score is computed with fixed weights: financing
           affordability 25, add-ons 20, doc fee 20, priorities 20, trade equity 15.

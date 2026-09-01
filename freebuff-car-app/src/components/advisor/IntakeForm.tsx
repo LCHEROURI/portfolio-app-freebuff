@@ -1,0 +1,203 @@
+'use client';
+
+import React from 'react';
+import { useState, type FormEvent } from 'react';
+
+export type CreditRange = 'poor' | 'fair' | 'good' | 'excellent';
+
+export interface IntakeState {
+  monthlyBudget: string;
+  downPayment: string;
+  creditRange: CreditRange | '';
+  phase: number;
+}
+
+// Error state uses string messages; the form state uses CreditRange | ''.
+type IntakeFieldErrors = Partial<Record<keyof IntakeState, string>>;
+
+const DEFAULT_STATE: IntakeState = {
+  monthlyBudget: '',
+  downPayment: '',
+  creditRange: '',
+  phase: 1,
+};
+
+function parsePositive(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return 0;
+  return parsed;
+}
+
+function formatCurrency(value: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+interface Props {
+  onComplete?: () => void;
+}
+
+export default function IntakeForm({ onComplete }: Props = {}) {
+  const [state, setState] = useState<IntakeState>(DEFAULT_STATE);
+  const [errors, setErrors] = useState<IntakeFieldErrors>({});
+  const [submitted, setSubmitted] = useState(false);
+
+  function validate(): boolean {
+    const nextErrors: IntakeFieldErrors = {};
+
+    const budget = parsePositive(state.monthlyBudget);
+    if (!state.monthlyBudget || state.monthlyBudget.trim() === '') {
+      nextErrors.monthlyBudget = 'Monthly budget is required.';
+    } else if (budget <= 0) {
+      nextErrors.monthlyBudget = 'Monthly budget must be greater than zero.';
+    }
+
+    const down = parsePositive(state.downPayment);
+    if (!state.downPayment || state.downPayment.trim() === '') {
+      nextErrors.downPayment = 'Down payment is required.';
+    } else if (down < 0) {
+      nextErrors.downPayment = 'Down payment cannot be negative.';
+    }
+
+    if (!state.creditRange) {
+      nextErrors.creditRange = 'Credit range is required.';
+    }
+
+    setErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
+  }
+
+  function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!validate()) return;
+    setSubmitted(true);
+    onComplete?.();
+  }
+
+  function update(field: keyof IntakeState, value: string) {
+    setState((prev) => ({ ...prev, [field]: value }));
+    if (errors[field]) {
+      setErrors((prev) => ({ ...prev, [field]: undefined }));
+    }
+  }
+
+  if (submitted) {
+    return (
+      <div className="rounded-xl border border-good-200 bg-good-50 p-6">
+        <div className="flex items-start gap-3">
+          <svg className="mt-0.5 h-5 w-5 shrink-0 text-good-600" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+          </svg>
+          <div>
+            <p className="font-semibold text-good-900">Got it — your budget is set</p>
+            <p className="mt-1 text-sm text-good-800">
+              Monthly budget: <strong>{formatCurrency(parsePositive(state.monthlyBudget))}</strong>
+              {' '}· Down payment: <strong>{formatCurrency(parsePositive(state.downPayment))}</strong>
+              {' '}· Credit: <strong>{state.creditRange}</strong>
+            </p>
+            <p className="mt-2 text-sm text-ink-600">
+              Now let us rank what matters most to you.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-6">
+      <div className="space-y-1.5">
+        <label htmlFor="monthlyBudget" className="block text-sm font-semibold text-navy-900">
+          Monthly budget *
+        </label>
+        <div className="relative">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-500 text-sm">$</span>
+          <input
+            id="monthlyBudget"
+            type="number"
+            min="0"
+            step="100"
+            value={state.monthlyBudget}
+            onChange={(e) => update('monthlyBudget', e.target.value)}
+            className={`block w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 ${errors.monthlyBudget ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-ink-200'}`}
+            placeholder="4500"
+            aria-invalid={!!errors.monthlyBudget}
+            aria-describedby={errors.monthlyBudget ? 'monthlyBudget-error' : undefined}
+          />
+        </div>
+        {errors.monthlyBudget && (
+          <p id="monthlyBudget-error" className="text-xs text-red-600">{errors.monthlyBudget}</p>
+        )}
+        <p className="text-xs text-ink-500">What can you comfortably spend per month?</p>
+      </div>
+
+      <div className="space-y-1.5">
+        <label htmlFor="downPayment" className="block text-sm font-semibold text-navy-900">
+          Desired down payment *
+        </label>
+        <div className="relative">
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-500 text-sm">$</span>
+          <input
+            id="downPayment"
+            type="number"
+            min="0"
+            step="500"
+            value={state.downPayment}
+            onChange={(e) => update('downPayment', e.target.value)}
+            className={`block w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 ${errors.downPayment ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-ink-200'}`}
+            placeholder="5000"
+            aria-invalid={!!errors.downPayment}
+            aria-describedby={errors.downPayment ? 'downPayment-error' : undefined}
+          />
+        </div>
+        {errors.downPayment && (
+          <p id="downPayment-error" className="text-xs text-red-600">{errors.downPayment}</p>
+        )}
+        <p className="text-xs text-ink-500">Cash you plan to put down upfront.</p>
+      </div>
+
+      <fieldset>
+        <legend className="block text-sm font-semibold text-navy-900">
+          Credit score range *
+        </legend>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {(['poor', 'fair', 'good', 'excellent'] as CreditRange[]).map((range) => (
+            <label
+              key={range}
+              className={`relative cursor-pointer rounded-lg border bg-white px-3 py-2.5 text-center text-sm shadow-sm transition-colors ${state.creditRange === range ? 'border-blue-500 bg-blue-50 text-blue-800 font-semibold' : 'border-ink-200 text-ink-700 hover:border-ink-300'}`}
+            >
+              <input
+                type="radio"
+                name="creditRange"
+                value={range}
+                checked={state.creditRange === range}
+                onChange={(e) => update('creditRange', e.target.value)}
+                className="sr-only"
+              />
+              {range.charAt(0).toUpperCase() + range.slice(1)}
+            </label>
+          ))}
+        </div>
+        {errors.creditRange && (
+          <p className="text-xs text-red-600">{errors.creditRange}</p>
+        )}
+      </fieldset>
+
+      <div className="flex justify-end">
+        <button
+          type="submit"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-navy-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-navy-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+        >
+          Save & continue
+          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+          </svg>
+        </button>
+      </div>
+    </form>
+  );
+}
