@@ -6,49 +6,52 @@ import FinanceCalc from '@/components/advisor/FinanceCalc';
 import LeaseMatrix from '@/components/advisor/LeaseMatrix';
 import OwnershipBudget from '@/components/advisor/OwnershipBudget';
 import TradeEvaluator from '@/components/advisor/TradeEvaluator';
+import DriveScript from '@/components/advisor/DriveScript';
+import FeeAuditor from '@/components/advisor/FeeAuditor';
+import DealScoreCard from '@/components/advisor/DealScoreCard';
 import ShoppingStrategy from '@/components/advisor/ShoppingStrategy';
 import { useState } from 'react';
 
-type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+
+const STEP_LABELS: Record<Step, string> = {
+  1: 'Tell me about your deal',
+  2: 'Compare your vehicles',
+  3: 'Run the financing math',
+  4: 'Compare buy vs. lease vs. used',
+  5: 'Cost of ownership & ownership budget',
+  6: 'Auto shopping strategy & recommendations',
+  7: 'Trade-in analysis',
+  8: 'Dealer quote audit',
+  9: 'D.R.I.V.E. negotiation script',
+  10: 'Deal score',
+};
+
+const STEP_DESCRIPTIONS: Record<Step, string> = {
+  1: 'Start with your budget and priorities. Everything else builds from this.',
+  2: 'Review the vehicles below and check the needs that matter to you.',
+  3: 'Enter the vehicle price, down payment, APR, and term to see your monthly payment and total cost.',
+  4: 'Compare buying new, leasing, and buying used side by side. Adjust any number to see how the trade-offs shift.',
+  5: 'Build a realistic monthly ownership budget. Enter your estimated costs for each category.',
+  6: 'Based on your needs, vehicles are grouped into three tiers with strengths, concerns, and next steps.',
+  7: 'Enter the trade-in value and payoff to see your net equity position.',
+  8: 'Itemize the dealer quote and audit fees and add-ons for red flags.',
+  9: 'Scripts for the most common dealer tactics — read before you visit.',
+  10: 'Your weighted 0-100 deal score with the full breakdown.',
+};
 
 export default function AdvisorPage() {
   const [step, setStep] = useState<Step>(1);
 
-  const stepLabel = step === 1
-    ? 'Tell me about your deal'
-    : step === 2
-      ? 'Compare your vehicles'
-      : step === 3
-        ? 'Run the financing math'
-        : step === 4
-          ? 'Compare buy vs. lease vs. used'
-          : step === 5
-            ? 'Cost of ownership & ownership budget'
-            : step === 6
-              ? 'Auto shopping strategy & recommendations'
-              : step === 7
-                ? 'Trade-in analysis'
-                : 'Trade-in analyzed';
+  const stepLabel = STEP_LABELS[step];
 
-  const stepDescription = step === 1
-    ? 'Start with your budget and priorities. Everything else builds from this.'
-    : step === 2
-      ? 'Review the vehicles below and check the needs that matter to you.'
-      : step === 3
-        ? 'Enter the vehicle price, down payment, APR, and term to see your monthly payment and total cost.'
-        : step === 4
-          ? 'Compare buying new, leasing, and buying used side by side. Adjust any number to see how the trade-offs shift.'
-          : step === 5
-            ? 'Build a realistic monthly ownership budget. Enter your estimated costs for each category.'
-            : step === 6
-              ? 'Based on your needs, vehicles are grouped into three tiers with strengths, concerns, and next steps.'
-              : 'Enter the trade-in value and payoff to see your net equity position.';
+  const stepDescription = STEP_DESCRIPTIONS[step];
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-navy-900">
-          Step {step} of 8 — {stepLabel}
+          Step {step} of 10 — {stepLabel}
         </h1>
         <p className="mt-1 text-ink-600">{stepDescription}</p>
       </div>
@@ -65,8 +68,14 @@ export default function AdvisorPage() {
         <OwnershipBudget onComplete={() => setStep(6)} />
       ) : step === 6 ? (
         <ShoppingStrategy onContinue={() => setStep(7)} />
-      ) : (
+      ) : step === 7 ? (
         <TradeEvaluator onComplete={() => setStep(8)} />
+      ) : step === 8 ? (
+        <FeeAuditor onComplete={() => setStep(9)} />
+      ) : step === 9 ? (
+        <DriveScript onComplete={() => setStep(10)} />
+      ) : (
+        <DealScoreCard onComplete={() => setStep(10)} />
       )}
 
       <div className="flex items-center justify-between pt-4">
@@ -79,7 +88,7 @@ export default function AdvisorPage() {
             <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
             </svg>
-            Back to {step === 2 ? 'intake' : step === 3 ? 'vehicles' : step === 4 ? 'financing' : step === 5 ? 'comparison' : step === 6 ? 'ownership budget' : 'shopping strategy'}
+            Back to {step === 2 ? 'intake' : step === 3 ? 'vehicles' : step === 4 ? 'financing' : step === 5 ? 'comparison' : step === 6 ? 'ownership budget' : step === 7 ? 'shopping strategy' : 'trade-in'}
           </button>
         )}
         <a
