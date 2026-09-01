@@ -31,6 +31,19 @@ const STEP_LABELS: Record<Step, string> = {
   11: 'Intelligence report',
 };
 
+const BACK_LABELS: Partial<Record<Step, string>> = {
+  2: 'intake',
+  3: 'vehicles',
+  4: 'financing',
+  5: 'comparison',
+  6: 'ownership budget',
+  7: 'shopping strategy',
+  8: 'trade-in',
+  9: 'fee audit',
+  10: 'negotiation script',
+  11: 'deal score',
+};
+
 const STEP_DESCRIPTIONS: Record<Step, string> = {
   1: 'Start with your budget and priorities. Everything else builds from this.',
   2: 'Review the vehicles below and check the needs that matter to you.',
@@ -69,7 +82,7 @@ export default function AdvisorPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-navy-900">
-          Step {step} of 10 — {stepLabel}
+          Step {step} of 11 — {stepLabel}
         </h1>
         <p className="mt-1 text-ink-600">{stepDescription}</p>
       </div>
@@ -93,7 +106,7 @@ export default function AdvisorPage() {
       ) : step === 9 ? (
         <DriveScript onComplete={() => goToStep(10)} />
       ) : step === 10 ? (
-        <DealScoreCard onComplete={() => setStep(11)} />
+        <DealScoreCard onComplete={() => goToStep(11)} />
       ) : (
         <IntelligenceReport />
       )}
@@ -108,7 +121,7 @@ export default function AdvisorPage() {
             <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
             </svg>
-            Back to {step === 2 ? 'intake' : step === 3 ? 'vehicles' : step === 4 ? 'financing' : step === 5 ? 'comparison' : step === 6 ? 'ownership budget' : step === 7 ? 'shopping strategy' : 'trade-in'}
+            Back to {BACK_LABELS[step as Step]}
           </button>
         )}
         <a

@@ -115,7 +115,7 @@ export default function DealScoreCard({ onComplete }: Props = {}) {
             id="monthlyPayment"
             type="number"
             min="0"
-            step="10"
+            step="any"
             value={state.monthlyPayment}
             onChange={(e) => update('monthlyPayment', e.target.value)}
             className={`block w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:outline-none focus:ring-1 ${errors.monthlyPayment ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-ink-200 focus:border-blue-500 focus:ring-blue-500'}`}
@@ -134,7 +134,7 @@ export default function DealScoreCard({ onComplete }: Props = {}) {
             id="monthlyBudget"
             type="number"
             min="0"
-            step="10"
+            step="any"
             value={state.monthlyBudget}
             onChange={(e) => update('monthlyBudget', e.target.value)}
             className={`block w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:outline-none focus:ring-1 ${errors.monthlyBudget ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-ink-200 focus:border-blue-500 focus:ring-blue-500'}`}
@@ -153,7 +153,7 @@ export default function DealScoreCard({ onComplete }: Props = {}) {
             id="docFee"
             type="number"
             min="0"
-            step="5"
+            step="any"
             value={state.docFee}
             onChange={(e) => update('docFee', e.target.value)}
             className={`block w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:outline-none focus:ring-1 ${errors.docFee ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-ink-200 focus:border-blue-500 focus:ring-blue-500'}`}
@@ -172,7 +172,7 @@ export default function DealScoreCard({ onComplete }: Props = {}) {
             id="addOnCount"
             type="number"
             min="0"
-            step="1"
+            step="any"
             value={state.addOnCount}
             onChange={(e) => update('addOnCount', e.target.value)}
             className={`block w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:outline-none focus:ring-1 ${errors.addOnCount ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-ink-200 focus:border-blue-500 focus:ring-blue-500'}`}
@@ -191,7 +191,7 @@ export default function DealScoreCard({ onComplete }: Props = {}) {
             id="prioritiesMet"
             type="number"
             min="0"
-            step="1"
+            step="any"
             value={state.prioritiesMet}
             onChange={(e) => update('prioritiesMet', e.target.value)}
             className={`block w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:outline-none focus:ring-1 ${errors.prioritiesMet ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-ink-200 focus:border-blue-500 focus:ring-blue-500'}`}
@@ -210,7 +210,7 @@ export default function DealScoreCard({ onComplete }: Props = {}) {
             id="priorityCount"
             type="number"
             min="0"
-            step="1"
+            step="any"
             value={state.priorityCount}
             onChange={(e) => update('priorityCount', e.target.value)}
             className={`block w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:outline-none focus:ring-1 ${errors.priorityCount ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-ink-200 focus:border-blue-500 focus:ring-blue-500'}`}
@@ -225,7 +225,7 @@ export default function DealScoreCard({ onComplete }: Props = {}) {
           <input
             id="tradeEquity"
             type="number"
-            step="50"
+            step="any"
             value={state.tradeEquity}
             onChange={(e) => update('tradeEquity', e.target.value)}
             className={`block w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:outline-none focus:ring-1 ${errors.tradeEquity ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-ink-200 focus:border-blue-500 focus:ring-blue-500'}`}

@@ -105,7 +105,7 @@ export default function TradeEvaluator({ onComplete, onSaveData }: Props = {}) {
               id="tradeValue"
               type="number"
               min="0"
-              step="100"
+              step="any"
               value={state.tradeValue}
               onChange={(e) => update('tradeValue', e.target.value)}
               className={`block w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 ${errors.tradeValue ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-ink-200'}`}
@@ -130,7 +130,7 @@ export default function TradeEvaluator({ onComplete, onSaveData }: Props = {}) {
               id="payoff"
               type="number"
               min="0"
-              step="100"
+              step="any"
               value={state.payoff}
               onChange={(e) => update('payoff', e.target.value)}
               className={`block w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 ${errors.payoff ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-ink-200'}`}

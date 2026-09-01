@@ -195,7 +195,7 @@ export default function LeaseMatrix({ onComplete }: { onComplete?: () => void } 
                 id="newPrice"
                 type="number"
                 min="0"
-                step="500"
+                step="any"
                 value={input.newPrice}
                 onChange={(e) => update('newPrice', e.target.value)}
                 className="block w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -211,7 +211,7 @@ export default function LeaseMatrix({ onComplete }: { onComplete?: () => void } 
                 id="newDown"
                 type="number"
                 min="0"
-                step="500"
+                step="any"
                 value={input.newDown}
                 onChange={(e) => update('newDown', e.target.value)}
                 className="block w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -226,7 +226,7 @@ export default function LeaseMatrix({ onComplete }: { onComplete?: () => void } 
               type="number"
               min="0"
               max="30"
-              step="0.1"
+              step="any"
               value={input.newApr}
               onChange={(e) => update('newApr', e.target.value)}
               className="block w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -261,7 +261,7 @@ export default function LeaseMatrix({ onComplete }: { onComplete?: () => void } 
                 id="leaseMonthly"
                 type="number"
                 min="0"
-                step="10"
+                step="any"
                 value={input.leaseMonthly}
                 onChange={(e) => update('leaseMonthly', e.target.value)}
                 className="block w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -277,7 +277,7 @@ export default function LeaseMatrix({ onComplete }: { onComplete?: () => void } 
                 id="leaseDueAtSigning"
                 type="number"
                 min="0"
-                step="500"
+                step="any"
                 value={input.leaseDueAtSigning}
                 onChange={(e) => update('leaseDueAtSigning', e.target.value)}
                 className="block w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -304,7 +304,7 @@ export default function LeaseMatrix({ onComplete }: { onComplete?: () => void } 
               id="leaseMileage"
               type="number"
               min="0"
-              step="1000"
+              step="any"
               value={input.leaseMileage}
               onChange={(e) => update('leaseMileage', e.target.value)}
               className="block w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -326,7 +326,7 @@ export default function LeaseMatrix({ onComplete }: { onComplete?: () => void } 
                 id="usedPrice"
                 type="number"
                 min="0"
-                step="500"
+                step="any"
                 value={input.usedPrice}
                 onChange={(e) => update('usedPrice', e.target.value)}
                 className="block w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -342,7 +342,7 @@ export default function LeaseMatrix({ onComplete }: { onComplete?: () => void } 
                 id="usedDown"
                 type="number"
                 min="0"
-                step="500"
+                step="any"
                 value={input.usedDown}
                 onChange={(e) => update('usedDown', e.target.value)}
                 className="block w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -357,7 +357,7 @@ export default function LeaseMatrix({ onComplete }: { onComplete?: () => void } 
               type="number"
               min="0"
               max="30"
-              step="0.1"
+              step="any"
               value={input.usedApr}
               onChange={(e) => update('usedApr', e.target.value)}
               className="block w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -384,7 +384,7 @@ export default function LeaseMatrix({ onComplete }: { onComplete?: () => void } 
             id="usedMiles"
             type="number"
             min="0"
-            step="5000"
+            step="any"
             value={input.usedMiles}
             onChange={(e) => update('usedMiles', e.target.value)}
             className="mt-1 block w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"

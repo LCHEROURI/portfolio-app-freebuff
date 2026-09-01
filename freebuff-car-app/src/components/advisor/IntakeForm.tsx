@@ -122,7 +122,7 @@ export default function IntakeForm({ onComplete, onSaveData }: Props = {}) {
             id="monthlyBudget"
             type="number"
             min="0"
-            step="100"
+            step="any"
             value={state.monthlyBudget}
             onChange={(e) => update('monthlyBudget', e.target.value)}
             className={`block w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 ${errors.monthlyBudget ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-ink-200'}`}
@@ -147,7 +147,7 @@ export default function IntakeForm({ onComplete, onSaveData }: Props = {}) {
             id="downPayment"
             type="number"
             min="0"
-            step="500"
+            step="any"
             value={state.downPayment}
             onChange={(e) => update('downPayment', e.target.value)}
             className={`block w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 ${errors.downPayment ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-ink-200'}`}
