@@ -92,9 +92,10 @@ describe('VehicleNeeds', () => {
     expect(screen.getByText('Comparing 2 vehicles')).toBeInTheDocument();
   });
 
-  it('shows empty state when no vehicles loaded', () => {
+  it('falls back to the sample fleet when no window data is set', () => {
     render(<VehicleNeeds />);
-    expect(screen.getByText('No vehicles loaded. Check that vehicle data is published.')).toBeInTheDocument();
+    expect(screen.getByText('2025 Toyota Camry LE')).toBeInTheDocument();
+    expect(screen.getByText('2025 Subaru Outback Premium')).toBeInTheDocument();
   });
 
   it('renders all 6 needs checkboxes', () => {

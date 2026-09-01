@@ -1,20 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-
-interface Vehicle {
-  id: string;
-  make: string;
-  model: string;
-  year: number;
-  trim: string;
-  msrp: number;
-  fuelEconomyCombined: number;
-  seating: number;
-  drive: string;
-  safetyRating: string;
-  tech: string[];
-}
+import type { Vehicle } from '@/data/vehicles';
+import { SAMPLE_VEHICLES } from '@/data/vehicles';
 
 interface Needs {
   awd: boolean;
@@ -132,11 +120,9 @@ export default function ShoppingStrategy({ onContinue }: Props = {}) {
     androidAuto: false,
   });
 
-  const vehicleData = (typeof window !== 'undefined' && (window as unknown as Record<string, unknown>).__VEHICLE_DATA__)
-    ? (window as unknown as Record<string, unknown>).__VEHICLE_DATA__
-    : [];
-
-  const vehicles: Vehicle[] = (vehicleData as Vehicle[]) || [];
+  const windowData = typeof window !== 'undefined' ? (window as unknown as Record<string, unknown>).__VEHICLE_DATA__ : undefined;
+  const vehicleData = windowData as Vehicle[] | undefined;
+  const vehicles: Vehicle[] = vehicleData && vehicleData.length > 0 ? vehicleData : SAMPLE_VEHICLES;
 
   function toggleNeed<K extends keyof Needs>(key: K) {
     setNeeds((prev) => ({ ...prev, [key]: !prev[key] }));
