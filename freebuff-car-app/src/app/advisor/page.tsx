@@ -11,7 +11,7 @@ import IntelligenceReport from '@/components/advisor/IntelligenceReport';
 import FeeAuditor from '@/components/advisor/FeeAuditor';
 import DealScoreCard from '@/components/advisor/DealScoreCard';
 import ShoppingStrategy from '@/components/advisor/ShoppingStrategy';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAdvisorState } from '@/hooks/useAdvisorState';
 import type { AdvisorState } from '@/hooks/useAdvisorState';
 
@@ -59,11 +59,17 @@ const STEP_DESCRIPTIONS: Record<Step, string> = {
 };
 
 export default function AdvisorPage() {
-  const { state: advisorState, update: updateAdvisorState } = useAdvisorState();
-  const [step, setStep] = useState<Step>(() => {
-    const saved = advisorState.step;
-    return saved >= 1 && saved <= 11 ? (saved as Step) : 1;
-  });
+  const { state: advisorState, update: updateAdvisorState, hydrated } = useAdvisorState();
+  const [step, setStep] = useState<Step>(1);
+
+  // Restore the saved step once the hook has hydrated from localStorage.
+  // Runs only when `hydrated` flips, so later in-session steps are not overwritten.
+  useEffect(() => {
+    if (hydrated && advisorState.step >= 1 && advisorState.step <= 11) {
+      setStep(advisorState.step as Step);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated]);
 
   const goToStep = (s: Step) => {
     setStep(s);
