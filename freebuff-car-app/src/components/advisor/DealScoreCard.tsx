@@ -52,7 +52,7 @@ export default function DealScoreCard({ onComplete }: Props = {}) {
 
     if (parseNumber(state.docFee) < 0) nextErrors.docFee = 'Cannot be negative.';
     if (parseNumber(state.addOnCount) < 0) nextErrors.addOnCount = 'Cannot be negative.';
-    if (parseNumber(state.tradeEquity) < 0) nextErrors.tradeEquity = 'Cannot be negative.';
+    // Note: negative trade equity is valid input — the engine penalizes it in the score.
 
     if (
       !nextErrors.prioritiesMet &&
@@ -121,6 +121,9 @@ export default function DealScoreCard({ onComplete }: Props = {}) {
             className={`block w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:outline-none focus:ring-1 ${errors.monthlyPayment ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-ink-200 focus:border-blue-500 focus:ring-blue-500'}`}
             placeholder="450"
           />
+          {errors.monthlyPayment && (
+            <p className="text-sm text-red-600" role="alert">{errors.monthlyPayment}</p>
+          )}
         </div>
 
         <div className="space-y-1.5">
@@ -137,6 +140,9 @@ export default function DealScoreCard({ onComplete }: Props = {}) {
             className={`block w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:outline-none focus:ring-1 ${errors.monthlyBudget ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-ink-200 focus:border-blue-500 focus:ring-blue-500'}`}
             placeholder="500"
           />
+          {errors.monthlyBudget && (
+            <p className="text-sm text-red-600" role="alert">{errors.monthlyBudget}</p>
+          )}
         </div>
 
         <div className="space-y-1.5">
@@ -153,6 +159,9 @@ export default function DealScoreCard({ onComplete }: Props = {}) {
             className={`block w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:outline-none focus:ring-1 ${errors.docFee ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-ink-200 focus:border-blue-500 focus:ring-blue-500'}`}
             placeholder="129"
           />
+          {errors.docFee && (
+            <p className="text-sm text-red-600" role="alert">{errors.docFee}</p>
+          )}
         </div>
 
         <div className="space-y-1.5">
@@ -169,6 +178,9 @@ export default function DealScoreCard({ onComplete }: Props = {}) {
             className={`block w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:outline-none focus:ring-1 ${errors.addOnCount ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-ink-200 focus:border-blue-500 focus:ring-blue-500'}`}
             placeholder="0"
           />
+          {errors.addOnCount && (
+            <p className="text-sm text-red-600" role="alert">{errors.addOnCount}</p>
+          )}
         </div>
 
         <div className="space-y-1.5">
@@ -185,6 +197,9 @@ export default function DealScoreCard({ onComplete }: Props = {}) {
             className={`block w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:outline-none focus:ring-1 ${errors.prioritiesMet ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-ink-200 focus:border-blue-500 focus:ring-blue-500'}`}
             placeholder="0"
           />
+          {errors.prioritiesMet && (
+            <p className="text-sm text-red-600" role="alert">{errors.prioritiesMet}</p>
+          )}
         </div>
 
         <div className="space-y-1.5">

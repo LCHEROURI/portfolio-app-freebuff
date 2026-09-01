@@ -20,7 +20,7 @@ describe('DealScoreCard', () => {
   it('requires payment and budget', () => {
     render(<DealScoreCard />);
     fireEvent.click(screen.getByRole('button', { name: /score this deal/i }));
-    expect(screen.getByText('Required.')).toBeInTheDocument();
+    expect(screen.getAllByText('Required.').length).toBe(2);
   });
 
   it('rejects zero monthly payment', () => {
