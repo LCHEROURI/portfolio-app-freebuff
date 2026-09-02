@@ -81,6 +81,7 @@ const repo1: Repository = {
 };
 
 const deploy1a: Deployment = {
+  userId: uid,
   id: d1a, projectVersionId: v1a, provider: 'vercel', projectName: 'chef-video-guide-codex',
   environment: 'production', deploymentUrl: 'https://chef-video-guide-codex.vercel.app',
   dashboardUrl: 'https://vercel.com/chef-labs/chef-video-guide-codex', status: 'READY',
@@ -90,6 +91,7 @@ const deploy1a: Deployment = {
 };
 
 const deploy1b: Deployment = {
+  userId: uid,
   id: d1b, projectVersionId: v1a, provider: 'vercel', projectName: 'chef-video-guide-codex',
   environment: 'preview', deploymentUrl: 'https://chef-video-guide-codex-git-main.vercel.app',
   status: 'READY', healthStatus: 'UNKNOWN', lastDeploymentAt: hoursAgo(5),
@@ -98,24 +100,25 @@ const deploy1b: Deployment = {
 
 const tasks1: Task[] = [
   {
-    id: t1a, projectId: p1, projectVersionId: v1a, title: 'Finish recipe detail video player',
+    userId: uid, id: t1a, projectId: p1, projectVersionId: v1a, title: 'Finish recipe detail video player',
     description: 'Autoplay next recipe, chapter markers, transcript toggle.',
     status: 'IN_PROGRESS', priority: 'P1_HIGH', taskType: 'FEATURE', dueDate: daysAgo(-1),
     estimatedMinutes: 180, actualMinutes: 120, position: 0, createdAt: daysAgo(6), updatedAt: hoursAgo(3),
   },
   {
-    id: t1b, projectId: p1, projectVersionId: v1a, title: 'Fix mobile scrubber jank',
+    userId: uid, id: t1b, projectId: p1, projectVersionId: v1a, title: 'Fix mobile scrubber jank',
     status: 'NEXT', priority: 'P2_MEDIUM', taskType: 'BUG', dueDate: daysAgo(1),
     estimatedMinutes: 60, position: 1, createdAt: daysAgo(4), updatedAt: daysAgo(1),
   },
   {
-    id: t1c, projectId: p1, projectVersionId: v1a, title: 'Write 10 starter video recipes',
+    userId: uid, id: t1c, projectId: p1, projectVersionId: v1a, title: 'Write 10 starter video recipes',
     status: 'BACKLOG', priority: 'P2_MEDIUM', taskType: 'FEATURE', dueDate: undefined,
     estimatedMinutes: 600, position: 2, createdAt: daysAgo(4), updatedAt: daysAgo(4),
   },
 ];
 
 const eval1: ModelEvaluation = {
+  userId: uid,
   id: e1, projectId: p1, projectVersionId: v1a, builder: 'Codex', model: 'GPT-4o Codex',
   uiScore: 7, featureScore: 6, codeQualityScore: 7, stabilityScore: 6, performanceScore: 8,
   maintainabilityScore: 6, mobileScore: 5, accessibilityScore: 4, developmentSpeedScore: 9,
@@ -181,6 +184,7 @@ const repo2: Repository = {
 };
 
 const deploy2a: Deployment = {
+  userId: uid,
   id: d2a, projectVersionId: v2a, provider: 'firebase', projectName: 'weeknight-planner-gemini',
   environment: 'production', deploymentUrl: 'https://weeknight-planner-gemini.web.app',
   dashboardUrl: 'https://console.firebase.google.com/project/weeknight-planner-gemini/hosting', status: 'READY',
@@ -190,6 +194,7 @@ const deploy2a: Deployment = {
 };
 
 const deploy2b: Deployment = {
+  userId: uid,
   id: d2b, projectVersionId: v2b, provider: 'vercel', projectName: 'weeknight-planner-kimi',
   environment: 'staging', deploymentUrl: 'https://weeknight-planner-kimi.vercel.app',
   dashboardUrl: 'https://vercel.com/chef-labs/weeknight-planner-kimi', status: 'READY',
@@ -201,24 +206,25 @@ const deploy2b: Deployment = {
 
 const tasks2: Task[] = [
   {
-    id: t2a, projectId: p2, projectVersionId: v2a, title: 'A/B retention test: Gemini vs Kimi',
+    userId: uid, id: t2a, projectId: p2, projectVersionId: v2a, title: 'A/B retention test: Gemini vs Kimi',
     status: 'NEXT', priority: 'P0_CRITICAL', taskType: 'EVALUATION', dueDate: daysAgo(-2),
     estimatedMinutes: 240, position: 0, createdAt: daysAgo(8), updatedAt: daysAgo(2),
   },
   {
-    id: t2b, projectId: p2, projectVersionId: v2b, title: 'Fix intermittent 503 on plan endpoint',
+    userId: uid, id: t2b, projectId: p2, projectVersionId: v2b, title: 'Fix intermittent 503 on plan endpoint',
     status: 'IN_PROGRESS', priority: 'P0_CRITICAL', taskType: 'BUG', dueDate: daysAgo(1),
     blockedBy: 'Waiting on Vercel function cold-start fix', estimatedMinutes: 120, actualMinutes: 90,
     position: 1, createdAt: daysAgo(3), updatedAt: hoursAgo(4),
   },
   {
-    id: t2c, projectId: p2, projectVersionId: v2a, title: 'Collect user feedback from 20 testers',
+    userId: uid, id: t2c, projectId: p2, projectVersionId: v2a, title: 'Collect user feedback from 20 testers',
     status: 'REVIEW', priority: 'P2_MEDIUM', taskType: 'EVALUATION', dueDate: daysAgo(0),
     estimatedMinutes: 90, actualMinutes: 75, position: 2, createdAt: daysAgo(5), updatedAt: daysAgo(1),
   },
 ];
 
 const eval2a: ModelEvaluation = {
+  userId: uid,
   id: e2a, projectId: p2, projectVersionId: v2a, builder: 'Google AI Studio', model: 'Gemini 1.5 Pro',
   uiScore: 8, featureScore: 8, codeQualityScore: 7, stabilityScore: 7, performanceScore: 7,
   maintainabilityScore: 7, mobileScore: 8, accessibilityScore: 7, developmentSpeedScore: 7,
@@ -228,6 +234,7 @@ const eval2a: ModelEvaluation = {
 eval2a.overallScore = computeOverallScore(eval2a);
 
 const eval2b: ModelEvaluation = {
+  userId: uid,
   id: e2b, projectId: p2, projectVersionId: v2b, builder: 'FreeBuff', model: 'Kimi K3',
   uiScore: 7, featureScore: 7, codeQualityScore: 6, stabilityScore: 6, performanceScore: 8,
   maintainabilityScore: 6, mobileScore: 7, accessibilityScore: 6, developmentSpeedScore: 9,
@@ -287,6 +294,7 @@ const repo3: Repository = {
 };
 
 const deploy3a: Deployment = {
+  userId: uid,
   id: d3a, projectVersionId: v3a, provider: 'lovable', projectName: 'resto-social-lovable',
   environment: 'production', deploymentUrl: 'https://resto-social-lovable.lovable.app',
   status: 'READY', healthStatus: 'HEALTHY', lastDeploymentAt: daysAgo(2),
@@ -295,13 +303,13 @@ const deploy3a: Deployment = {
 
 const tasks3: Task[] = [
   {
-    id: t3a, projectId: p3, projectVersionId: v3a, title: 'Complete Facebook app review form',
+    userId: uid, id: t3a, projectId: p3, projectVersionId: v3a, title: 'Complete Facebook app review form',
     status: 'BLOCKED', priority: 'P1_HIGH', taskType: 'DEPLOYMENT', dueDate: daysAgo(-5),
     blockedBy: 'External review queue', estimatedMinutes: 60, position: 0,
     createdAt: daysAgo(10), updatedAt: daysAgo(5),
   },
   {
-    id: t3b, projectId: p3, projectVersionId: v3a, title: 'Add Instagram publishing fallback',
+    userId: uid, id: t3b, projectId: p3, projectVersionId: v3a, title: 'Add Instagram publishing fallback',
     status: 'NEXT', priority: 'P2_MEDIUM', taskType: 'FEATURE', dueDate: daysAgo(2),
     estimatedMinutes: 120, position: 1, createdAt: daysAgo(4), updatedAt: daysAgo(2),
   },
@@ -334,7 +342,7 @@ const version4a: ProjectVersion = {
 
 const tasks4: Task[] = [
   {
-    id: t4a, projectId: p4, projectVersionId: v4a, title: 'Export Replit project to GitHub',
+    userId: uid, id: t4a, projectId: p4, projectVersionId: v4a, title: 'Export Replit project to GitHub',
     status: 'NEXT', priority: 'P2_MEDIUM', taskType: 'REFACTOR', dueDate: daysAgo(4),
     estimatedMinutes: 45, position: 0, createdAt: daysAgo(5), updatedAt: daysAgo(4),
   },
@@ -388,6 +396,7 @@ const repo5: Repository = {
 };
 
 const deploy5a: Deployment = {
+  userId: uid,
   id: d5a, projectVersionId: v5a, provider: 'vercel', projectName: 'menu-competitor-analyzer',
   environment: 'production', deploymentUrl: 'https://menu-competitor-analyzer.vercel.app',
   status: 'READY', healthStatus: 'HEALTHY', lastDeploymentAt: daysAgo(1),
@@ -398,13 +407,14 @@ const deploy5a: Deployment = {
 
 const tasks5: Task[] = [
   {
-    id: t5a, projectId: p5, projectVersionId: v5a, title: 'Rate-limit scraper to avoid IP bans',
+    userId: uid, id: t5a, projectId: p5, projectVersionId: v5a, title: 'Rate-limit scraper to avoid IP bans',
     status: 'IN_PROGRESS', priority: 'P1_HIGH', taskType: 'BUG', dueDate: daysAgo(1),
     estimatedMinutes: 150, actualMinutes: 60, position: 0, createdAt: daysAgo(3), updatedAt: hoursAgo(10),
   },
 ];
 
 const eval5a: ModelEvaluation = {
+  userId: uid,
   id: e5a, projectId: p5, projectVersionId: v5a, builder: 'Gemini', model: 'Gemini 1.5 Flash',
   uiScore: 6, featureScore: 7, codeQualityScore: 6, stabilityScore: 7, performanceScore: 8,
   maintainabilityScore: 6, mobileScore: 5, accessibilityScore: 5, developmentSpeedScore: 8,
@@ -442,6 +452,7 @@ const version6a: ProjectVersion = {
 };
 
 const deploy6a: Deployment = {
+  userId: uid,
   id: d6a, projectVersionId: v6a, provider: 'other', projectName: 'takeout-voice-2',
   environment: 'staging', deploymentUrl: 'https://takeout-voice-2.antigravity.app/staging',
   status: 'READY', healthStatus: 'UNKNOWN', lastDeploymentAt: hoursAgo(9),
@@ -450,7 +461,7 @@ const deploy6a: Deployment = {
 
 const tasks6: Task[] = [
   {
-    id: t6a, projectId: p6, projectVersionId: v6a, title: 'Promote staging to production',
+    userId: uid, id: t6a, projectId: p6, projectVersionId: v6a, title: 'Promote staging to production',
     status: 'NEXT', priority: 'P1_HIGH', taskType: 'DEPLOYMENT', dueDate: daysAgo(-1),
     estimatedMinutes: 45, position: 0, createdAt: daysAgo(2), updatedAt: daysAgo(1),
   },
