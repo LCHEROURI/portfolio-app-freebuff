@@ -84,6 +84,14 @@ jobs:
           chmod 600 /tmp/fb-key.json
           gcloud auth activate-service-account --key-file=/tmp/fb-key.json
 
+      # App Hosting rebuilds in the CLOUD from the uploaded source, where the
+      # runner's env vars do not exist — so the commit SHA travels inside the
+      # source itself: .env.production is written before deploy and Next.js
+      # inlines NEXT_PUBLIC_* values during that cloud build.
+      - name: Bake commit SHA into the uploaded source
+        working-directory: freebuff-car-app
+        run: printf 'NEXT_PUBLIC_COMMIT_SHA=%s\n' "$GITHUB_SHA" > .env.production
+
       - name: Deploy to Firebase App Hosting
         working-directory: freebuff-car-app
         env:
