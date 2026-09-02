@@ -15,6 +15,10 @@ export default defineConfig({
     environment: 'jsdom',
     globals: false,
     include: ['**/*.test.{ts,tsx}'],
+    // freebuff-car-app is a self-contained project with its own jest setup;
+    // running its tests under the parent's vitest config fails on missing
+    // jest globals and its own path alias.
+    exclude: ['**/node_modules/**', 'freebuff-car-app/**'],
     setupFiles: ['./vitest.setup.ts'],
   },
 });
