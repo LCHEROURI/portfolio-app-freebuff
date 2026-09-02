@@ -201,12 +201,9 @@ When each gate runs:
    │  · Verify production sign-in + Firestore sync                 │
    │  · Verify deployed cron reports + rules (secret-gated)        │
    └──────────────────────────────┬────────────────────────────────┘
-                                  │  after Vercel finishes building
+                                  │  per PR / manual dispatch
                                   ▼
    ┌───────────────────────────────────────────────────────────────┐
-   │  DEPLOYMENT_STATUS GATES (per preview/production deploy)      │
-   │  · Preview gate — auto-authorize + verify the deployed domain │
-   │  · Deployed-hash gate — live build serves the pushed commit   │
    │  · Gallery — screenshots the deployed preview                 │
    └───────────────────────────────────────────────────────────────┘
 ```

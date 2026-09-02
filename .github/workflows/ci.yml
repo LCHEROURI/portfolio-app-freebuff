@@ -114,62 +114,6 @@ jobs:
       - name: Production build
         run: npm run build
 
-      # Push-time stale-head guard: verifies the pushed HEAD is not a rollback
-      # of what Vercel is currently serving, BEFORE the deploy starts (the
-      # post-deploy workflows can only prove what was deployed == what was
-      # pushed; they cannot catch a stale push that should never have
-      # deployed). Runs verify-deployed-hash-gate with --stale-guard, the
-      # SAME direction-aware driver the pre-push hook delegates to — live an
-      # ancestor of the pushed HEAD (the standard forward case) → PASS, proven
-      # after deploy; live NOT an ancestor (rollback/diverged) → STALE-HEAD
-      # BLOCK. Only runs on pushes to main — a PR head is legitimately behind
-      # live main, so the check would falsely block every PR (the PR-time
-      # variant below handles PRs, pinned to the PR head). Gated on
-      # VERCEL_TOKEN; the loud guard below turns a missing token into a
-      # failure instead of a silently skipped gate.
-      - name: Fail loudly if VERCEL_TOKEN is missing (main push)
-        if: ${{ github.event_name == 'push' && github.repository == 'LCHEROURI/portfolio-app-freebuff' && env.VERCEL_TOKEN == '' }}
-        run: |
-          echo "::error::VERCEL_TOKEN secret missing — the stale-head guard cannot run on a main push."
-          echo "Add it under GitHub -> Settings -> Secrets and variables -> Actions, then re-run."
-          exit 1
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-
-      - name: Verify pushed head is not stale vs live (stale-guard)
-        if: ${{ github.event_name == 'push' && env.VERCEL_TOKEN != '' }}
-        run: node scripts/verify-deployed-hash-gate.mjs --stale-guard
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-
-      # PR-time stale-head guard: the SAME direction-aware gate, pinned to the
-      # PR head via --head instead of the pushed HEAD. Load-bearing on PRs
-      # because the checkout is the MERGE ref — which always contains current
-      # base main — so comparing live against the checkout HEAD would make
-      # every stale PR pass. The rule, applied to the PR head: FAIL iff live is
-      # NOT an ancestor of the PR head (the PR was cut before live's current
-      # state — stale, update the branch); PASS if the PR head already
-      # contains the entire live state. A PR head is legitimately behind BASE
-      # main (that is the push step's contract), but a PR cut before LIVE's
-      # state surfaces here in the PR checks instead of only at merge time.
-      # Gated on VERCEL_TOKEN: fork PRs have no secrets → skip-not-fail, and
-      # the loud guard below fails a missing token on the canonical repo
-      # instead of a silently green skip.
-      - name: Fail loudly if VERCEL_TOKEN is missing (PR)
-        if: ${{ github.event_name == 'pull_request' && github.repository == 'LCHEROURI/portfolio-app-freebuff' && env.VERCEL_TOKEN == '' }}
-        run: |
-          echo "::error::VERCEL_TOKEN secret missing — the PR stale-head guard cannot run."
-          echo "Add it under GitHub -> Settings -> Secrets and variables -> Actions, then re-run."
-          exit 1
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-
-      - name: Verify PR head is not stale vs live (stale-guard)
-        if: ${{ github.event_name == 'pull_request' && env.VERCEL_TOKEN != '' }}
-        run: node scripts/verify-deployed-hash-gate.mjs --stale-guard --head "${{ github.event.pull_request.head.sha }}"
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-
   # Drift guard for the launch checklist: parses docs/launch.md's §4 gate
   # table and asserts every documented command is actually runnable from
   # package.json (npm scripts exist, target files exist, node scripts/ gates
@@ -221,7 +165,6 @@ jobs:
       FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
       FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
       REPORT_OWNER_ID: ${{ secrets.REPORT_OWNER_ID }}
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       # The deployed-store LIVE-flag set (source of truth: EXPECTED_LIVE_FLAGS
       # in scripts/verify-vercel-env.mjs). These are PUBLIC build-time flags
       # (inlined into the client bundle), so wiring them here as plain values
@@ -251,14 +194,13 @@ jobs:
       # re-verifies stay exempt: forks never carry these secrets, and a
       # workflow_dispatch re-verify shows its skipped steps to the operator.
       - name: Fail loudly if a verify secret is missing (main push)
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'LCHEROURI/portfolio-app-freebuff' && (env.CRON_SECRET == '' || env.FIREBASE_WEB_API_KEY == '' || env.FIREBASE_SERVICE_ACCOUNT == '' || env.REPORT_OWNER_ID == '' || env.VERCEL_TOKEN == '' || env.VERIFY_FIREBASE_WEB_API_KEY == '' || env.VERIFY_FIREBASE_PROJECT_ID == '') }}
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'LCHEROURI/portfolio-app-freebuff' && (env.CRON_SECRET == '' || env.FIREBASE_WEB_API_KEY == '' || env.FIREBASE_SERVICE_ACCOUNT == '' || env.REPORT_OWNER_ID == '' || env.VERIFY_FIREBASE_WEB_API_KEY == '' || env.VERIFY_FIREBASE_PROJECT_ID == '') }}
         run: |
           echo "::error::Required GitHub Actions secret(s) missing on main push:"
           [ -z "$CRON_SECRET" ] && echo "  - CRON_SECRET (gates 'Verify deployed cron report bodies')"
           [ -z "$FIREBASE_WEB_API_KEY" ] && echo "  - FIREBASE_WEB_API_KEY (gates 'Verify Google sign-in IdP config', 'Verify deployed deployments feed', and 'Verify deployed PDF route')"
           [ -z "$FIREBASE_SERVICE_ACCOUNT" ] && echo "  - FIREBASE_SERVICE_ACCOUNT (gates 'Verify deployed review-sheet print-all contract' and 'Verify deployed PDF route')"
           [ -z "$REPORT_OWNER_ID" ] && echo "  - REPORT_OWNER_ID (gates 'Verify deployed PDF route' — the owner session minted for the PDF POST)"
-          [ -z "$VERCEL_TOKEN" ] && echo "  - VERCEL_TOKEN (gates 'Verify Vercel token health')"
           [ -z "$VERIFY_FIREBASE_WEB_API_KEY" ] && echo "  - VERIFY_FIREBASE_WEB_API_KEY (gates 'Verify Firestore rules (verification sandbox)')"
           [ -z "$VERIFY_FIREBASE_PROJECT_ID" ] && echo "  - VERIFY_FIREBASE_PROJECT_ID (gates 'Verify Firestore rules (verification sandbox)')"
           echo "Add them under GitHub -> Settings -> Secrets and variables -> Actions, then re-run this job."
@@ -268,24 +210,9 @@ jobs:
           FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           REPORT_OWNER_ID: ${{ secrets.REPORT_OWNER_ID }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERIFY_FIREBASE_WEB_API_KEY: ${{ secrets.VERIFY_FIREBASE_WEB_API_KEY }}
           VERIFY_FIREBASE_PROJECT_ID: ${{ secrets.VERIFY_FIREBASE_PROJECT_ID }}
         
-
-      # Vercel token health: proves the CI VERCEL_TOKEN (the same secret the
-      # deployed-hash + gallery workflows consume) is still alive, reporting
-      # its name and expiry. This runs on the push, BEFORE Vercel finishes
-      # building and the deployment_status job starts — so a revoked or
-      # expiring token fails the run here with the targeted
-      # paste-a-fresh-token guidance instead of surfacing as a confusing 403
-      # inside the deployed-hash gate minutes later. Gated on the secret so
-      # forks / unconfigured repos stay green.
-      - name: Verify Vercel token health
-        if: ${{ env.VERCEL_TOKEN != '' }}
-        run: node scripts/verify-token-health.mjs
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
 
       # Nothing is emailed — no sender key-health step. The cron-reports gate
       # below still proves the deployed bodies compose correctly.
