@@ -1,0 +1,101 @@
+# Rollout-health watch: complements the deploy workflow's run-level alerts.
+# The deploy workflow can only alert when ITS OWN run fails; this watch
+# catches what that cannot see — FAILED rollouts created outside Actions
+# (native git rollouts once the Console repo link exists, manual CLI
+# deploys), rollouts stuck PROGRESSING, and STALE deploys (main advanced
+# past what the live rollout serves, e.g. a cancelled deploy).
+#
+# Runs every 30 minutes + manual dispatch. Files/updates the SAME single
+# open issue labeled deploy-failure that the deploy workflow uses (one
+# failure, one issue), and closes it on recovery. Requires gcloud
+# credentials: FIREBASE_SERVICE_ACCOUNT secret.
+name: Rollout health watch
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: rollout-health
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    name: Classify rollout health
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Activate service account
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > /tmp/fb-key.json
+          chmod 600 /tmp/fb-key.json
+          gcloud auth activate-service-account --key-file=/tmp/fb-key.json
+
+      - name: Classify
+        id: classify
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          OUT="$(bash scripts/check-rollout-health.sh)"
+          printf '%s\n' "$OUT"
+          OUTCOME="$(printf '%s\n' "$OUT" | sed -n 's/^outcome=//p')"
+          DETAIL="$(printf '%s\n' "$OUT" | sed -n 's/^detail=//p')"
+          {
+            echo "outcome=$OUTCOME"
+            echo "detail<<EOF"
+            printf '%s' "$DETAIL"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: File or update the deploy-failure issue
+        if: steps.classify.outputs.outcome != 'healthy'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ steps.classify.outputs.outcome }}
+          DETAIL: ${{ steps.classify.outputs.detail }}
+        run: |
+          set -euo pipefail
+          EXISTING="$(gh issue list --repo "$GITHUB_REPOSITORY" --label deploy-failure --state open --limit 1 --json number --jq '.[0].number' 2>/dev/null || true)"
+          BODY="$OUTCOME — $DETAIL
+          (detected by the scheduled rollout-health watch)"
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body "$BODY"
+          else
+            gh label create deploy-failure --repo "$GITHUB_REPOSITORY" --color D93F0B --description "freebuff-car-app Firebase deploy failed" 2>/dev/null || true
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "🚨 Car-app rollout unhealthy ($OUTCOME)" \
+              --body "$BODY" \
+              --label deploy-failure \
+              --assignee "${GITHUB_REPOSITORY_OWNER}"
+          fi
+
+      - name: Close the deploy-failure issue on recovery
+        if: steps.classify.outputs.outcome == 'healthy'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          EXISTING="$(gh issue list --repo "$GITHUB_REPOSITORY" --label deploy-failure --state open --limit 1 --json number --jq '.[0].number' 2>/dev/null || true)"
+          if [ -n "$EXISTING" ]; then
+            gh issue close "$EXISTING" --repo "$GITHUB_REPOSITORY" \
+              --comment "✅ Rollout healthy again — ${{ steps.classify.outputs.detail }}"
+          else
+            echo "healthy — no open deploy-failure issue"
+          fi
+
+      - name: Remove key file
+        if: always()
+        run: rm -f /tmp/fb-key.json
