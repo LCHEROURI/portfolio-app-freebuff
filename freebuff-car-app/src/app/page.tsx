@@ -35,7 +35,7 @@ export default function HomePage() {
         <section className="mb-12 rounded-2xl border border-ink-200 bg-white/80 p-6 sm:p-10 shadow-sm">
           <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:gap-12">
             {/* Headshot placeholder block */}
-            <div className="flex shrink-0 items-center justify-center rounded-full bg-navy-900 px-5 py-3 text-white font-semibold text-lg shadow-lg ring-2 ring-white/20">
+            <div className="flex shrink-0 items-center justify-center self-start rounded-full bg-navy-900 px-5 py-3 text-white font-semibold text-lg shadow-lg ring-2 ring-white/20">
               Larry
             </div>
             <div>
