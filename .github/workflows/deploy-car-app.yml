@@ -7,6 +7,15 @@
 # Auth: reuses the repo's FIREBASE_SERVICE_ACCOUNT secret (a full service
 # account JSON key). The key is written to a temp file and handed to the
 # firebase CLI via GOOGLE_APPLICATION_CREDENTIALS for this step only.
+#
+# Failure alerting: when the deploy job fails, notify-failure files (or
+# updates) a single open issue labeled deploy-failure — the repo owner is
+# assigned, so GitHub emails them — and, if the ALERT_WEBHOOK_URL secret is
+# set, also POSTs to that Slack/Discord-compatible webhook. When a later
+# deploy succeeds, notify-success closes any open deploy-failure issue, so
+# the alert lifecycle is self-managing. A run cancelled by a newer push is
+# NOT an alert: concurrency cancels only superseded deploys, and the newer
+# run owns the outcome.
 name: Deploy car app
 
 on:
@@ -16,6 +25,10 @@ on:
       - 'freebuff-car-app/**'
       - '.github/workflows/deploy-car-app.yml'
   workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
 
 concurrency:
   group: deploy-car-app-${{ github.ref }}
@@ -64,3 +77,74 @@ jobs:
           rm -f "$KEY_FILE"
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+  notify-failure:
+    name: Alert on failed deployment
+    needs: deploy
+    if: needs.deploy.result == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    env:
+      ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+
+    steps:
+      - name: Create or update the deploy-failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SHORT_SHA="${GITHUB_SHA::7}"
+          RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          COMMIT_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA"
+          BODY="The freebuff-car-app deploy to Firebase App Hosting FAILED.
+
+          - Run: $RUN_URL
+          - Commit: $COMMIT_URL ($SHORT_SHA)
+          - Triggered by: $GITHUB_ACTOR
+
+          The previous build is still serving. Fix, push, and this issue will
+          close automatically when the next deploy succeeds."
+
+          # One open failure issue at a time: comment on it if it exists.
+          EXISTING="$(gh issue list --repo "$GITHUB_REPOSITORY" --label deploy-failure --state open --limit 1 --json number --jq '.[0].number' 2>/dev/null || true)"
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body "Still failing — $BODY"
+          else
+            gh label create deploy-failure --repo "$GITHUB_REPOSITORY" --color D93F0B --description "freebuff-car-app Firebase deploy failed" 2>/dev/null || true
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "🚨 Car-app deploy failed on main ($SHORT_SHA)" \
+              --body "$BODY" \
+              --label deploy-failure \
+              --assignee "${GITHUB_REPOSITORY_OWNER}"
+          fi
+
+      - name: Send webhook alert (optional, Slack/Discord compatible)
+        if: env.ALERT_WEBHOOK_URL != ''
+        run: |
+          set -euo pipefail
+          TEXT="🚨 freebuff-car-app deploy FAILED on main (${GITHUB_SHA::7}) — $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          # Slack reads "text", Discord reads "content"; each ignores the other.
+          jq -n --arg text "$TEXT" '{text: $text, content: $text}' \
+            | curl -sfS -X POST -H 'Content-Type: application/json' -d @- "$ALERT_WEBHOOK_URL"
+
+  notify-success:
+    name: Close deploy-failure issue on recovery
+    needs: deploy
+    if: needs.deploy.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Close any open deploy-failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          EXISTING="$(gh issue list --repo "$GITHUB_REPOSITORY" --label deploy-failure --state open --limit 1 --json number --jq '.[0].number' 2>/dev/null || true)"
+          if [ -n "$EXISTING" ]; then
+            gh issue close "$EXISTING" --repo "$GITHUB_REPOSITORY" \
+              --comment "✅ Resolved: deploy of ${GITHUB_SHA::7} succeeded — $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          else
+            echo "No open deploy-failure issue — nothing to close."
+          fi
