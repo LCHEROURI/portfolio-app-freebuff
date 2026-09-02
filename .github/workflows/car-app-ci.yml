@@ -1,20 +1,23 @@
-# Car-app CI: runs freebuff-car-app's own typecheck, jest suite, and build on
-# every push (and PRs touching the car app) so regressions fail in CI before
-# any deploy. The parent app's CI covers the parent; this job covers the car
-# app, which is a self-contained project with its own toolchain.
+# Car-app CI: runs freebuff-car-app's own typecheck, jest suite, and build so
+# regressions fail in CI before any deploy. The parent app's CI covers the
+# parent; this job covers the car app, which is a self-contained project with
+# its own toolchain.
+#
+# The workflow fires on EVERY push to main and EVERY PR to main — not just
+# when freebuff-car-app/ files change — because the check name
+# "Typecheck · Test · Build (freebuff-car-app)" is a REQUIRED status check on
+# main. A check that only exists when car-app files change would leave every
+# parent-only push/PR stuck at "Expected" forever. When nothing under
+# freebuff-car-app/ changed, the detect step marks the run as no-op and the
+# remaining steps skip (the check still reports success, so the merge/push
+# gate passes).
 name: Car app CI
 
 on:
   push:
     branches: [main]
-    paths:
-      - 'freebuff-car-app/**'
-      - '.github/workflows/car-app-ci.yml'
   pull_request:
     branches: [main]
-    paths:
-      - 'freebuff-car-app/**'
-      - '.github/workflows/car-app-ci.yml'
   workflow_dispatch: {}
 
 concurrency:
@@ -26,12 +29,46 @@ jobs:
     name: Typecheck · Test · Build (freebuff-car-app)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      changed: ${{ steps.detect.outputs.changed }}
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
+        with:
+          # Depth 2 is enough for the push-event HEAD~1 diff; the PR event
+          # fetches its base explicitly below.
+          fetch-depth: 2
+
+      - name: Detect car-app changes
+        id: detect
+        run: |
+          CHANGED=true
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+            git fetch --no-tags --depth=1 origin "$BASE" 2>/dev/null || true
+            if git rev-parse -q --verify "$BASE^{commit}" >/dev/null 2>&1; then
+              if ! git diff --name-only "$BASE" HEAD -- freebuff-car-app .github/workflows/car-app-ci.yml | grep -q .; then
+                CHANGED=false
+              fi
+            fi
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            # First push to a fresh repo has no HEAD~1 — treat as changed.
+            if git cat-file -e HEAD~1 2>/dev/null; then
+              if ! git diff --name-only HEAD~1 HEAD -- freebuff-car-app .github/workflows/car-app-ci.yml | grep -q .; then
+                CHANGED=false
+              fi
+            fi
+          fi
+          # Manual dispatch re-verifies the car app unconditionally.
+          echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
+
+      - name: Skip notice (no car-app changes)
+        if: steps.detect.outputs.changed != 'true'
+        run: echo "No changes under freebuff-car-app/ — skipping car-app checks (required check still passes)."
 
       - name: Set up Node.js
+        if: steps.detect.outputs.changed == 'true'
         uses: actions/setup-node@v5
         with:
           node-version: 22
@@ -39,17 +76,21 @@ jobs:
           cache-dependency-path: freebuff-car-app/package-lock.json
 
       - name: Install dependencies
+        if: steps.detect.outputs.changed == 'true'
         working-directory: freebuff-car-app
         run: npm ci
 
       - name: Typecheck
+        if: steps.detect.outputs.changed == 'true'
         working-directory: freebuff-car-app
         run: npx tsc --noEmit
 
       - name: Test
+        if: steps.detect.outputs.changed == 'true'
         working-directory: freebuff-car-app
         run: npx jest --ci
 
       - name: Build
+        if: steps.detect.outputs.changed == 'true'
         working-directory: freebuff-car-app
         run: npx next build
