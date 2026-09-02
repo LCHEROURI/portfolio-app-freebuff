@@ -9,10 +9,14 @@
 #   - rollouts stuck PROGRESSING well past any normal deploy duration
 #   - a STALE deployment: main's last car-app-touching commit is newer than
 #     what the live rollout serves (a cancelled/skipped deploy)
+#   - SERVING-level failures the rollout API cannot see: the live /api/version
+#     endpoint is unreachable, returns non-200/non-JSON, or reports a null
+#     commit (App Hosting says SUCCEEDED but traffic is broken)
 #
 # This script classifies the NEWEST rollout and prints the verdict:
 #
-#   healthy   — newest rollout SUCCEEDED and serves the latest car-app commit
+#   healthy   — newest rollout SUCCEEDED, the live /api/version endpoint
+#               returns a real commit, and it serves the latest car-app commit
 #   failed    — newest rollout is FAILED (previous build still serving)
 #   stuck     — PROGRESSING for over STUCK_MINUTES (default 25)
 #   stale     — SUCCEEDED but an older car-app commit than main's latest
@@ -80,6 +84,29 @@ if [ "$STATE" != "SUCCEEDED" ]; then
   exit 0
 fi
 
+# ── Serving check: does the deployed app actually answer and self-report? ───
+# The rollout API can say SUCCEEDED while serving is broken (traffic
+# misconfiguration, runtime crash, an environment serving a non-deployed
+# build). The app's /api/version endpoint is the ground truth: it must be
+# reachable and return a non-null commit — a null means the cloud build never
+# received the provenance env (a broken deploy path), not merely an old one.
+VERSION_URL="${VERSION_URL:-https://freebuff-car-app--portfolio-app-freebuff2.us-central1.hosted.app/api/version}"
+VERSION_JSON="$(curl -sS -m 30 -w '\n%{http_code}' "$VERSION_URL" 2>&1 || true)"
+HTTP_CODE="$(printf '%s' "$VERSION_JSON" | tail -n 1)"
+VERSION_BODY="$(printf '%s' "$VERSION_JSON" | sed '$d')"
+VERSION_COMMIT="$(printf '%s' "$VERSION_BODY" | jq -r '.commit // empty' 2>/dev/null || true)"
+if [ -z "$HTTP_CODE" ] || [ "$HTTP_CODE" = "000" ]; then
+  echo "outcome=unreachable"
+  echo "detail=rollout $ROLLOUT_ID is SUCCEEDED but $VERSION_URL did not answer — serving is down while Firebase reports healthy"
+  exit 0
+fi
+if [ "$HTTP_CODE" != "200" ] || [ -z "$VERSION_COMMIT" ]; then
+  echo "outcome=unprovenanced"
+  echo "detail=$VERSION_URL answered HTTP ${HTTP_CODE:-none} with commit='${VERSION_COMMIT:-null}' — serving is broken or the cloud build lacks provenance env"
+  exit 0
+fi
+echo "serving check: $VERSION_URL returned commit $VERSION_COMMIT (HTTP $HTTP_CODE)"
+
 # ── Staleness: does the live rollout serve main's latest car-app commit? ────
 # Only meaningful when the rollout carries a commit-sha label (all rollouts
 # created by scripts/deploy-car-app.sh do). Compare against the last commit
@@ -100,4 +127,4 @@ if [ -n "$LIVE_SHA" ] && [ -n "${GH_TOKEN:-}" ] && [ -n "${GITHUB_REPOSITORY:-}"
 fi
 
 echo "outcome=healthy"
-echo "detail=rollout $ROLLOUT_ID SUCCEEDED and serves the latest car-app commit ${LIVE_SHA:+(${LIVE_SHA::7})}"
+echo "detail=rollout $ROLLOUT_ID SUCCEEDED, $VERSION_URL self-reports commit ${VERSION_COMMIT}, and it serves the latest car-app commit ${LIVE_SHA:+(${LIVE_SHA::7})}"

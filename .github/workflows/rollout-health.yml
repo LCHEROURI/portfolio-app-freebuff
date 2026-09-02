@@ -2,8 +2,11 @@
 # The deploy workflow can only alert when ITS OWN run fails; this watch
 # catches what that cannot see — FAILED rollouts created outside Actions
 # (native git rollouts once the Console repo link exists, manual CLI
-# deploys), rollouts stuck PROGRESSING, and STALE deploys (main advanced
-# past what the live rollout serves, e.g. a cancelled deploy).
+# deploys), rollouts stuck PROGRESSING, STALE deploys (main advanced
+# past what the live rollout serves, e.g. a cancelled deploy), and
+# SERVING-level failures the rollout API cannot see: the live /api/version
+# endpoint unreachable or reporting a null commit while Firebase says
+# SUCCEEDED.
 #
 # Runs every 30 minutes + manual dispatch. Files/updates the SAME single
 # open issue labeled deploy-failure that the deploy workflow uses (one
