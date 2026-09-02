@@ -100,31 +100,37 @@ jobs:
           npx firebase-tools@latest deploy --only apphosting --project portfolio-app-freebuff2 --non-interactive --force
 
       # The CLI's deploy output is not machine-stable, so resolve the rollout
-      # from the App Hosting API instead. CAUTION: the rollouts list is NOT
-      # newest-first (observed: build-008 sorted after 006/005/004), so "top
-      # entry" would be wrong. Filter to rollouts created in the last 10
-      # minutes (this deploy just ran for several minutes) and take the
-      # newest of those, requiring SUCCEEDED.
+      # from the App Hosting API instead. Two pitfalls handled here: the
+      # rollouts list is NOT newest-first (observed: build-008 sorted after
+      # 006/005/004), and the CLI can exit while the rollout is still
+      # PROGRESSING (observed on run 33631196455) — so filter to rollouts
+      # created in the last 12 minutes, then POLL until the newest one
+      # reaches a terminal state (up to ~8 minutes).
       - name: Resolve the Firebase rollout this deploy created
         run: |
           set -euo pipefail
-          TOKEN="$(gcloud auth print-access-token)"
-          CUTOFF="$(date -u -d '10 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
-          ROLLOUTS="$(curl -sfS -m 30 -H "Authorization: Bearer $TOKEN" \
-            "https://firebaseapphosting.googleapis.com/v1beta/projects/portfolio-app-freebuff2/locations/us-central1/backends/freebuff-car-app/rollouts?pageSize=50")"
-          SELECTED="$(printf '%s' "$ROLLOUTS" | jq -r --arg cutoff "$CUTOFF" \
-            '[.rollouts[] | select(.createTime >= $cutoff)] | sort_by(.createTime) | reverse | .[0] // empty')"
-          if [ -z "$SELECTED" ]; then
-            echo "No rollout created since $CUTOFF — deploy did not register" >&2
+          CUTOFF="$(date -u -d '12 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
+          SELECTED=""
+          STATE=""
+          for _ in $(seq 1 32); do
+            TOKEN="$(gcloud auth print-access-token)"
+            ROLLOUTS="$(curl -sfS -m 30 -H "Authorization: Bearer $TOKEN" \
+              "https://firebaseapphosting.googleapis.com/v1beta/projects/portfolio-app-freebuff2/locations/us-central1/backends/freebuff-car-app/rollouts?pageSize=50")"
+            SELECTED="$(printf '%s' "$ROLLOUTS" | jq -r --arg cutoff "$CUTOFF" \
+              '[.rollouts[] | select(.createTime >= $cutoff)] | sort_by(.createTime) | reverse | .[0] // empty')"
+            STATE="$(printf '%s' "$SELECTED" | jq -r '.state // empty')"
+            case "$STATE" in
+              SUCCEEDED) break ;;
+              PROGRESSING|"") echo "rollout state: ${STATE:-none-yet} — waiting 15s"; sleep 15 ;;
+              *) echo "Rollout reached terminal failure state: $STATE" >&2; exit 1 ;;
+            esac
+          done
+          if [ -z "$SELECTED" ] || [ "$STATE" != "SUCCEEDED" ]; then
+            echo "No SUCCEEDED rollout within 8 minutes (last state: ${STATE:-none})" >&2
             exit 1
           fi
           ROLLOUT_NAME="$(printf '%s' "$SELECTED" | jq -r '.name')"
-          ROLLOUT_STATE="$(printf '%s' "$SELECTED" | jq -r '.state')"
           ROLLOUT_CREATE="$(printf '%s' "$SELECTED" | jq -r '.createTime')"
-          if [ "$ROLLOUT_STATE" != "SUCCEEDED" ]; then
-            echo "Rollout $ROLLOUT_NAME is $ROLLOUT_STATE — deploy did not complete" >&2
-            exit 1
-          fi
           echo "ROLLOUT_NAME=$ROLLOUT_NAME" >> "$GITHUB_ENV"
           echo "ROLLOUT_CREATE=$ROLLOUT_CREATE" >> "$GITHUB_ENV"
 
