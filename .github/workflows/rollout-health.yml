@@ -56,7 +56,7 @@ jobs:
           {
             echo "outcome=$OUTCOME"
             echo "detail<<EOF"
-            printf '%s' "$DETAIL"
+            printf '%s\n' "$DETAIL"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
