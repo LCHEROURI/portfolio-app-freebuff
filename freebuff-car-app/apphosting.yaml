@@ -1,0 +1,5 @@
+# Firebase App Hosting configuration for freebuff-car-app.
+# Framework is auto-detected as Next.js; no custom runtime settings needed.
+runConfig:
+  minInstances: 0
+  maxInstances: 4

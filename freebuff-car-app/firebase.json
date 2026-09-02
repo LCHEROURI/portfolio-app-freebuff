@@ -1,0 +1,12 @@
+{
+  "hosting": {
+    "public": "out",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"]
+  },
+  "apphosting": [
+    {
+      "backendId": "freebuff-car-app",
+      "rootDir": "/"
+    }
+  ]
+}
