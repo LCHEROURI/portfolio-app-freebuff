@@ -157,12 +157,9 @@ When each gate runs (same picture as the README handoff section):
    │  · Verify production sign-in + Firestore sync                 │
    │  · Verify deployed cron reports + rules (secret-gated)        │
    └──────────────────────────────┬────────────────────────────────┘
-                                  │  after Vercel finishes building
+                                  │  per PR / manual dispatch
                                   ▼
    ┌───────────────────────────────────────────────────────────────┐
-   │  DEPLOYMENT_STATUS GATES (per preview/production deploy)      │
-   │  · Preview gate — auto-authorize + verify the deployed domain │
-   │  · Deployed-hash gate — live build serves the pushed commit   │
    │  · Gallery — screenshots the deployed preview                 │
    └───────────────────────────────────────────────────────────────┘
 ```
@@ -333,8 +330,7 @@ installer's note).
 
 - All four verify gates **PASS** against `portfolio-app-freebuff.vercel.app`
   (cron-reports, auth-domains, prod-signin incl. `[3b]` IdP checks, google-idp).
-- CI for `fcdb059` (push run `31059206686`) and its Preview gate
-  (`31059245823`) both **success**.
+- CI for `fcdb059` (push run `31059206686`) **success**.
 - Google popup opens the **real Google sign-in page** (classic client
   `952213217375-k4im9t45ebe…` wired into the IdP record).
 - Email/password sign-in works end to end; Firestore write/read sync proven

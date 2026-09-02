@@ -140,13 +140,13 @@ describe('crossCheckPipelineDiagrams (fixture)', () => {
   it('flags a doc whose diagram omits a key name', () => {
     // Structure intact, but one gate stops being named — the new runtime
     // contract must catch it on the launch.md side too.
-    const broken = FIXTURE_DOC.replace('· Preview gate', '· Preview portal');
+    const broken = FIXTURE_DOC.replace('· Verify authorized domains', '· Verify domains only');
     const failures = crossCheckPipelineDiagrams({
       readmeSrc: FIXTURE_DOC,
       launchSrc: broken,
     });
     expect(failures.join('\n')).toContain('docs/launch.md');
-    expect(failures.join('\n')).toContain('Preview gate');
+    expect(failures.join('\n')).toContain('Verify authorized domains');
     expect(failures.join('\n')).toContain('omits the key name');
   });
 
@@ -160,15 +160,13 @@ describe('crossCheckPipelineDiagrams (fixture)', () => {
     expect(failures.join('\n')).toContain('docs/launch.md');
   });
 
-  it('locks the key-names list to the five ci.yml jobs + three deployment_status workflows', () => {
+  it('locks the key-names list to the five ci.yml jobs + the Gallery capture workflow', () => {
     expect(PIPELINE_DIAGRAM_KEY_NAMES).toEqual([
       'Typecheck · Lint · Test · Build',
       'Verify launch checklist matches scripts',
       'Verify deployed cron reports + rules',
       'Verify authorized domains',
       'Verify production sign-in + Firestore sync',
-      'Preview gate',
-      'Deployed-hash gate',
       'Gallery',
     ]);
   });

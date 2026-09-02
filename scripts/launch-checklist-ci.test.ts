@@ -12,7 +12,7 @@ describe('parseCiGateSteps (live repo)', () => {
   const steps = parseCiGateSteps(read('.github/workflows/ci.yml'));
 
   it('finds every gated verify step across the three post-deploy jobs', () => {
-    expect(steps).toHaveLength(10);
+    expect(steps).toHaveLength(9);
     const byRun = new Map(steps.map((s) => [s.run, s]));
     expect([...byRun.keys()].sort()).toEqual([
       'verify-auth-domains.mjs',
@@ -24,13 +24,11 @@ describe('parseCiGateSteps (live repo)', () => {
       'verify-prod-signin.mjs',
       'verify-reports-pdf-flow.mjs',
       'verify-review-sheet.mjs',
-      'verify-token-health.mjs',
     ]);
   });
 
   it('captures the secret each step gates on', () => {
     const byRun = new Map(steps.map((s) => [s.run, s]));
-    expect(byRun.get('verify-token-health.mjs').gatingSecrets).toEqual(['VERCEL_TOKEN']);
     expect(byRun.get('verify-cron-reports.mjs').gatingSecrets).toEqual(['CRON_SECRET']);
     // The rules gate probes the verification sandbox (second Spark project)
     // so CI never touches the production read quota; both sandbox vars are
@@ -90,27 +88,27 @@ describe('crossCheckCiGates (live repo)', () => {
   });
 
   it('catches a verify step that lost its gating while the runner declares secrets', () => {
-    // Remove the if: line from the token-health step — the runner declares
-    // VERCEL_TOKEN, so an ungated step must fail the check.
+    // Remove the if: line from the cron-reports step — the runner declares
+    // CRON_SECRET, so an ungated step must fail the check.
     const drifted = ciSrc.replace(
-      '        if: ${{ env.VERCEL_TOKEN != \'\' }}\n        run: node scripts/verify-token-health.mjs',
-      '        run: node scripts/verify-token-health.mjs',
+      '        if: ${{ env.CRON_SECRET != \'\' }}\n        run: node scripts/verify-cron-reports.mjs',
+      '        run: node scripts/verify-cron-reports.mjs',
     );
     const failures = crossCheckCiGates({ ciSrc: drifted, verifyAllSrc, npmScripts });
     expect(failures.join('\n')).toContain('NO secret-gating if-condition');
-    expect(failures.join('\n')).toContain('token-health');
+    expect(failures.join('\n')).toContain('cron-reports');
   });
 
   it('catches a runner secret dropped while CI still gates on it', () => {
-    // Remove VERCEL_TOKEN from the token-health gate's secrets array in the
-    // runner — CI still gates on VERCEL_TOKEN, so the check must fail.
+    // Remove CRON_SECRET from the cron-reports gate's secrets array in the
+    // runner — CI still gates on CRON_SECRET, so the check must fail.
     const drifted = verifyAllSrc.replace(
-      "secrets: ['VERCEL_TOKEN'], capture: true",
+      "secrets: ['CRON_SECRET'], capture: true",
       'secrets: [], capture: true',
     );
     const failures = crossCheckCiGates({ ciSrc, verifyAllSrc: drifted, npmScripts });
-    expect(failures.join('\n')).toContain('VERCEL_TOKEN');
-    expect(failures.join('\n')).toContain('token-health');
+    expect(failures.join('\n')).toContain('CRON_SECRET');
+    expect(failures.join('\n')).toContain('cron-reports');
   });
 
   it('catches a gate that declares a secret no ci.yml step gates on (reverse contract)', () => {
@@ -234,22 +232,6 @@ jobs:
 
 // ── parseDeploymentStatusSteps: the deployment_status workflow parser ───────
 describe('parseDeploymentStatusSteps (live repo)', () => {
-  it('reads the block-scalar verify invocation in preview-gate', () => {
-    const steps = parseDeploymentStatusSteps(read('.github/workflows/preview-gate.yml'));
-    const verify = steps.find((s) => s.name === 'Verify deployed domain is authorized');
-    expect(verify).toBeDefined();
-    expect(verify.run).toBe('verify-auth-domains.mjs');
-    expect(verify.gatingSecrets).toEqual(['FIREBASE_WEB_API_KEY']);
-  });
-
-  it('reads the block-scalar verify invocation in verify-deployed-hash', () => {
-    const steps = parseDeploymentStatusSteps(read('.github/workflows/verify-deployed-hash.yml'));
-    const verify = steps.find((s) => s.name === 'Verify deployed commit matches the pushed head');
-    expect(verify).toBeDefined();
-    expect(verify.run).toBe('verify-deployed-hash.mjs');
-    expect(verify.gatingSecrets).toEqual(['VERCEL_TOKEN']);
-  });
-
   it('captures the gallery steps gated on the Vercel env trio', () => {
     const steps = parseDeploymentStatusSteps(read('.github/workflows/gallery.yml'));
     const deploy = steps.find((s) => s.name === 'Deploy preview of this branch');
@@ -262,10 +244,11 @@ describe('parseDeploymentStatusSteps (live repo)', () => {
 describe('crossCheckDeploymentStatusGates (live repo)', () => {
   const verifyAllSrc = read('scripts/verify-all.mjs');
   const npmScripts = JSON.parse(read('package.json')).scripts ?? {};
+  // Only the gallery workflow remains — the legacy Vercel deployment_status
+  // gates (preview-gate, verify-deployed-hash) were removed with the Firebase
+  // migration.
   const workflows = [
     { name: 'gallery', gate: 'deployed-hash', src: read('.github/workflows/gallery.yml') },
-    { name: 'preview-gate', gate: 'auth-domains', src: read('.github/workflows/preview-gate.yml') },
-    { name: 'verify-deployed-hash', gate: 'deployed-hash', src: read('.github/workflows/verify-deployed-hash.yml') },
   ];
 
   it('passes: every deployment_status workflow gates on secrets its gate declares', () => {

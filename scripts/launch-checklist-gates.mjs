@@ -97,8 +97,6 @@ export const PIPELINE_DIAGRAM_KEY_NAMES = [
   'Verify deployed cron reports + rules',
   'Verify authorized domains',
   'Verify production sign-in + Firestore sync',
-  'Preview gate',
-  'Deployed-hash gate',
   'Gallery',
 ];
 // §4 command forms (tolerate trailing args on npm gates).
@@ -410,8 +408,7 @@ const INFRA_SECRETS = new Set([
 const CI_ENFORCEMENT_SCRIPTS = new Set(['verify-gate-stale-ci.mjs']);
 
 /**
- * Parse a deployment_status workflow (gallery.yml, preview-gate.yml,
- * verify-deployed-hash.yml) into its gated steps. Unlike ci.yml's verify
+ * Parse a non-ci gated workflow (gallery.yml) into its gated steps. Unlike ci.yml's verify
  * jobs, these workflows invoke their gate scripts in block-scalar `run: |`
  * bodies (the script line is indented BELOW the `run:` key), so the parser
  * scans the block for `node scripts/verify-*.mjs` and captures every step's

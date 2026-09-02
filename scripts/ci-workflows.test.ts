@@ -24,8 +24,6 @@ import { EXPECTED_LIVE_FLAGS } from './verify-vercel-env.mjs';
 // ============================================================================
 
 const CI = readFileSync('.github/workflows/ci.yml', 'utf8');
-const PREVIEW_GATE = readFileSync('.github/workflows/preview-gate.yml', 'utf8');
-const DEPLOYED_HASH = readFileSync('.github/workflows/verify-deployed-hash.yml', 'utf8');
 const GALLERY = readFileSync('.github/workflows/gallery.yml', 'utf8');
 const GALLERY_STABILITY = readFileSync('.github/workflows/gallery-stability.yml', 'utf8');
 
@@ -79,60 +77,6 @@ describe('.github/workflows/ci.yml · validate job (docs-render coverage)', () =
   });
 });
 
-describe('.github/workflows/ci.yml · validate job (stale-head guards, ported from the cook repo)', () => {
-  // The validate job block — scoped exactly like the docs-render describe
-  // above so step names can never match in another job's comments.
-  const validateBlock = CI.slice(CI.indexOf('\n  validate:'), CI.indexOf('\n  verify-launch-checklist:'));
-
-  it('runs the push-time stale-guard, gated on push + VERCEL_TOKEN', () => {
-    expect(validateBlock).toContain('name: Verify pushed head is not stale vs live (stale-guard)');
-    expect(validateBlock).toContain('node scripts/verify-deployed-hash-gate.mjs --stale-guard');
-    expect(validateBlock).toContain("if: ${{ github.event_name == 'push' && env.VERCEL_TOKEN != '' }}");
-    expect(validateBlock).toContain('VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}');
-  });
-
-  it('fails loudly when VERCEL_TOKEN is missing on a main push (no silent skip)', () => {
-    expect(validateBlock).toContain('name: Fail loudly if VERCEL_TOKEN is missing (main push)');
-    expect(validateBlock).toContain("github.event_name == 'push'");
-    expect(validateBlock).toContain("github.repository == 'LCHEROURI/portfolio-app-freebuff'");
-    expect(validateBlock).toContain("env.VERCEL_TOKEN == ''");
-    expect(validateBlock).toContain('exit 1');
-  });
-
-  it('runs the PR-time stale-guard pinned to the PR head via --head, gated on pull_request + VERCEL_TOKEN', () => {
-    expect(validateBlock).toContain('name: Verify PR head is not stale vs live (stale-guard)');
-    expect(validateBlock).toContain('node scripts/verify-deployed-hash-gate.mjs --stale-guard --head "${{ github.event.pull_request.head.sha }}"');
-    expect(validateBlock).toContain("if: ${{ github.event_name == 'pull_request' && env.VERCEL_TOKEN != '' }}");
-    expect(validateBlock).toContain('VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}');
-  });
-
-  it('fails loudly when VERCEL_TOKEN is missing on a PR (no silent skip on the canonical repo)', () => {
-    expect(validateBlock).toContain('name: Fail loudly if VERCEL_TOKEN is missing (PR)');
-    expect(validateBlock).toContain("github.event_name == 'pull_request'");
-    expect(validateBlock).toContain("github.repository == 'LCHEROURI/portfolio-app-freebuff'");
-    expect(validateBlock).toContain('exit 1');
-  });
-
-  it('keeps the push stale-guard strictly push-only and the PR stale-guard strictly PR-only', () => {
-    // Negative locks, mirroring the cook repo's contract: the push step must
-    // never fire on pull_request (a PR head is legitimately behind live main)
-    // and the PR step must never fire on push (the push contract belongs to
-    // the step above). Scoped to each step block so the sibling step's gating
-    // can never satisfy the negative.
-    const pushStep = validateBlock.slice(
-      validateBlock.indexOf('name: Verify pushed head is not stale vs live (stale-guard)'),
-      validateBlock.indexOf('\n      # PR-time stale-head guard'),
-    );
-    expect(pushStep).toContain("github.event_name == 'push'");
-    expect(pushStep).not.toContain('pull_request');
-    const prStep = validateBlock.slice(
-      validateBlock.indexOf('name: Verify PR head is not stale vs live (stale-guard)'),
-    );
-    expect(prStep).toContain("github.event_name == 'pull_request'");
-    expect(prStep).not.toContain("github.event_name == 'push'");
-  });
-});
-
 describe('.github/workflows/ci.yml · verify-auth-domains job (push-time domains gate)', () => {
   it('still verifies the deployed authorized domains and the auto-authorize SA key', () => {
     const authDomainsBlock = CI.slice(CI.indexOf('verify-auth-domains:'), CI.indexOf('verify-prod-signin:'));
@@ -166,12 +110,6 @@ describe('.github/workflows/ci.yml · verify-deployed job (post-deploy smoke gat
     expect(verifyDeployedBlock).toContain('Fail loudly if a verify secret is missing (main push)');
     expect(verifyDeployedBlock).toContain('::error::Required GitHub Actions secret(s) missing on main push:');
     expect(verifyDeployedBlock).toContain("github.repository == 'LCHEROURI/portfolio-app-freebuff'");
-  });
-
-  it('still runs the Vercel token-health step, gated on VERCEL_TOKEN', () => {
-    expect(verifyDeployedBlock).toMatch(/run: node scripts\/verify-token-health\.mjs/);
-    expect(verifyDeployedBlock).toContain("if: ${{ env.VERCEL_TOKEN != '' }}");
-    expect(verifyDeployedBlock).toContain('VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}');
   });
 
   it('still runs the deployed cron report bodies step, gated on CRON_SECRET', () => {
@@ -267,52 +205,6 @@ describe('.github/workflows/ci.yml · verify-deployed job (post-deploy smoke gat
     expect(Object.keys(EXPECTED_LIVE_FLAGS).length).toBeGreaterThan(0);
     for (const [key, value] of Object.entries(EXPECTED_LIVE_FLAGS)) {
       expect(verifyDeployedBlock).toContain(`${key}: '${value}'`);
-    }
-  });
-});
-
-describe('.github/workflows/preview-gate.yml · deployment_status preview gate', () => {
-  it('triggers on deployment_status and only on successful deploys with a target URL', () => {
-    expect(PREVIEW_GATE).toMatch(/^on:\s*\n\s*deployment_status:/m);
-    expect(PREVIEW_GATE).toContain("github.event.deployment_status.state == 'success'");
-    expect(PREVIEW_GATE).toContain("github.event.deployment_status.target_url != ''");
-  });
-
-  it('still verifies the deployed domain is authorized against the live target_url', () => {
-    // The verify runs inside a `run: |` block (wrapped in the retry function
-    // below), so the invocation is an indented line, not `run: node scripts/…`.
-    expect(PREVIEW_GATE).toMatch(/node scripts\/verify-auth-domains\.mjs --app/);
-    expect(PREVIEW_GATE).toContain('github.event.deployment_status.target_url');
-    expect(PREVIEW_GATE).toContain("if: ${{ env.FIREBASE_WEB_API_KEY != '' }}");
-  });
-
-  it('still auto-authorizes the fresh deployment URL first (SA-gated)', () => {
-    expect(PREVIEW_GATE).toMatch(/run: node scripts\/authorize-domain\.mjs --domain/);
-    expect(PREVIEW_GATE).toContain('github.event.deployment_status.target_url');
-  });
-
-  it('retries the verify once after a 30s backoff (Firebase getProjectConfig propagation)', () => {
-    // The verify script already sends &refresh=1, but Firebase's own config
-    // propagation can lag the admin-API auto-authorize by tens of seconds —
-    // the documented transient that used to force manual re-runs. The gate
-    // must retry ONCE after 30s (mirroring the pre-push deployed-hash retry)
-    // so a transient clears on the retry, and a genuine miss still fails.
-    expect(PREVIEW_GATE).toMatch(/run_verify\(\) \{/);
-    expect(PREVIEW_GATE).toContain('sleep 30');
-    expect(PREVIEW_GATE).toMatch(/retrying once/);
-    expect(PREVIEW_GATE).toMatch(/on retry\)/);
-    expect(PREVIEW_GATE).toContain('exit 1');
-  });
-
-  it('wires the full EXPECTED_LIVE_FLAGS set into the preview-gate job env', () => {
-    // Same contract as the ci.yml verify-deployed and gallery jobs: every flag
-    // the local gate requires in the deployed store must be declared here so
-    // this deployment_status workflow stays locked to the same set. A flag
-    // added to EXPECTED_LIVE_FLAGS without this wiring — or dropped here while
-    // still required — fails below.
-    expect(Object.keys(EXPECTED_LIVE_FLAGS).length).toBeGreaterThan(0);
-    for (const [key, value] of Object.entries(EXPECTED_LIVE_FLAGS)) {
-      expect(PREVIEW_GATE).toContain(`${key}: '${value}'`);
     }
   });
 });
@@ -474,71 +366,6 @@ describe('.github/workflows/gallery.yml · PR/dispatch gallery capture', () => {
     expect(GALLERY).toContain('name: gallery-screenshots');
     expect(GALLERY).toContain('path: screenshots/');
     expect(GALLERY).toContain('if-no-files-found: ignore');
-  });
-});
-
-describe('.github/workflows/verify-deployed-hash.yml · deployment_status deployed-hash gate', () => {
-  it('triggers on deployment_status and only on successful deploys with a sha', () => {
-    expect(DEPLOYED_HASH).toMatch(/^on:\s*\n\s*deployment_status:/m);
-    expect(DEPLOYED_HASH).toContain("github.event.deployment_status.state == 'success'");
-    expect(DEPLOYED_HASH).toContain('github.event.deployment.sha !=');
-  });
-
-  it('still verifies the deployed commit matches the pushed head (--url + --expect)', () => {
-    expect(DEPLOYED_HASH).toMatch(/node scripts\/verify-deployed-hash\.mjs/);
-    expect(DEPLOYED_HASH).toContain('--url "${{ github.event.deployment_status.target_url }}"');
-    expect(DEPLOYED_HASH).toContain('--expect "${{ github.event.deployment.sha }}"');
-    expect(DEPLOYED_HASH).toContain("if: ${{ env.VERCEL_TOKEN != '' }}");
-  });
-
-  it('keeps the production alias-routing drift watch (--compare-url), scoped to THIS project\'s production label', () => {
-    expect(DEPLOYED_HASH).toContain('--compare-url "https://portfolio-app-freebuff.vercel.app"');
-    // Vercel labels environments "Production – <project-name>" (en-dash,
-    // U+2013) ONLY when multiple projects are linked to one repo (the
-    // disambiguation case — this repo used to have the leftover
-    // reviewmaestro-reconstructed project); a single linked project gets the
-    // bare "Production" label. The lock asserts the DUAL form — bare
-    // 'Production' OR this project's exact suffixed label — so the gate fires
-    // in BOTH regimes and never on the other project's deployments (a revert
-    // to a bare `== 'Production'` or a bare 'Production' prefix fails here).
-    const dualForm = "(github.event.deployment_status.environment == 'Production' || startsWith(github.event.deployment_status.environment, 'Production – portfolio-app-freebuff'))";
-    expect(DEPLOYED_HASH).toContain(dualForm);
-    expect(DEPLOYED_HASH).toContain("startsWith(github.event.deployment_status.environment, 'Production – portfolio-app-freebuff')");
-    expect(DEPLOYED_HASH).not.toMatch(/startsWith\(github\.event\.deployment_status\.environment, 'Production – portfolio-app-freebuff'\) \}\}/);
-  });
-
-  it('wires the full EXPECTED_LIVE_FLAGS set into the deployed-hash job env', () => {
-    // Same contract as the other three workflows: the deployed-store LIVE-flag
-    // set must be declared in this deployment_status workflow too, so EVERY
-    // workflow that fires per deploy is locked to the same set the local gate
-    // asserts. A flag added to EXPECTED_LIVE_FLAGS without this wiring — or
-    // dropped here while still required — fails below.
-    expect(Object.keys(EXPECTED_LIVE_FLAGS).length).toBeGreaterThan(0);
-    for (const [key, value] of Object.entries(EXPECTED_LIVE_FLAGS)) {
-      expect(DEPLOYED_HASH).toContain(`${key}: '${value}'`);
-    }
-  });
-
-  it('machine-reproves the gate-stale teeth after every PRODUCTION deploy (verify-gate-stale-ci.mjs)', () => {
-    // The wrapper runs the gate-stale proof (FAIL path + stale-guard) against
-    // live from the pushed commit's PARENT after a successful production
-    // deploy, so the stale-guard teeth are proven on the real runner — not
-    // just via the npm one-liners. Production-only: the proof resolves the
-    // canonical PRODUCTION alias, so on preview deployments (PR-head
-    // checkout) the comparison would be meaningless. The wrapper itself is
-    // skip-not-fail on the transient edge (alias promotion lag / API hiccup),
-    // so only a proof that CAN reproduce is allowed to fail.
-    expect(DEPLOYED_HASH).toContain('name: Verify gate-stale proof after deploy (teeth)');
-    expect(DEPLOYED_HASH).toContain('run: node scripts/verify-gate-stale-ci.mjs');
-    // Scoped to THIS project's production label — the same silent-skip bug
-    // the alias-routing step had. The if must use the DUAL form (bare
-    // 'Production' for the single-project regime this repo reverted to after
-    // the leftover project was disconnected, OR the en-dash suffixed label
-    // for the multi-project regime), never a bare == 'Production' prefix
-    // that would fire on another project's events.
-    expect(DEPLOYED_HASH).toContain("if: ${{ env.VERCEL_TOKEN != '' && (github.event.deployment_status.environment == 'Production' || startsWith(github.event.deployment_status.environment, 'Production – portfolio-app-freebuff')) }}");
-    expect(DEPLOYED_HASH).not.toMatch(/startsWith\(github\.event\.deployment_status\.environment, 'Production – portfolio-app-freebuff'\) \}\}/);
-    expect(DEPLOYED_HASH).toContain('loud SKIP');
   });
 });
 

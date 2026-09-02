@@ -237,19 +237,16 @@ if (ciFailures.length === 0) {
   ok('every ci.yml verify step is gated on secrets verify-all.mjs declares for its gate (both directions)');
 }
 
-// The deployment_status workflows (gallery / preview-gate / deployed-hash)
-// fire on Vercel's deployment_status event, NOT on push — so they are
-// invisible to the ci.yml parser above. The same credential contract applies:
-// each workflow is mapped to the gate whose credentials it exercises
-// (gallery + deployed-hash → deployed-hash's VERCEL_TOKEN; preview-gate →
-// auth-domains' FIREBASE_WEB_API_KEY), every gated secret must be declared by
-// that gate, and every secret the mapped gate declares must actually be gated
-// somewhere in the workflow.
-console.log('\n[3d/4] Cross-referencing deployment_status workflow gating against verify-all.mjs secrets');
+// The gallery workflow (and, before the Firebase migration, the removed
+// preview-gate / deployed-hash deployment_status gates) fires on repo activity
+// rather than on push — so it is invisible to the ci.yml parser above. The
+// same credential contract applies: the workflow is mapped to the gate whose
+// credentials it exercises, every gated secret must be declared by that gate,
+// and every secret the mapped gate declares must actually be gated somewhere
+// in the workflow.
+console.log('\n[3d/4] Cross-referencing non-ci workflow gating against verify-all.mjs secrets');
 const DEPLOYMENT_STATUS_WORKFLOWS = [
   { name: 'gallery', gate: 'deployed-hash', src: read('.github/workflows/gallery.yml') },
-  { name: 'preview-gate', gate: 'auth-domains', src: read('.github/workflows/preview-gate.yml') },
-  { name: 'verify-deployed-hash', gate: 'deployed-hash', src: read('.github/workflows/verify-deployed-hash.yml') },
 ];
 // Deliberately call the deployment-status check directly (NOT crossCheckCiGates):
 // crossCheckCiGates would re-run the full ci.yml step check that [3c/4] just
@@ -261,13 +258,13 @@ const dsFailures = crossCheckDeploymentStatusGates({
 });
 for (const msg of dsFailures) fail(msg);
 if (dsFailures.length === 0) {
-  ok('every deployment_status workflow gates on secrets verify-all.mjs declares for its gate');
+  ok('every non-ci workflow gates on secrets verify-all.mjs declares for its gate');
 }
 
 // The onboarding docs (README.md handoff + docs/launch.md §4) both carry a
 // "When each gate runs:" pipeline diagram. The readme-pipeline vitest locks
-// the diagram's CONTENT (the five ci.yml job names + three deployment_status
-// workflow names); this step locks its PRESENCE in CI — a doc that loses the
+// the diagram's CONTENT (the five ci.yml job names + the Gallery capture
+// workflow); this step locks its PRESENCE in CI — a doc that loses the
 // section fails the drift guard on every push, not just the test suite.
 console.log('\n[3e/4] Cross-referencing onboarding-doc pipeline-diagram presence');
 const diagramFailures = crossCheckPipelineDiagrams({

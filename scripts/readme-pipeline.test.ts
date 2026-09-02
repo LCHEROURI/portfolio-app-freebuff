@@ -22,8 +22,6 @@ import { PIPELINE_DIAGRAM_KEY_NAMES } from './launch-checklist-gates.mjs';
 const README = readFileSync('README.md', 'utf8');
 const LAUNCH = readFileSync('docs/launch.md', 'utf8');
 const CI = readFileSync('.github/workflows/ci.yml', 'utf8');
-const PREVIEW_GATE = readFileSync('.github/workflows/preview-gate.yml', 'utf8');
-const DEPLOYED_HASH = readFileSync('.github/workflows/verify-deployed-hash.yml', 'utf8');
 const GALLERY = readFileSync('.github/workflows/gallery.yml', 'utf8');
 
 // The five push-event jobs in ci.yml (key -> the job's display name line).
@@ -34,10 +32,11 @@ const CI_JOB_KEYS = [
   'verify-auth-domains',
   'verify-prod-signin',
 ];
-// The three deployment_status workflows, mapped to the file that defines them.
+// The one non-ci workflow that fires per repo activity (gallery — a PR/dispatch
+// capture). The legacy Vercel deployment_status gates (Preview gate,
+// Deployed-hash gate) were removed when the deploy moved to Firebase App
+// Hosting; the diagram now shows the build jobs plus the gallery capture.
 const DEPLOYMENT_WORKFLOWS: Array<{ name: string; src: string }> = [
-  { name: 'Preview gate', src: PREVIEW_GATE },
-  { name: 'Deployed-hash gate', src: DEPLOYED_HASH },
   { name: 'Gallery', src: GALLERY },
 ];
 
@@ -149,7 +148,7 @@ describe('README pipeline diagram contract', () => {
   it('has the "When each gate runs:" diagram in the handoff section', () => {
     expect(diagram).not.toBe('');
     expect(README).toContain('When each gate runs:');
-    expect(normalizedDiagram).toContain('DEPLOYMENT_STATUS GATES');
+    expect(normalizedDiagram).toContain('ci.yml (push event)');
   });
 
   it('still names every ci.yml push job, read live from the workflow', () => {
@@ -167,12 +166,12 @@ describe('README pipeline diagram contract', () => {
     }
   });
 
-  it('still names every deployment_status workflow, read live from the files', () => {
+  it('still names every non-ci workflow, read live from the files', () => {
     const liveNames = DEPLOYMENT_WORKFLOWS.map(({ name, src }) => ({
       expected: name,
       actual: workflowDisplayName(src),
     }));
-    expect(liveNames.map((n) => n.actual)).toEqual(['Preview gate', 'Deployed-hash gate', 'Gallery']);
+    expect(liveNames.map((n) => n.actual)).toEqual(['Gallery']);
     for (const { expected, actual } of liveNames) {
       expect(actual).toBe(expected);
       expect(normalizedDiagram).toContain(norm(actual));
@@ -195,7 +194,7 @@ describe('README pipeline diagram contract', () => {
     expect(PIPELINE_DIAGRAM_KEY_NAMES).toEqual(liveNames);
   });
 
-  it('shows exactly five ci jobs and three deployment gates (no dropped rows)', () => {
+  it('shows exactly five ci jobs and one gallery capture (no dropped rows)', () => {
     // Count bulleted LINES, not bullet characters: the Typecheck line
     // legitimately contains three extra '·' separators in its job name.
     // Strip the box-drawing border chars first — each line reads
@@ -204,7 +203,7 @@ describe('README pipeline diagram contract', () => {
       .split('\n')
       .map((line) => line.replace(/[│┌┐└┘─┬▼]/g, '').trim())
       .filter((line) => line.startsWith('·'));
-    expect(bulletedLines).toHaveLength(8);
+    expect(bulletedLines).toHaveLength(6);
   });
 });
 
@@ -215,7 +214,7 @@ describe('README and launch.md diagrams stay byte-identical', () => {
   it('launch.md carries the same "When each gate runs:" diagram', () => {
     expect(launchDiagram).not.toBe('');
     expect(LAUNCH).toContain('When each gate runs');
-    expect(launchDiagram).toContain('DEPLOYMENT_STATUS GATES');
+    expect(launchDiagram).toContain('ci.yml (push event)');
   });
 
   it('both docs render the identical diagram byte for byte', () => {
