@@ -44,6 +44,11 @@
 # with a 'too slow, run CI' message, so slow OpenRouter/Chrome runs can never
 # stall a routine push.
 # SKIP_VERIFY_SIGNIN=1 skips everything.
+# Car-app-only fast path: a push whose new commits touch ONLY freebuff-car-app/
+# skips the parent-app gates entirely (they cannot apply to it — see the block
+# right after the main-push detection below); the car app's own CI
+# (car-app-ci.yml) and Firebase App Hosting deploy (deploy-car-app.yml)
+# verify that push in GitHub Actions instead.
 # ============================================================================
 set -euo pipefail
 
@@ -66,6 +71,36 @@ while read -r _local_ref _local_sha remote_ref _remote_sha; do
   fi
 done
 if [ "$PUSHES_TO_MAIN" != "1" ]; then
+  exit 0
+fi
+
+# ─── Car-app-only fast path ──────────────────────────────────────────────────
+# freebuff-car-app/ is a self-contained Next.js project with its own tsconfig,
+# jest suite, CI workflow (.github/workflows/car-app-ci.yml) and Firebase App
+# Hosting deploy workflow (.github/workflows/deploy-car-app.yml). None of the
+# parent-app gates below inspect it: they verify the PARENT app's Vercel
+# build, onboarding PNGs, Firestore rules, and prod sign-in, so a push that
+# touches ONLY freebuff-car-app/ can only fail them as a false blocker (the
+# README Handoff render diff was the observed case). Skipping the parent
+# gates for such pushes keeps the car-app loop fast; the car app's own gates
+# (tsc, jest, next build, Firebase deploy) run in GitHub Actions on the very
+# same push, so nothing ships unverified. Any push that touches files OUTSIDE
+# freebuff-car-app/ — including .github/workflows — still runs the full suite
+# below.
+CAR_APP_ONLY=0
+if [ -n "$REMOTE_MAIN_SHA" ] && git rev-parse -q --verify "$REMOTE_MAIN_SHA^{commit}" >/dev/null 2>&1; then
+  PUSH_RANGE="$REMOTE_MAIN_SHA..HEAD"
+else
+  # First push to main (no previous remote commit): diff against the empty
+  # tree so every file in the initial commit counts.
+  PUSH_RANGE="$(git hash-object -t tree /dev/null)..HEAD"
+fi
+NON_CAR_FILES="$(git diff --name-only "$PUSH_RANGE" | grep -cv '^freebuff-car-app/' || true)"
+if [ "$NON_CAR_FILES" = "0" ]; then
+  CAR_APP_ONLY=1
+fi
+if [ "$CAR_APP_ONLY" = "1" ]; then
+  echo "pre-push: car-app-only push — parent-app gates skipped (car-app CI + Firebase App Hosting deploy run in GitHub Actions)"
   exit 0
 fi
 
