@@ -64,9 +64,9 @@ only on a separate demo deployment.
 ## 3. GitHub repo secrets (for the post-deploy CI gates)
 
 Same values as above where shared: `CRON_SECRET`, `FIREBASE_WEB_API_KEY`,
-`VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`,
-`VERCEL_PROTECTION_BYPASS`. The `verify-prod-signin` CI job is gated on
-`FIREBASE_WEB_API_KEY`.
+`FIREBASE_SERVICE_ACCOUNT`. The `verify-prod-signin` CI job is gated on
+`FIREBASE_WEB_API_KEY`. The gallery workflows need **no deploy-provider
+secrets at all** — they capture from a locally built demo-mode server.
 
 ## 4. The verification gates — run all of them before go-live
 

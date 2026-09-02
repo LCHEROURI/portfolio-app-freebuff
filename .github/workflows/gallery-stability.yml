@@ -2,7 +2,7 @@ name: Gallery byte-stability
 
 # The determinism enforcement half of the gallery: the capture driver's
 # text-rendering/compositor flags (locked in capture-gallery.test.ts) are
-# proven on the REAL runner by capturing the same demo-mode preview TWICE and
+# proven on the REAL runner by capturing the same demo-mode server TWICE and
 # byte-diffing the two captures. Any demo-cell drift outside the documented
 # DYNAMIC_BY_DESIGN set (scripts/verify-gallery-stability.mjs) turns this
 # scheduled run red instead of silently shipping a gallery that churns run to
@@ -24,22 +24,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     # Schedule + dispatch only, so secrets are always available (no fork
-    # guard needed) — but the load-bearing steps stay gated on the Vercel env
-    # trio (skip-not-fail, same philosophy as gallery.yml) so a removed
-    # secret degrades to a skip, never a confusing failure.
+    # guard needed). The review-sheet pair + deployments-feed cell re-render
+    # through shared drivers that need the Firebase env trio (skip-not-fail,
+    # same philosophy as gallery.yml).
     env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-      VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
-      # The review-sheet pair + deployments-feed cell re-render through the
-      # shared drivers, which need the Firebase env trio — same wiring as the
-      # gallery job.
       FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
       FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
       NEXT_PUBLIC_FIREBASE_PROJECT_ID: portfolio-app-freebuff2
       # The deployed-store LIVE-flag set (source of truth: EXPECTED_LIVE_FLAGS
-      # in scripts/verify-vercel-env.mjs). Public build-time flags, safe as
+      # in scripts/verify-all.mjs). Public build-time flags, safe as
       # plain values — declares what the deployed store must carry and locks
       # this workflow to the same set the local gate asserts.
       # ci-workflows.test.ts fails if this list and EXPECTED_LIVE_FLAGS ever
@@ -68,82 +61,50 @@ jobs:
         with:
           chrome-version: stable
 
-      - name: Deploy preview of the default branch
-        id: deploy
-        if: ${{ env.VERCEL_TOKEN != '' && env.VERCEL_ORG_ID != '' && env.VERCEL_PROJECT_ID != '' }}
-        # Remote build on purpose, NOT `--prebuilt` — same reasoning as
-        # gallery.yml: a prebuilt deploy uploads only source + .vercel/output,
-        # but every serverless function's .vc-config.json filePathMap
-        # references ROOT node_modules files that the upload excludes, so
-        # Vercel's "Deploying outputs" phase dies with ENOENT
-        # node_modules/styled-jsx/index.js. The preview environment carries no
-        # Firebase/LIVE vars, so it renders the demo-mode shell the route
-        # cells capture.
-        run: |
-          npx --yes vercel pull --yes --environment=preview --token="$VERCEL_TOKEN"
-          # The final CLI line is the "run vercel --prod" hint, not the URL, so
-          # extract the preview URL from the output instead of tail -1.
-          URL="$(npx --yes vercel deploy --yes --token="$VERCEL_TOKEN" 2>&1 | grep -oE 'https://[a-z0-9-]+\.vercel\.app' | grep -vE 'https://portfolio-app-freebuff\.vercel\.app' | tail -1)"
-          echo "Preview URL: $URL"
-          echo "url=$URL" >> "$GITHUB_OUTPUT"
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      # Demo-mode server (same rationale as gallery.yml): no deploy-provider
+      # secrets, no throwaway remote deployment.
+      - name: Build demo-mode production bundle
+        run: npm run build
 
-      - name: Wait for preview to answer HTTP 200
-        if: ${{ env.VERCEL_TOKEN != '' && env.VERCEL_ORG_ID != '' && env.VERCEL_PROJECT_ID != '' }}
+      - name: Start demo-mode server
+        id: serve
         run: |
-          args=(-s -o /dev/null -m 15 -w '%{http_code}' -L)
-          if [ -n "$BYPASS" ]; then
-            args+=(-H "x-vercel-protection-bypass: $BYPASS")
-          fi
+          npx next start -p 4399 > /tmp/demo-server.log 2>&1 &
+          echo "pid=$!" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for server to answer HTTP 200
+        run: |
           for i in $(seq 1 30); do
-            code="$(curl "${args[@]}" "$PREVIEW_URL/command-center" || true)"
+            code="$(curl -s -o /dev/null -m 15 -w '%{http_code}' -L http://127.0.0.1:4399/command-center || true)"
             echo "attempt $i: HTTP $code"
             [ "$code" = "200" ] && exit 0
             sleep 10
           done
-          echo "Preview did not answer HTTP 200 within 300s." >&2
+          echo "Demo server did not answer HTTP 200 within 300s. Log:" >&2
+          tail -50 /tmp/demo-server.log >&2
           exit 1
-        env:
-          PREVIEW_URL: ${{ steps.deploy.outputs.url }}
-          BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
 
-      # Both captures target the SAME preview instance (deployed once above),
-      # so the 18 route cells are byte-stable by construction unless the
-      # determinism flags regress. The review-sheet pair + deployments-feed
+      # Both captures target the SAME local server instance (started once
+      # above), so the 18 route cells are byte-stable by construction unless
+      # the determinism flags regress. The review-sheet pair + deployments-feed
       # cell hit PRODUCTION (their drivers default to the prod URL for live
       # auth + AI); if a production deploy lands between the two captures
       # those cells may legitimately differ — review-sheet-preview and
       # deployments-feed are allowlisted, review-sheet-panels could
       # false-alarm, so re-run if that happens.
       - name: Capture gallery run 1
-        if: ${{ env.VERCEL_TOKEN != '' && env.VERCEL_ORG_ID != '' && env.VERCEL_PROJECT_ID != '' }}
         run: |
-          args=(--url "$PREVIEW_URL" --out /tmp/gallery-stability-1)
-          if [ -n "$BYPASS" ]; then
-            args+=(--header "x-vercel-protection-bypass: $BYPASS")
-          fi
-          npm run capture:screenshots -- "${args[@]}"
+          npm run capture:screenshots -- --url http://127.0.0.1:4399 --out /tmp/gallery-stability-1
         env:
-          PREVIEW_URL: ${{ steps.deploy.outputs.url }}
-          BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
           CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
 
       - name: Capture gallery run 2
-        if: ${{ env.VERCEL_TOKEN != '' && env.VERCEL_ORG_ID != '' && env.VERCEL_PROJECT_ID != '' }}
         run: |
-          args=(--url "$PREVIEW_URL" --out /tmp/gallery-stability-2)
-          if [ -n "$BYPASS" ]; then
-            args+=(--header "x-vercel-protection-bypass: $BYPASS")
-          fi
-          npm run capture:screenshots -- "${args[@]}"
+          npm run capture:screenshots -- --url http://127.0.0.1:4399 --out /tmp/gallery-stability-2
         env:
-          PREVIEW_URL: ${{ steps.deploy.outputs.url }}
-          BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
           CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
 
       - name: Byte-diff the two captures (fail on any demo-cell drift)
-        if: ${{ env.VERCEL_TOKEN != '' && env.VERCEL_ORG_ID != '' && env.VERCEL_PROJECT_ID != '' }}
         run: node scripts/verify-gallery-stability.mjs --a /tmp/gallery-stability-1 --b /tmp/gallery-stability-2
 
       - name: Upload both captures for debugging

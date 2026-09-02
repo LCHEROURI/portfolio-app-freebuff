@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { crossCheckCiGates, crossCheckDeploymentStatusGates, parseCiGateSteps, parseDeploymentStatusSteps } from './launch-checklist-gates.mjs';
+import { crossCheckCiGates, crossCheckDeploymentStatusGates, parseCiGateSteps } from './launch-checklist-gates.mjs';
 
 const ROOT = process.cwd();
 const read = (p) => readFileSync(resolve(ROOT, p), 'utf8');
@@ -231,25 +231,20 @@ jobs:
 });
 
 // ── parseDeploymentStatusSteps: the deployment_status workflow parser ───────
-describe('parseDeploymentStatusSteps (live repo)', () => {
-  it('captures the gallery steps gated on the Vercel env trio', () => {
-    const steps = parseDeploymentStatusSteps(read('.github/workflows/gallery.yml'));
-    const deploy = steps.find((s) => s.name === 'Deploy preview of this branch');
-    expect(deploy).toBeDefined();
-    expect(deploy.gatingSecrets).toEqual(['VERCEL_TOKEN', 'VERCEL_ORG_ID', 'VERCEL_PROJECT_ID']);
-  });
-});
+// No live-repo case remains: the gallery workflow no longer gates any step on
+// secrets (it builds a demo-mode bundle and captures from a local server),
+// so there is no deployment-status-style workflow left in the repo. The
+// parser's behavior stays locked by the fixture describes below.
 
-// ── crossCheckDeploymentStatusGates: live repo (the real lock) ──────────────
+// ── crossCheckDeploymentStatusGates: live repo (the real lock) ──────────
 describe('crossCheckDeploymentStatusGates (live repo)', () => {
   const verifyAllSrc = read('scripts/verify-all.mjs');
   const npmScripts = JSON.parse(read('package.json')).scripts ?? {};
-  // Only the gallery workflow remains — the legacy Vercel deployment_status
-  // gates (preview-gate, verify-deployed-hash) were removed with the Firebase
-  // migration.
-  const workflows = [
-    { name: 'gallery', gate: 'deployed-hash', src: read('.github/workflows/gallery.yml') },
-  ];
+  // Empty since the Vercel decoupling: the gallery workflow no longer gates
+  // any step on secrets (local demo-mode build + capture), and the legacy
+  // Vercel deployment_status gates (preview-gate, verify-deployed-hash) were
+  // removed with the Firebase migration.
+  const workflows: { name: string; gate: string; src: string }[] = [];
 
   it('passes: every deployment_status workflow gates on secrets its gate declares', () => {
     const failures = crossCheckDeploymentStatusGates({ workflows, verifyAllSrc, npmScripts });
