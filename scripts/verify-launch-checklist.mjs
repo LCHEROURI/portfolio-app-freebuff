@@ -237,17 +237,18 @@ if (ciFailures.length === 0) {
   ok('every ci.yml verify step is gated on secrets verify-all.mjs declares for its gate (both directions)');
 }
 
-// The gallery workflow (and, before the Firebase migration, the removed
-// preview-gate / deployed-hash deployment_status gates) fires on repo activity
-// rather than on push — so it is invisible to the ci.yml parser above. The
-// same credential contract applies: the workflow is mapped to the gate whose
-// credentials it exercises, every gated secret must be declared by that gate,
-// and every secret the mapped gate declares must actually be gated somewhere
-// in the workflow.
+// Non-ci workflows that fire on repo activity rather than on push are
+// invisible to the ci.yml parser above, so they are cross-referenced here:
+// each is mapped to the gate whose credentials it exercises, every gated
+// secret must be declared by that gate, and every secret the mapped gate
+// declares must actually be gated somewhere in the workflow. The list is now
+// EMPTY: the gallery workflow captures from a locally built demo-mode server
+// (no gated steps, no secrets in its capture path) and the legacy Vercel
+// deployment_status gates (preview-gate, deployed-hash) were removed with
+// the Firebase migration. The check stays wired so any future secret-gated
+// non-ci workflow can be added back here in one line.
 console.log('\n[3d/4] Cross-referencing non-ci workflow gating against verify-all.mjs secrets');
-const DEPLOYMENT_STATUS_WORKFLOWS = [
-  { name: 'gallery', gate: 'deployed-hash', src: read('.github/workflows/gallery.yml') },
-];
+const DEPLOYMENT_STATUS_WORKFLOWS = [];
 // Deliberately call the deployment-status check directly (NOT crossCheckCiGates):
 // crossCheckCiGates would re-run the full ci.yml step check that [3c/4] just
 // reported, printing every ci.yml failure twice on a drift.

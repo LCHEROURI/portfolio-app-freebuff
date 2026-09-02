@@ -27,13 +27,13 @@ const CI = readFileSync('.github/workflows/ci.yml', 'utf8');
 const GALLERY = readFileSync('.github/workflows/gallery.yml', 'utf8');
 const GALLERY_STABILITY = readFileSync('.github/workflows/gallery-stability.yml', 'utf8');
 
-// The gallery capture job gates its Deploy / Wait / Capture steps on the
-// same env trio; each of the three steps must carry it, so a drop on any
-// one step is caught by counting occurrences rather than a bare toContain.
-const GALLERY_ENV_TRIO = "if: ${{ env.VERCEL_TOKEN != '' && env.VERCEL_ORG_ID != '' && env.VERCEL_PROJECT_ID != '' }}";
-// The Wait and Capture steps both wire the live preview URL into their env;
-// exactly two wirings must survive.
-const PREVIEW_URL_WIRING = 'PREVIEW_URL: ${{ steps.deploy.outputs.url }}';
+// The gallery capture runs against a locally built demo-mode server (no
+// Vercel preview since the decoupling), so no VERCEL_* env-trio gating
+// exists anymore — the suite asserts the capture flow directly.
+// The build must precede the server start and the wait/capture steps;
+// exactly one server start (single `next start`) must survive.
+const DEMO_SERVER_START = 'npx next start -p 4399';
+const DEMO_SERVER_URL = 'http://127.0.0.1:4399';
 
 // The verify-deployed job block: everything between the job key and the next
 // top-level job (`verify-auth-domains:`). Scoping here keeps every step
@@ -229,69 +229,44 @@ describe('.github/workflows/gallery.yml · PR/dispatch gallery capture', () => {
     expect(GALLERY).toContain('CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}');
   });
 
-  it('still deploys a preview of the branch, gated on the Vercel env trio', () => {
-    expect(GALLERY).toContain('id: deploy');
-    expect(GALLERY).toMatch(/npx --yes vercel deploy --yes --token=/);
-    // The prebuilt flow must NOT come back: a prebuilt deploy uploads only
-    // source + .vercel/output, but the serverless functions' filePathMap
-    // references ROOT node_modules (styled-jsx, react, ...) that the upload
-    // excludes, so "Deploying outputs" dies with ENOENT lstat
-    // node_modules/styled-jsx/index.js. The remote-build path (no --prebuilt)
-    // installs node_modules on the build machine first and is the proven
-    // production path.
-    expect(GALLERY).not.toMatch(/vercel deploy --prebuilt/);
-    // The env trio gates THREE steps (Deploy, Wait, Capture); asserting the
-    // count keeps a drop on any one step from passing via another's copy.
-    expect(GALLERY.match(new RegExp(GALLERY_ENV_TRIO.replace(/[$\{\}]/g, '\\$&'), 'g'))).toHaveLength(3);
-    expect(GALLERY).toContain('VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}');
-    expect(GALLERY).toContain('VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}');
+  it('builds a demo-mode production bundle and starts a local server instead of a Vercel preview', () => {
+    // The gallery captures from a LOCALLY built demo-mode server (the app
+    // builds and runs with zero env vars — proven on the runner), so no
+    // Vercel deploy step, no VERCEL_* secrets, and no protection-bypass
+    // header may exist anywhere in the workflow.
+    expect(GALLERY).toContain('Build demo-mode production bundle');
+    expect(GALLERY).toContain('run: npm run build');
+    expect(GALLERY).toContain('id: serve');
+    // Exactly one server start (a second `next start` would race on 4399).
+    expect(GALLERY.match(new RegExp(DEMO_SERVER_START.replace(/[$\{\}]/g, '\\$&'), 'g'))).toHaveLength(1);
+    expect(GALLERY).not.toContain('VERCEL_TOKEN');
+    expect(GALLERY).not.toContain('VERCEL_PROTECTION_BYPASS');
+    // Build must precede the server start (the server serves the fresh
+    // bundle, not a stale one from a previous run).
+    expect(GALLERY.indexOf('run: npm run build')).toBeLessThan(GALLERY.indexOf(DEMO_SERVER_START));
   });
 
-  it('keeps the remote-build deploy path (no local `vercel build` step, no `--prebuilt`)', () => {
-    // The prebuilt flow was broken from the gallery's first commit: it
-    // uploaded only source + .vercel/output, but every serverless function's
-    // .vc-config.json filePathMap references ROOT node_modules (styled-jsx,
-    // react, next/dist ...) that the upload excludes, so Vercel's "Deploying
-    // outputs" phase died with ENOENT lstat node_modules/styled-jsx/index.js
-    // and the preview never rendered. The fix (cfaa753) dropped the local
-    // `vercel build` + `--prebuilt` and lets Vercel run the remote build —
-    // the proven production path. This lock keeps BOTH regressions out: a
-    // reintroduced local build step or a `vercel deploy --prebuilt` command
-    // fails here before it can red the gallery again. Command-form precise on
-    // purpose: the deploy-step comment legitimately says "NOT `--prebuilt`"
-    // to document the fix, so a bare-flag sweep would false-fail on prose.
-    expect(GALLERY).not.toMatch(/vercel build/);
-    expect(GALLERY).not.toMatch(/vercel deploy --prebuilt/);
-    // The remote-build invocation must be the one and only deploy command…
-    expect(GALLERY).toMatch(/npx --yes vercel deploy --yes --token=/);
-    // …and the preview URL must be extracted from the deploy output (the
-    // CLI's final line is the "run vercel --prod" hint, not the URL, so
-    // tail -1 would grab the wrong line).
-    expect(GALLERY).toContain('grep -oE');
+  it('keeps the workflow free of any Vercel reference', () => {
+    // Stronger than the old remote-build lock: since the decoupling the
+    // capture path needs nothing from Vercel, so even prose references are
+    // banned — a reintroduced `vercel` invocation or bypass header fails
+    // here before it can red the gallery again.
+    expect(GALLERY).not.toMatch(/vercel/i);
   });
 
-  it('still waits for the preview to answer HTTP 200 before capturing', () => {
-    // The readiness loop must exist and must probe the live preview URL on the
-    // command-center route, gated on the same env trio so it skips-not-fails
-    // where no deploy could be created.
-    expect(GALLERY).toContain('Wait for preview to answer HTTP 200');
-    expect(GALLERY).toContain("$PREVIEW_URL/command-center");
-    expect(GALLERY).toContain('Preview did not answer HTTP 200 within 300s.');
-    // Exactly two steps (Wait + Capture) must wire the preview URL into their
-    // env; the count (not toContain) catches a wiring dropped on ONE step.
-    expect(GALLERY.match(/PREVIEW_URL: \$\{\{ steps\.deploy\.outputs\.url \}\}/g)).toHaveLength(2);
-    // Same for the protection-bypass header secret wired into those two envs.
-    // Line-anchored on purpose: the JOB-level env also sets the long-named
-    // VERCEL_PROTECTION_BYPASS line, whose `_BYPASS:` substring would
-    // otherwise inflate a bare substring count from 2 to 3.
-    expect(GALLERY.match(/^\s+BYPASS: \$\{\{ secrets\.VERCEL_PROTECTION_BYPASS \}\}$/gm)).toHaveLength(2);
+  it('waits for the local server to answer HTTP 200 before capturing', () => {
+    // The readiness loop must exist and must probe the local demo server on
+    // the command-center route before any capture begins.
+    expect(GALLERY).toContain('Wait for server to answer HTTP 200');
+    expect(GALLERY).toContain(`${DEMO_SERVER_URL}/command-center`);
+    expect(GALLERY).toContain('Demo server did not answer HTTP 200 within 300s.');
+    // The capture must target the local server URL.
+    expect(GALLERY).toContain(`capture:screenshots -- --url ${DEMO_SERVER_URL}`);
   });
 
-  it('still runs the gallery capture against the live preview', () => {
+  it('still runs the gallery capture against the local demo server', () => {
     expect(GALLERY).toContain('Capture gallery (fails if any cell does not render the app shell)');
-    // Literal string, not a regex: the line is `-- "${args[@]}"` and a regex
-    // would need to escape the brackets (a character-class trap).
-    expect(GALLERY).toContain('npm run capture:screenshots -- "${args[@]}"');
+    expect(GALLERY).toContain(`capture:screenshots -- --url ${DEMO_SERVER_URL}`);
     expect(GALLERY).toContain('CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}');
   });
 
@@ -333,11 +308,10 @@ describe('.github/workflows/gallery.yml · PR/dispatch gallery capture', () => {
     expect(stepBlock).toContain('CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}');
   });
 
-  it('keeps the docs render UNGATED (no Vercel trio, so it ships when preview steps skip)', () => {
-    // The docs render needs no secrets/URL; gating it on the env trio would
-    // tie the onboarding visuals to the preview deploy and starve forks or
-    // secret-less runs. Scoped to the step block so the trio count below is
-    // unaffected and the step's own intent stays pinned.
+  it('keeps the docs render UNGATED (no secrets, so it ships even when capture fails)', () => {
+    // The docs render needs no secrets/URL; gating it would starve forks or
+    // secret-less runs. Scoped to the step block so the step's own intent
+    // stays pinned.
     const stepStart = GALLERY.indexOf('Render onboarding docs to PNG');
     const upload = GALLERY.indexOf('Upload captured screenshots');
     const stepBlock = GALLERY.slice(stepStart, upload);
@@ -385,16 +359,33 @@ describe('.github/workflows/gallery-stability.yml · scheduled double-capture by
     expect(GALLERY_STABILITY).toContain('CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}');
   });
 
-  it('captures the SAME preview twice into distinct out dirs', () => {
-    // The two captures must share one preview URL (deployed once, above) so
-    // the route cells are byte-stable by construction — a second deploy step
+  it('builds a demo-mode bundle and starts ONE local server both captures share', () => {
+    // No Vercel preview anymore: the build precedes a single `next start`,
+    // and both captures hit the same local URL so the route cells are
+    // byte-stable by construction — a second server would race on 4399 and
+    // could serve different content between the two captures.
+    expect(GALLERY_STABILITY).toContain('Build demo-mode production bundle');
+    expect(GALLERY_STABILITY).toContain('run: npm run build');
+    expect(GALLERY_STABILITY).toContain('id: serve');
+    expect(GALLERY_STABILITY.match(new RegExp(DEMO_SERVER_START.replace(/[$\{\}]/g, '\\$&'), 'g'))).toHaveLength(1);
+    expect(GALLERY_STABILITY).not.toContain('VERCEL_TOKEN');
+    // Build must precede the server start and both captures.
+    const buildIdx = GALLERY_STABILITY.indexOf('run: npm run build');
+    const startIdx = GALLERY_STABILITY.indexOf(DEMO_SERVER_START);
+    expect(buildIdx).toBeGreaterThan(-1);
+    expect(startIdx).toBeGreaterThan(buildIdx);
+  });
+
+  it('captures the SAME local server twice into distinct out dirs', () => {
+    // The two captures must share one server URL (started once, above) so
+    // the route cells are byte-stable by construction — a second start step
     // would let a mid-run rebuild masquerade as determinism. The out dirs
     // must be distinct or run 2 would overwrite run 1 and the diff would
     // vacuously pass.
     expect(GALLERY_STABILITY).toContain('--out /tmp/gallery-stability-1');
     expect(GALLERY_STABILITY).toContain('--out /tmp/gallery-stability-2');
-    expect(GALLERY_STABILITY.match(/npm run capture:screenshots -- "\$\{args\[@\]\}"/g)).toHaveLength(2);
-    expect(GALLERY_STABILITY.indexOf('id: deploy')).toBeLessThan(GALLERY_STABILITY.indexOf('--out /tmp/gallery-stability-1'));
+    expect(GALLERY_STABILITY.match(/npm run capture:screenshots -- --url http:\/\/127\.0\.0\.1:4399 --out \/tmp\/gallery-stability-/g)).toHaveLength(2);
+    expect(GALLERY_STABILITY.indexOf('id: serve')).toBeLessThan(GALLERY_STABILITY.indexOf('--out /tmp/gallery-stability-1'));
     expect(GALLERY_STABILITY.indexOf('--out /tmp/gallery-stability-1')).toBeLessThan(GALLERY_STABILITY.indexOf('--out /tmp/gallery-stability-2'));
   });
 
@@ -415,13 +406,14 @@ describe('.github/workflows/gallery-stability.yml · scheduled double-capture by
     expect(GALLERY_STABILITY).toContain('node scripts/verify-gallery-stability.mjs --a /tmp/gallery-stability-1 --b /tmp/gallery-stability-2');
   });
 
-  it('gates the Deploy/Wait/Capture/diff steps on the Vercel env trio (5 steps)', () => {
-    // Same skip-not-fail philosophy as gallery.yml, applied to every step that
-    // needs the preview: Deploy, Wait, Capture 1, Capture 2, and the diff.
-    // Counting occurrences (not a bare toContain) catches a gate dropped on
-    // any ONE step — an ungated capture would silently hit the production
-    // URL default and churn every live cell.
-    expect(GALLERY_STABILITY.match(new RegExp(GALLERY_ENV_TRIO.replace(/[$\{\}]/g, '\\$&'), 'g'))).toHaveLength(5);
+  it('keeps the stability workflow free of any Vercel reference and wired to the local server', () => {
+    // The capture path needs nothing from Vercel since the decoupling: no
+    // VERCEL_* secret may exist anywhere, the wait loop must probe the local
+    // server, and both captures must target it.
+    expect(GALLERY_STABILITY).not.toMatch(/vercel/i);
+    expect(GALLERY_STABILITY).toContain('Wait for server to answer HTTP 200');
+    expect(GALLERY_STABILITY).toContain(`${DEMO_SERVER_URL}/command-center`);
+    expect(GALLERY_STABILITY).toContain('Demo server did not answer HTTP 200 within 300s.');
   });
 
   it('wires the Firebase env trio so the review-sheet + feed cells re-render', () => {

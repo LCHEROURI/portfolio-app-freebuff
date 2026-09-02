@@ -352,18 +352,17 @@ auth gate.
 > the light/dark pairs side by side, for local viewing without the README.
 >
 > **CI keeps it honest** — `.github/workflows/gallery.yml` runs on every pull
-> request: it deploys a Vercel **preview** of your branch, captures all 18 cells
-> from that URL (not the shared production build), and **fails the check if any
-> cell renders the auth gate or skips the app shell**. When the Firebase env
-> trio is present it also re-renders the two **Model Comparison review-sheet
-> cells** (`review-sheet-panels.png` / `review-sheet-preview.png`) through the
-> same driver the verify:review-sheet gate runs, so the print-all pair ships
-> with the gallery on every deploy. Screenshots are uploaded as a
-> `gallery-screenshots` artifact for review. Required repo secrets:
-> `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID` (from `vercel link`), and
-> `VERCEL_PROTECTION_BYPASS` (the project's Deployment Protection bypass secret,
-> sent as `x-vercel-protection-bypass` so the SSO wall doesn't block capture).
-> The job auto-skips for fork PRs, which can't access secrets.
+> request: it builds a **demo-mode production bundle** of your branch, serves it
+> locally with `next start`, captures all 18 cells from that server, and
+> **fails the check if any cell renders the auth gate or skips the app shell**.
+> When the Firebase env trio is present it also re-renders the two **Model
+> Comparison review-sheet cells** (`review-sheet-panels.png` /
+> `review-sheet-preview.png`) through the same driver the verify:review-sheet
+> gate runs, so the print-all pair ships with the gallery on every deploy.
+> Screenshots are uploaded as a `gallery-screenshots` artifact for review.
+> The route cells need **no secrets at all** (the app builds and runs with zero
+> env vars); the job auto-skips for fork PRs, which can't access the optional
+> Firebase secrets used by the review-sheet pair.
 
 ## Why it's a portfolio piece
 

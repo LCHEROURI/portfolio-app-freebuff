@@ -15,31 +15,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     # Fork PRs cannot access secrets; skip (not fail) so the check stays green
-    # for forks and only runs where a Vercel preview can actually be created.
-    # Note: `secrets` is not a valid context in job-level `if`, so the fork
-    # guard uses `github` context here and the secret-presence check happens
-    # on the steps via job env below.
+    # for forks. The 18 route cells themselves need NO secrets — they capture
+    # from a locally built demo-mode server (see below). The job-level guard
+    # remains for the review-sheet pair, which re-renders through drivers that
+    # use the Firebase env trio (secret-presence is checked on the steps).
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository }}
 
     env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-      VERCEL_PROTECTION_BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
       # The review-sheet cells (Model Comparison print-all) re-render through
       # the shared verify-review-sheet.mjs driver, which needs the Firebase
-      # env trio. When a secret is absent (fork PRs) the driver skip-not-fails
-      # via capture-gallery.mjs's NOTE branch — same philosophy as the rest
-      # of the job. NOTE: these two cells intentionally capture from the
-      # PRODUCTION app (--review-sheet-app default), not this preview: the
-      # review sheet needs a signed-in owner with seeded data + live AI, which
-      # the demo-mode preview cannot provide. The 18 route cells above always
-      # come from the preview; only the review-sheet pair is production-sourced.
+      # env trio. When a secret is absent the driver skip-not-fails via
+      # capture-gallery.mjs's NOTE branch. NOTE: these two cells intentionally
+      # capture from the PRODUCTION app (--review-sheet-app default), not this
+      # server: the review sheet needs a signed-in owner with seeded data +
+      # live AI, which demo mode cannot provide. The 18 route cells always
+      # come from the local demo-mode server; only the review-sheet pair is
+      # production-sourced.
       FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
       FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
       NEXT_PUBLIC_FIREBASE_PROJECT_ID: portfolio-app-freebuff2
       # The deployed-store LIVE-flag set (source of truth: EXPECTED_LIVE_FLAGS
-      # in scripts/verify-vercel-env.mjs). Public build-time flags, safe as
+      # in scripts/verify-all.mjs). Public build-time flags, safe as
       # plain values — declares what the deployed store must carry and locks
       # the workflow to the same set the local gate asserts. The deployments-
       # feed cell (capture-deployments-feed.mjs) FAILS loudly when the live
@@ -70,71 +66,48 @@ jobs:
         with:
           chrome-version: stable
 
-      - name: Deploy preview of this branch
-        id: deploy
-        if: ${{ env.VERCEL_TOKEN != '' && env.VERCEL_ORG_ID != '' && env.VERCEL_PROJECT_ID != '' }}
-        # Remote build on purpose, NOT `--prebuilt`: a prebuilt deploy uploads
-        # only source + .vercel/output, but every serverless function's
-        # .vc-config.json filePathMap references ROOT node_modules files
-        # (styled-jsx, react, next/dist ...) that the upload excludes
-        # (.vercelignore drops node_modules), so Vercel's "Deploying outputs"
-        # phase dies with ENOENT lstat node_modules/styled-jsx/index.js.
-        # A remote build installs node_modules on the build machine before the
-        # outputs are processed — the same path production uses (proven green).
-        # The preview environment carries no Firebase/LIVE vars (all project
-        # env vars are production-only), so the remote preview build renders
-        # the demo-mode shell the route cells capture.
-        run: |
-          npx --yes vercel pull --yes --environment=preview --token="$VERCEL_TOKEN"
-          # The final CLI line is the "run vercel --prod" hint, not the URL, so
-          # extract the preview URL from the output instead of tail -1. The
-          # production host is filtered out defensively (it appears without a
-          # scheme on the hint line, but never rely on that).
-          URL="$(npx --yes vercel deploy --yes --token="$VERCEL_TOKEN" 2>&1 | grep -oE 'https://[a-z0-9-]+\.vercel\.app' | grep -vE 'https://portfolio-app-freebuff\.vercel\.app' | tail -1)"
-          echo "Preview URL: $URL"
-          echo "url=$URL" >> "$GITHUB_OUTPUT"
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      # Demo-mode server: the app builds and runs with ZERO env vars and
+      # renders the demo-mode shell the route cells capture. No deploy
+      # provider, no deploy credentials, no protection-bypass header, no
+      # remote-build flakiness — and car-app-only PRs need no deploy-provider
+      # credential just to screenshot the README gallery.
+      - name: Build demo-mode production bundle
+        run: npm run build
 
-      - name: Wait for preview to answer HTTP 200
-        if: ${{ env.VERCEL_TOKEN != '' && env.VERCEL_ORG_ID != '' && env.VERCEL_PROJECT_ID != '' }}
+      - name: Start demo-mode server
+        id: serve
         run: |
-          args=(-s -o /dev/null -m 15 -w '%{http_code}' -L)
-          if [ -n "$BYPASS" ]; then
-            args+=(-H "x-vercel-protection-bypass: $BYPASS")
-          fi
+          npx next start -p 4399 > /tmp/demo-server.log 2>&1 &
+          echo "pid=$!" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for server to answer HTTP 200
+        run: |
           for i in $(seq 1 30); do
-            code="$(curl "${args[@]}" "$PREVIEW_URL/command-center" || true)"
+            code="$(curl -s -o /dev/null -m 15 -w '%{http_code}' -L http://127.0.0.1:4399/command-center || true)"
             echo "attempt $i: HTTP $code"
             [ "$code" = "200" ] && exit 0
             sleep 10
           done
-          echo "Preview did not answer HTTP 200 within 300s." >&2
+          echo "Demo server did not answer HTTP 200 within 300s. Log:" >&2
+          tail -50 /tmp/demo-server.log >&2
           exit 1
-        env:
-          PREVIEW_URL: ${{ steps.deploy.outputs.url }}
-          BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
 
       - name: Capture gallery (fails if any cell does not render the app shell)
-        if: ${{ env.VERCEL_TOKEN != '' && env.VERCEL_ORG_ID != '' && env.VERCEL_PROJECT_ID != '' }}
-        run: |
-          args=(--url "$PREVIEW_URL")
-          if [ -n "$BYPASS" ]; then
-            args+=(--header "x-vercel-protection-bypass: $BYPASS")
-            echo "Using Vercel protection-bypass header for capture."
-          fi
-          npm run capture:screenshots -- "${args[@]}"
+        run: npm run capture:screenshots -- --url http://127.0.0.1:4399
         env:
-          PREVIEW_URL: ${{ steps.deploy.outputs.url }}
-          BYPASS: ${{ secrets.VERCEL_PROTECTION_BYPASS }}
           CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+
+      - name: Stop demo-mode server
+        if: always()
+        run: |
+          PID="${{ steps.serve.outputs.pid }}"
+          [ -n "$PID" ] && kill "$PID" 2>/dev/null || true
 
       - name: Render onboarding docs to PNG
         # Local-file render of README Handoff + docs/launch.md §4 into
-        # screenshots/ — no deployed URL, no secrets, no network. Deliberately
-        # NOT gated on the Vercel env trio (unlike the gallery steps above), so
-        # the onboarding visuals ship in the artifact even when the preview
-        # steps skip (fork PR, missing secrets). Writes into the same
+        # screenshots/ — no deployed URL, no secrets, no network. Runs
+        # unconditionally so the onboarding visuals ship in the artifact
+        # even when the demo-mode capture above fails. Writes into the same
         # screenshots/ dir the upload step collects.
         run: npm run capture:docs
         env:
