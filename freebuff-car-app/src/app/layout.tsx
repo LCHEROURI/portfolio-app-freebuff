@@ -28,35 +28,9 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // Build provenance baked at build time. Two sources: NEXT_PUBLIC_COMMIT_SHA
-  // from .env.production (written by the deploy workflow before it uploads the
-  // source, so the value survives App Hosting's CLOUD build where plain env
-  // does not), or COMMIT_SHA from a local build. "dev" otherwise.
-  const rawSha =
-    process.env.NEXT_PUBLIC_COMMIT_SHA || process.env.COMMIT_SHA || 'dev';
-  const commitSha = rawSha.slice(0, 7);
-
   return (
     <html lang="en">
-      <body>
-        {children}
-        <footer
-          data-commit={commitSha}
-          style={{
-            position: 'fixed',
-            bottom: 0,
-            right: 0,
-            zIndex: 50,
-            padding: '2px 8px',
-            fontFamily: 'monospace',
-            fontSize: 11,
-            color: 'rgba(0,0,0,0.35)',
-            pointerEvents: 'none',
-          }}
-        >
-          build {commitSha}
-        </footer>
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

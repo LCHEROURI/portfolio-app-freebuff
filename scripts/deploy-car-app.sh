@@ -38,13 +38,27 @@ API="https://firebaseapphosting.googleapis.com/v1beta"
 # by the workflow's activate step; locally: the developer's user ADC).
 auth() { curl -sfS -m 60 -H "Authorization: Bearer $(gcloud auth print-access-token)" "$@"; }
 
-# ── 1. Bake the commit into the source, then zip it (respects .gitignore) ──
+# ── 1. Build id — same scheme as the CLI (build-YYYY-MM-DD-NNN). Computed
+# FIRST so it can be baked into the app itself (the /api/version endpoint
+# reports it). The CLI derives the next suffix from BOTH the rollouts and
+# builds lists; scanning builds alone collides with existing ids (400).
+TODAY="$(date -u +%Y-%m-%d)"
+LAST_ID="$( { auth "$API/projects/$PROJECT/locations/$LOCATION/backends/$BACKEND/builds?pageSize=100"; \
+              auth "$API/projects/$PROJECT/locations/$LOCATION/backends/$BACKEND/rollouts?pageSize=100"; } \
+  | jq -s -r --arg t "$TODAY" '[ .[] | (.builds[]?, .rollouts[]?) | select(.name | test("build-" + $t + "-(\\d+)$")) | .name | capture("-(?<n>[0-9]+)$").n | tonumber ] | max // 0')"
+NEXT_N="$(printf '%03d' "$((LAST_ID + 1))")"
+BUILD_ID="build-${TODAY}-${NEXT_N}"
+echo "build id: $BUILD_ID"
+
+# ── 2. Bake provenance into the source, then zip it (respects .gitignore) ──
 # App Hosting builds in the CLOUD from this archive; NEXT_PUBLIC_* values in
 # .env.production are inlined by Next.js during that build (the runner env is
-# long gone by then). The file holds only a public SHA and is deliberately
-# NOT gitignored — firebase-tools packages uploads with supportGitIgnore:
-# true, so an ignored file would be silently excluded.
-printf 'NEXT_PUBLIC_COMMIT_SHA=%s\n' "$GITHUB_SHA" > "$CAR_APP_DIR/.env.production"
+# long gone by then). The /api/version endpoint reports these. The file holds
+# only public values and is deliberately NOT gitignored — firebase-tools
+# packages uploads with supportGitIgnore: true, so an ignored file would be
+# silently excluded.
+printf 'NEXT_PUBLIC_COMMIT_SHA=%s\nNEXT_PUBLIC_ROLLOUT_ID=%s\nNEXT_PUBLIC_DEPLOYED_AT=%s\n' \
+  "$GITHUB_SHA" "$BUILD_ID" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$CAR_APP_DIR/.env.production"
 
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
 ZIP="/tmp/car-app-src-${STAMP}-${GITHUB_SHA::7}.zip"
@@ -61,17 +75,6 @@ STORAGE_URI="gs://$BUCKET/$OBJECT"
 
 cleanup() { rm -f "$ZIP"; }
 trap cleanup EXIT
-
-# ── 3. Build id — same scheme as the CLI (build-YYYY-MM-DD-NNN). The CLI
-# derives the next suffix from BOTH the rollouts and builds lists; scanning
-# builds alone collides with existing ids (400).
-TODAY="$(date -u +%Y-%m-%d)"
-LAST_ID="$( { auth "$API/projects/$PROJECT/locations/$LOCATION/backends/$BACKEND/builds?pageSize=100"; \
-              auth "$API/projects/$PROJECT/locations/$LOCATION/backends/$BACKEND/rollouts?pageSize=100"; } \
-  | jq -s -r --arg t "$TODAY" '[ .[] | (.builds[]?, .rollouts[]?) | select(.name | test("build-" + $t + "-(\\d+)$")) | .name | capture("-(?<n>[0-9]+)$").n | tonumber ] | max // 0')"
-NEXT_N="$(printf '%03d' "$((LAST_ID + 1))")"
-BUILD_ID="build-${TODAY}-${NEXT_N}"
-echo "build id: $BUILD_ID"
 
 COMMIT_URL="${COMMIT_URL:-https://github.com/LCHEROURI/portfolio-app-freebuff/commit/$GITHUB_SHA}"
 
