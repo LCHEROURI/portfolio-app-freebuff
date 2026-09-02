@@ -198,7 +198,7 @@ export default function LeaseMatrix({ onComplete }: { onComplete?: () => void } 
                 step="any"
                 value={input.newPrice}
                 onChange={(e) => update('newPrice', e.target.value)}
-                className="block w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="block w-full rounded-lg border border-ink-200 bg-white pl-7 pr-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 placeholder="30000"
               />
             </div>
@@ -214,7 +214,7 @@ export default function LeaseMatrix({ onComplete }: { onComplete?: () => void } 
                 step="any"
                 value={input.newDown}
                 onChange={(e) => update('newDown', e.target.value)}
-                className="block w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="block w-full rounded-lg border border-ink-200 bg-white pl-7 pr-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 placeholder="5000"
               />
             </div>
@@ -264,7 +264,7 @@ export default function LeaseMatrix({ onComplete }: { onComplete?: () => void } 
                 step="any"
                 value={input.leaseMonthly}
                 onChange={(e) => update('leaseMonthly', e.target.value)}
-                className="block w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="block w-full rounded-lg border border-ink-200 bg-white pl-7 pr-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 placeholder="400"
               />
             </div>
@@ -280,7 +280,7 @@ export default function LeaseMatrix({ onComplete }: { onComplete?: () => void } 
                 step="any"
                 value={input.leaseDueAtSigning}
                 onChange={(e) => update('leaseDueAtSigning', e.target.value)}
-                className="block w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="block w-full rounded-lg border border-ink-200 bg-white pl-7 pr-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 placeholder="2500"
               />
             </div>
@@ -329,7 +329,7 @@ export default function LeaseMatrix({ onComplete }: { onComplete?: () => void } 
                 step="any"
                 value={input.usedPrice}
                 onChange={(e) => update('usedPrice', e.target.value)}
-                className="block w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="block w-full rounded-lg border border-ink-200 bg-white pl-7 pr-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 placeholder="20000"
               />
             </div>
@@ -345,7 +345,7 @@ export default function LeaseMatrix({ onComplete }: { onComplete?: () => void } 
                 step="any"
                 value={input.usedDown}
                 onChange={(e) => update('usedDown', e.target.value)}
-                className="block w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="block w-full rounded-lg border border-ink-200 bg-white pl-7 pr-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 placeholder="3000"
               />
             </div>

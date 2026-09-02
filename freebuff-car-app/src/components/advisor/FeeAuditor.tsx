@@ -107,7 +107,7 @@ export default function FeeAuditor({ onComplete, onSaveData }: Props = {}) {
               step="any"
               value={state.docFee}
               onChange={(e) => update('docFee', e.target.value)}
-              className={`block w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 ${errors.docFee ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-ink-200'}`}
+              className={`block w-full rounded-lg border bg-white pl-7 pr-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 ${errors.docFee ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-ink-200'}`}
               placeholder="129"
               aria-invalid={!!errors.docFee}
               aria-describedby={errors.docFee ? 'docFee-error' : undefined}
@@ -132,7 +132,7 @@ export default function FeeAuditor({ onComplete, onSaveData }: Props = {}) {
               step="any"
               value={state.titleRegistration}
               onChange={(e) => update('titleRegistration', e.target.value)}
-              className={`block w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 ${errors.titleRegistration ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-ink-200'}`}
+              className={`block w-full rounded-lg border bg-white pl-7 pr-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 ${errors.titleRegistration ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-ink-200'}`}
               placeholder="345"
               aria-invalid={!!errors.titleRegistration}
               aria-describedby={errors.titleRegistration ? 'titleRegistration-error' : undefined}

@@ -125,7 +125,7 @@ export default function IntakeForm({ onComplete, onSaveData }: Props = {}) {
             step="any"
             value={state.monthlyBudget}
             onChange={(e) => update('monthlyBudget', e.target.value)}
-            className={`block w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 ${errors.monthlyBudget ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-ink-200'}`}
+            className={`block w-full rounded-lg border bg-white pl-7 pr-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 ${errors.monthlyBudget ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-ink-200'}`}
             placeholder="4500"
             aria-invalid={!!errors.monthlyBudget}
             aria-describedby={errors.monthlyBudget ? 'monthlyBudget-error' : undefined}
@@ -150,7 +150,7 @@ export default function IntakeForm({ onComplete, onSaveData }: Props = {}) {
             step="any"
             value={state.downPayment}
             onChange={(e) => update('downPayment', e.target.value)}
-            className={`block w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 ${errors.downPayment ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-ink-200'}`}
+            className={`block w-full rounded-lg border bg-white pl-7 pr-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 ${errors.downPayment ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-ink-200'}`}
             placeholder="5000"
             aria-invalid={!!errors.downPayment}
             aria-describedby={errors.downPayment ? 'downPayment-error' : undefined}

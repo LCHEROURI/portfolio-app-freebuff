@@ -98,7 +98,8 @@ curl -s …/api/version | jq -e '.commit != null'   # 0 = deployed build serving
 ## 4. Where alerts land
 
 One shared **`deploy-failure`-labeled GitHub issue** is the single alert
-channel (repo owner is assigned → GitHub emails you). Two producers feed it:
+channel (repo owner is assigned → a notification lands in your GitHub
+inbox). Two producers feed it:
 
 | Producer | Catches | Recovery |
 |---|---|---|
