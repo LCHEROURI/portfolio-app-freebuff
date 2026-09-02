@@ -12,6 +12,9 @@
 #   - SERVING-level failures the rollout API cannot see: the live /api/version
 #     endpoint is unreachable, returns non-200/non-JSON, or reports a null
 #     commit (App Hosting says SUCCEEDED but traffic is broken)
+#   - APP-LAYER degradation: /status must report "All checks passed" — its
+#     loopback self-check catches in-process failures (e.g. a route 500ing)
+#     that a 200 from /api/version alone cannot
 #
 # This script classifies the NEWEST rollout and prints the verdict:
 #
@@ -107,6 +110,19 @@ if [ "$HTTP_CODE" != "200" ] || [ -z "$VERSION_COMMIT" ]; then
 fi
 echo "serving check: $VERSION_URL returned commit $VERSION_COMMIT (HTTP $HTTP_CODE)"
 
+# ── App-layer check: /status must report its self-check as passing ──────────
+# /status runs a loopback self-check inside the serving process (endpoint
+# answers AND self-reports THIS build). A rollout can serve /api/version
+# fine while another route is broken; the page verdict catches that class.
+STATUS_URL="${STATUS_URL:-https://freebuff-car-app--portfolio-app-freebuff2.us-central1.hosted.app/status}"
+STATUS_HTML="$(curl -sS -m 30 "$STATUS_URL" 2>&1 || true)"
+if ! printf '%s' "$STATUS_HTML" | grep -q 'All checks passed'; then
+  echo "outcome=degraded"
+  echo "detail=$STATUS_URL does not report 'All checks passed' — the app's own self-check is failing while the rollout API reports healthy"
+  exit 0
+fi
+echo "app-layer check: $STATUS_URL reports All checks passed"
+
 # ── Staleness: does the live rollout serve main's latest car-app commit? ────
 # Only meaningful when the rollout carries a commit-sha label (all rollouts
 # created by scripts/deploy-car-app.sh do). Compare against the last commit
@@ -127,4 +143,4 @@ if [ -n "$LIVE_SHA" ] && [ -n "${GH_TOKEN:-}" ] && [ -n "${GITHUB_REPOSITORY:-}"
 fi
 
 echo "outcome=healthy"
-echo "detail=rollout $ROLLOUT_ID SUCCEEDED, $VERSION_URL self-reports commit ${VERSION_COMMIT}, and it serves the latest car-app commit ${LIVE_SHA:+(${LIVE_SHA::7})}"
+echo "detail=rollout $ROLLOUT_ID SUCCEEDED, $VERSION_URL self-reports commit ${VERSION_COMMIT}, /status reports All checks passed, and it serves the latest car-app commit ${LIVE_SHA:+(${LIVE_SHA::7})}"

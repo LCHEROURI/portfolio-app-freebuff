@@ -103,7 +103,7 @@ channel (repo owner is assigned → GitHub emails you). Two producers feed it:
 | Producer | Catches | Recovery |
 |---|---|---|
 | `deploy-car-app.yml` → `notify-failure` | its own deploy run failing | `notify-success` auto-closes on the next successful deploy |
-| `rollout-health.yml` (every 30 min + dispatch) | FAILED rollouts from *any* source (native git rollouts, manual CLI), rollouts stuck `PROGRESSING` > 25 min, **stale** deploys (main's last car-app commit newer than what the live rollout serves), and **serving-level failures the rollout API can't see** — the live `/api/version` unreachable, non-200/non-JSON, or a null commit (`unprovenanced`) | same issue auto-closed when the watch classifies `healthy` |
+| `rollout-health.yml` (every 30 min + dispatch) | FAILED rollouts from *any* source (native git rollouts, manual CLI), rollouts stuck `PROGRESSING` > 25 min, **stale** deploys (main's last car-app commit newer than what the live rollout serves), and **serving- or app-level failures the rollout API can't see** — the live `/api/version` unreachable, non-200/non-JSON, or a null commit (`unprovenanced`), or `/status` not reporting its self-check as passing (`degraded`, catching in-process app failures a bare 200 cannot) | same issue auto-closed when the watch classifies `healthy` |
 
 Design rules: only one open `deploy-failure` issue exists at a time (new
 failures comment on it); a run cancelled by a newer push never alerts (the
