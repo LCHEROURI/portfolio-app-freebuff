@@ -13,7 +13,7 @@ export default function HomePage() {
             </div>
             <div>
               <p className="text-sm font-semibold text-navy-900">Buy Smart with Larry</p>
-              <p className="text-xs text-ink-500">Independent car purchase advisor · v1.0</p>
+              <p className="text-xs text-ink-500">Independent car purchase advisor · v1.1</p>
             </div>
           </div>
           <nav className="flex items-center gap-4 text-sm font-medium text-ink-600">
