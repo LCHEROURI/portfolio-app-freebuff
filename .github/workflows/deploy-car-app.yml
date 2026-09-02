@@ -92,19 +92,29 @@ jobs:
           npx firebase-tools@latest deploy --only apphosting --project portfolio-app-freebuff2 --non-interactive --force
 
       # The CLI's deploy output is not machine-stable, so resolve the rollout
-      # from the App Hosting API instead: its list is newest-first, so the
-      # top entry (which must be SUCCEEDED) is the rollout this deploy made.
+      # from the App Hosting API instead. CAUTION: the rollouts list is NOT
+      # newest-first (observed: build-008 sorted after 006/005/004), so "top
+      # entry" would be wrong. Filter to rollouts created in the last 10
+      # minutes (this deploy just ran for several minutes) and take the
+      # newest of those, requiring SUCCEEDED.
       - name: Resolve the Firebase rollout this deploy created
         run: |
           set -euo pipefail
           TOKEN="$(gcloud auth print-access-token)"
+          CUTOFF="$(date -u -d '10 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
           ROLLOUTS="$(curl -sfS -m 30 -H "Authorization: Bearer $TOKEN" \
-            "https://firebaseapphosting.googleapis.com/v1beta/projects/portfolio-app-freebuff2/locations/us-central1/backends/freebuff-car-app/rollouts?pageSize=1")"
-          ROLLOUT_NAME="$(printf '%s' "$ROLLOUTS" | jq -r '.rollouts[0].name')"
-          ROLLOUT_STATE="$(printf '%s' "$ROLLOUTS" | jq -r '.rollouts[0].state')"
-          ROLLOUT_CREATE="$(printf '%s' "$ROLLOUTS" | jq -r '.rollouts[0].createTime')"
+            "https://firebaseapphosting.googleapis.com/v1beta/projects/portfolio-app-freebuff2/locations/us-central1/backends/freebuff-car-app/rollouts?pageSize=50")"
+          SELECTED="$(printf '%s' "$ROLLOUTS" | jq -r --arg cutoff "$CUTOFF" \
+            '[.rollouts[] | select(.createTime >= $cutoff)] | sort_by(.createTime) | reverse | .[0] // empty')"
+          if [ -z "$SELECTED" ]; then
+            echo "No rollout created since $CUTOFF — deploy did not register" >&2
+            exit 1
+          fi
+          ROLLOUT_NAME="$(printf '%s' "$SELECTED" | jq -r '.name')"
+          ROLLOUT_STATE="$(printf '%s' "$SELECTED" | jq -r '.state')"
+          ROLLOUT_CREATE="$(printf '%s' "$SELECTED" | jq -r '.createTime')"
           if [ "$ROLLOUT_STATE" != "SUCCEEDED" ]; then
-            echo "Latest rollout $ROLLOUT_NAME is $ROLLOUT_STATE — deploy did not complete" >&2
+            echo "Rollout $ROLLOUT_NAME is $ROLLOUT_STATE — deploy did not complete" >&2
             exit 1
           fi
           echo "ROLLOUT_NAME=$ROLLOUT_NAME" >> "$GITHUB_ENV"
