@@ -94,3 +94,13 @@ jobs:
         if: steps.detect.outputs.changed == 'true'
         working-directory: freebuff-car-app
         run: npx next build
+
+      # End-to-end provenance check: builds with deploy metadata baked in
+      # (the same NEXT_PUBLIC_* values scripts/deploy-car-app.sh writes for
+      # real Firebase rollouts), serves the production build, and asserts
+      # /api/version matches the commit and /status reports all checks
+      # passed. Catches serving-level regressions the unit suite cannot see.
+      - name: E2E provenance (version endpoint + status page)
+        if: steps.detect.outputs.changed == 'true'
+        working-directory: freebuff-car-app
+        run: npm run test:e2e

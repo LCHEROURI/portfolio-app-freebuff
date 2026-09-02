@@ -19,6 +19,8 @@ yarn-error.log*
 .env
 .env.local
 .env.*.local
+# generated build provenance (written by deploy script / e2e, never committed)
+.env.production
 
 # typescript
 *.tsbuildinfo
