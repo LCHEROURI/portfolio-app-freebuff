@@ -1,0 +1,55 @@
+# Car-app CI: runs freebuff-car-app's own typecheck, jest suite, and build on
+# every push (and PRs touching the car app) so regressions fail in CI before
+# any deploy. The parent app's CI covers the parent; this job covers the car
+# app, which is a self-contained project with its own toolchain.
+name: Car app CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'freebuff-car-app/**'
+      - '.github/workflows/car-app-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'freebuff-car-app/**'
+      - '.github/workflows/car-app-ci.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  group: car-app-ci-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
+
+jobs:
+  verify:
+    name: Typecheck · Test · Build (freebuff-car-app)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: freebuff-car-app/package-lock.json
+
+      - name: Install dependencies
+        working-directory: freebuff-car-app
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: freebuff-car-app
+        run: npx tsc --noEmit
+
+      - name: Test
+        working-directory: freebuff-car-app
+        run: npx jest --ci
+
+      - name: Build
+        working-directory: freebuff-car-app
+        run: npx next build

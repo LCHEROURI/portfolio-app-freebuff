@@ -1,0 +1,66 @@
+# Car-app deploy: builds and deploys freebuff-car-app to its Firebase App
+# Hosting backend (freebuff-car-app, project portfolio-app-freebuff2) whenever
+# car-app files change on main. Local-source deploy — no GitHub connection on
+# the backend is needed (App Hosting repo links can only be created in the
+# Firebase Console).
+#
+# Auth: reuses the repo's FIREBASE_SERVICE_ACCOUNT secret (a full service
+# account JSON key). The key is written to a temp file and handed to the
+# firebase CLI via GOOGLE_APPLICATION_CREDENTIALS for this step only.
+name: Deploy car app
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'freebuff-car-app/**'
+      - '.github/workflows/deploy-car-app.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-car-app-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build & deploy freebuff-car-app
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: freebuff-car-app/package-lock.json
+
+      - name: Install dependencies
+        working-directory: freebuff-car-app
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: freebuff-car-app
+        run: npx tsc --noEmit
+
+      - name: Test
+        working-directory: freebuff-car-app
+        run: npx jest --ci
+
+      - name: Build
+        working-directory: freebuff-car-app
+        run: npx next build
+
+      - name: Deploy to Firebase App Hosting
+        working-directory: freebuff-car-app
+        run: |
+          KEY_FILE="$(mktemp)"
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$KEY_FILE"
+          export GOOGLE_APPLICATION_CREDENTIALS="$KEY_FILE"
+          npx firebase-tools@latest deploy --only apphosting --project portfolio-app-freebuff2 --non-interactive --force
+          rm -f "$KEY_FILE"
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
