@@ -31,8 +31,6 @@ next-env.d.ts
 functions/lib
 functions/node_modules
 
-# local scan artifacts
+# local scan artifacts (parent app only — the car app has its own src/data)
 data/
-
-# Freebuff app local data (conversation DB, tool logs — never commit)
-.freebuff/
+!freebuff-car-app/src/data/
