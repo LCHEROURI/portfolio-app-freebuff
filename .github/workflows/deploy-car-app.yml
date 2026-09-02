@@ -29,6 +29,7 @@ on:
 permissions:
   contents: read
   issues: write
+  deployments: write
 
 concurrency:
   group: deploy-car-app-${{ github.ref }}
@@ -39,6 +40,10 @@ jobs:
     name: Build & deploy freebuff-car-app
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # Baked into the app at build time (footer "build <sha>") so the live
+      # site self-describes which commit is serving.
+      COMMIT_SHA: ${{ github.sha }}
 
     steps:
       - name: Check out repository
@@ -67,16 +72,78 @@ jobs:
         working-directory: freebuff-car-app
         run: npx next build
 
-      - name: Deploy to Firebase App Hosting
-        working-directory: freebuff-car-app
-        run: |
-          KEY_FILE="$(mktemp)"
-          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > "$KEY_FILE"
-          export GOOGLE_APPLICATION_CREDENTIALS="$KEY_FILE"
-          npx firebase-tools@latest deploy --only apphosting --project portfolio-app-freebuff2 --non-interactive --force
-          rm -f "$KEY_FILE"
+      # One key file for the whole job: gcloud (for API calls below) and
+      # firebase-tools (GOOGLE_APPLICATION_CREDENTIALS) both authenticate from
+      # it. Removed in the always-run cleanup step at the bottom.
+      - name: Activate service account
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > /tmp/fb-key.json
+          chmod 600 /tmp/fb-key.json
+          gcloud auth activate-service-account --key-file=/tmp/fb-key.json
+
+      - name: Deploy to Firebase App Hosting
+        working-directory: freebuff-car-app
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: /tmp/fb-key.json
+        run: |
+          npx firebase-tools@latest deploy --only apphosting --project portfolio-app-freebuff2 --non-interactive --force
+
+      # The CLI's deploy output is not machine-stable, so resolve the rollout
+      # from the App Hosting API instead: its list is newest-first, so the
+      # top entry (which must be SUCCEEDED) is the rollout this deploy made.
+      - name: Resolve the Firebase rollout this deploy created
+        run: |
+          set -euo pipefail
+          TOKEN="$(gcloud auth print-access-token)"
+          ROLLOUTS="$(curl -sfS -m 30 -H "Authorization: Bearer $TOKEN" \
+            "https://firebaseapphosting.googleapis.com/v1beta/projects/portfolio-app-freebuff2/locations/us-central1/backends/freebuff-car-app/rollouts?pageSize=1")"
+          ROLLOUT_NAME="$(printf '%s' "$ROLLOUTS" | jq -r '.rollouts[0].name')"
+          ROLLOUT_STATE="$(printf '%s' "$ROLLOUTS" | jq -r '.rollouts[0].state')"
+          ROLLOUT_CREATE="$(printf '%s' "$ROLLOUTS" | jq -r '.rollouts[0].createTime')"
+          if [ "$ROLLOUT_STATE" != "SUCCEEDED" ]; then
+            echo "Latest rollout $ROLLOUT_NAME is $ROLLOUT_STATE — deploy did not complete" >&2
+            exit 1
+          fi
+          echo "ROLLOUT_NAME=$ROLLOUT_NAME" >> "$GITHUB_ENV"
+          echo "ROLLOUT_CREATE=$ROLLOUT_CREATE" >> "$GITHUB_ENV"
+
+      # GitHub-side provenance: a Deployment on this commit with the live URL,
+      # visible on the commit page and via the Deployments API.
+      - name: Record GitHub Deployment for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BACKEND_URL: https://freebuff-car-app--portfolio-app-freebuff2.us-central1.hosted.app
+        run: |
+          set -euo pipefail
+          DEPLOYMENT_ID="$(gh api "repos/$GITHUB_REPOSITORY/deployments" \
+            -f ref="$GITHUB_SHA" \
+            -f environment='car-app-production' \
+            -f auto_merge=false \
+            -F 'required_contexts=[]' \
+            -f description='Firebase App Hosting rollout' --jq '.id')"
+          gh api -X POST "repos/$GITHUB_REPOSITORY/deployments/$DEPLOYMENT_ID/statuses" \
+            -f state=success \
+            -f environment_url="$BACKEND_URL" \
+            -f log_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
+      - name: Write deploy summary
+        run: |
+          {
+            echo "## Car-app deploy ✓"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Commit | \`${GITHUB_SHA::7}\` |"
+            echo "| Firebase rollout | \`${ROLLOUT_NAME##*/}\` (created $ROLLOUT_CREATE) |"
+            echo "| Live URL | https://freebuff-car-app--portfolio-app-freebuff2.us-central1.hosted.app |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove key file
+        if: always()
+        run: rm -f /tmp/fb-key.json
 
   notify-failure:
     name: Alert on failed deployment
