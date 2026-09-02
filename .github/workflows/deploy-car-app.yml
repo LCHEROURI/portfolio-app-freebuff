@@ -1,12 +1,14 @@
 # Car-app deploy: builds and deploys freebuff-car-app to its Firebase App
 # Hosting backend (freebuff-car-app, project portfolio-app-freebuff2) whenever
-# car-app files change on main. Local-source deploy — no GitHub connection on
-# the backend is needed (App Hosting repo links can only be created in the
-# Firebase Console).
+# car-app files change on main. Deploys run scripts/deploy-car-app.sh, which
+# performs the same steps as `firebase deploy --only apphosting` but labels
+# the build and rollout with the commit SHA and run URL, so the rollout
+# history in the Firebase Console is self-describing (no Console repo link
+# needed).
 #
 # Auth: reuses the repo's FIREBASE_SERVICE_ACCOUNT secret (a full service
-# account JSON key). The key is written to a temp file and handed to the
-# firebase CLI via GOOGLE_APPLICATION_CREDENTIALS for this step only.
+# account JSON key). The key is written to a temp file and used to activate
+# the service account for gcloud (API calls in the deploy script).
 #
 # Failure alerting: when the deploy job fails, notify-failure files (or
 # updates) a single open issue labeled deploy-failure — the repo owner is
@@ -40,10 +42,6 @@ jobs:
     name: Build & deploy freebuff-car-app
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      # Baked into the app at build time (footer "build <sha>") so the live
-      # site self-describes which commit is serving.
-      COMMIT_SHA: ${{ github.sha }}
 
     steps:
       - name: Check out repository
@@ -84,55 +82,13 @@ jobs:
           chmod 600 /tmp/fb-key.json
           gcloud auth activate-service-account --key-file=/tmp/fb-key.json
 
-      # App Hosting rebuilds in the CLOUD from the uploaded source, where the
-      # runner's env vars do not exist — so the commit SHA travels inside the
-      # source itself: .env.production is written before deploy and Next.js
-      # inlines NEXT_PUBLIC_* values during that cloud build.
-      - name: Bake commit SHA into the uploaded source
-        working-directory: freebuff-car-app
-        run: printf 'NEXT_PUBLIC_COMMIT_SHA=%s\n' "$GITHUB_SHA" > .env.production
-
-      - name: Deploy to Firebase App Hosting
-        working-directory: freebuff-car-app
+      - name: Deploy to Firebase App Hosting (labeled rollout)
         env:
           GOOGLE_APPLICATION_CREDENTIALS: /tmp/fb-key.json
-        run: |
-          npx firebase-tools@latest deploy --only apphosting --project portfolio-app-freebuff2 --non-interactive --force
-
-      # The CLI's deploy output is not machine-stable, so resolve the rollout
-      # from the App Hosting API instead. Two pitfalls handled here: the
-      # rollouts list is NOT newest-first (observed: build-008 sorted after
-      # 006/005/004), and the CLI can exit while the rollout is still
-      # PROGRESSING (observed on run 33631196455) — so filter to rollouts
-      # created in the last 12 minutes, then POLL until the newest one
-      # reaches a terminal state (up to ~8 minutes).
-      - name: Resolve the Firebase rollout this deploy created
-        run: |
-          set -euo pipefail
-          CUTOFF="$(date -u -d '12 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
-          SELECTED=""
-          STATE=""
-          for _ in $(seq 1 32); do
-            TOKEN="$(gcloud auth print-access-token)"
-            ROLLOUTS="$(curl -sfS -m 30 -H "Authorization: Bearer $TOKEN" \
-              "https://firebaseapphosting.googleapis.com/v1beta/projects/portfolio-app-freebuff2/locations/us-central1/backends/freebuff-car-app/rollouts?pageSize=50")"
-            SELECTED="$(printf '%s' "$ROLLOUTS" | jq -r --arg cutoff "$CUTOFF" \
-              '[.rollouts[] | select(.createTime >= $cutoff)] | sort_by(.createTime) | reverse | .[0] // empty')"
-            STATE="$(printf '%s' "$SELECTED" | jq -r '.state // empty')"
-            case "$STATE" in
-              SUCCEEDED) break ;;
-              PROGRESSING|"") echo "rollout state: ${STATE:-none-yet} — waiting 15s"; sleep 15 ;;
-              *) echo "Rollout reached terminal failure state: $STATE" >&2; exit 1 ;;
-            esac
-          done
-          if [ -z "$SELECTED" ] || [ "$STATE" != "SUCCEEDED" ]; then
-            echo "No SUCCEEDED rollout within 8 minutes (last state: ${STATE:-none})" >&2
-            exit 1
-          fi
-          ROLLOUT_NAME="$(printf '%s' "$SELECTED" | jq -r '.name')"
-          ROLLOUT_CREATE="$(printf '%s' "$SELECTED" | jq -r '.createTime')"
-          echo "ROLLOUT_NAME=$ROLLOUT_NAME" >> "$GITHUB_ENV"
-          echo "ROLLOUT_CREATE=$ROLLOUT_CREATE" >> "$GITHUB_ENV"
+          GITHUB_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
+        run: bash scripts/deploy-car-app.sh
 
       # GitHub-side provenance: a Deployment on this commit with the live URL,
       # visible on the commit page and via the Deployments API. Bookkeeping
