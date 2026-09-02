@@ -1,0 +1,138 @@
+{
+  "vehicles": [
+    {
+      "id": "toyota-camry-2025",
+      "make": "Toyota",
+      "model": "Camry",
+      "year": 2025,
+      "trim": "LE",
+      "msrp": 28595,
+      "invoice": 26800,
+      "annualMileage": 12000,
+      "fuelEconomyCity": 28,
+      "fuelEconomyHwy": 41,
+      "fuelEconomyCombined": 33,
+      "seating": 5,
+      "drive": "fwd",
+      "safetyRating": "IIHS Top Safety Pick+",
+      "tech": ["Apple CarPlay", "Android Auto", "Toyota Safety Sense 3.0"],
+      "warrantyYears": 3,
+      "warrantyMileage": 36000,
+      "powertrainYears": 5,
+      "powertrainMileage": 60000,
+      "image": "/images/vehicles/camry.jpg"
+    },
+    {
+      "id": "honda-civic-2025",
+      "make": "Honda",
+      "model": "Civic",
+      "year": 2025,
+      "trim": "EX",
+      "msrp": 26295,
+      "invoice": 24700,
+      "annualMileage": 12000,
+      "fuelEconomyCity": 31,
+      "fuelEconomyHwy": 40,
+      "fuelEconomyCombined": 35,
+      "seating": 5,
+      "drive": "fwd",
+      "safetyRating": "IIHS Top Safety Pick+",
+      "tech": ["Apple CarPlay", "Android Auto", "Honda Sensing"],
+      "warrantyYears": 3,
+      "warrantyMileage": 36000,
+      "powertrainYears": 5,
+      "powertrainMileage": 60000,
+      "image": "/images/vehicles/civic.jpg"
+    },
+    {
+      "id": "subaru-outback-2025",
+      "make": "Subaru",
+      "model": "Outback",
+      "year": 2025,
+      "trim": "Premium",
+      "msrp": 32495,
+      "invoice": 30100,
+      "annualMileage": 12000,
+      "fuelEconomyCity": 26,
+      "fuelEconomyHwy": 33,
+      "fuelEconomyCombined": 29,
+      "seating": 5,
+      "drive": "awd",
+      "safetyRating": "IIHS Top Safety Pick+",
+      "tech": ["Apple CarPlay", "Android Auto", "Subaru EyeSight"],
+      "warrantyYears": 3,
+      "warrantyMileage": 36000,
+      "powertrainYears": 5,
+      "powertrainMileage": 60000,
+      "image": "/images/vehicles/outback.jpg"
+    }
+  ],
+  "tradeIns": [
+    {
+      "id": "2019-camry",
+      "make": "Toyota",
+      "model": "Camry",
+      "year": 2019,
+      "mileage": 48000,
+      "condition": "good",
+      "tradeValue": 14500,
+      "payoff": 0
+    },
+    {
+      "id": "2020-civic-upside-down",
+      "make": "Honda",
+      "model": "Civic",
+      "year": 2020,
+      "mileage": 35000,
+      "condition": "fair",
+      "tradeValue": 12000,
+      "payoff": 14500
+    }
+  ],
+  "dealerQuotes": [
+    {
+      "id": "toyota-dealer-a",
+      "dealerName": "Toyota of Midtown",
+      "vehicleId": "toyota-camry-2025",
+      "sellingPrice": 28595,
+      "docFee": 129,
+      "titleRegistration": 345,
+      "taxRate": 7.5,
+      "addOns": ["Fabric Protection", "Nitrogen Tires", "Glass Etching"]
+    },
+    {
+      "id": "clean-quote",
+      "dealerName": "Big City Honda",
+      "vehicleId": "honda-civic-2025",
+      "sellingPrice": 26295,
+      "docFee": 99,
+      "titleRegistration": 295,
+      "taxRate": 7.0,
+      "addOns": ["Extended Warranty"]
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "Strong deal",
+      "vehicleId": "honda-civic-2025",
+      "price": 25500,
+      "downPayment": 5000,
+      "apr": 5.5,
+      "termMonths": 60,
+      "tradeInId": "2019-camry",
+      "docFee": 99,
+      "addOns": []
+    },
+    {
+      "name": "Weak deal",
+      "vehicleId": "subaru-outback-2025",
+      "price": 33500,
+      "downPayment": 2000,
+      "apr": 9.0,
+      "termMonths": 72,
+      "tradeInId": "2020-civic-upside-down",
+      "docFee": 250,
+      "addOns": ["Paint and Fabric Protection", "Nitrogen Tires", "Glass Etching", "Key Protect"]
+    }
+  ]
+}
