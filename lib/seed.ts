@@ -516,7 +516,6 @@ export const buildSeed = (): SeedBundle => ({
   profile: {
     id: uid,
     name: 'Demo Cook',
-    email: DEMO_USER_EMAIL,
     timezone: 'America/Los_Angeles',
     dailyReportEnabled: true,
     dailyReportTime: '08:00',
