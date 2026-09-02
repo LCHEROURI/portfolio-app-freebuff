@@ -1,4 +1,3 @@
-import { headers } from 'next/headers';
 import Link from 'next/link';
 
 // Human-readable twin of /api/version. Server-rendered per request so the
@@ -68,7 +67,7 @@ async function selfCheckVersion(origin: string): Promise<{
   title: string;
   detail: string;
 }> {
-  const title = 'Version endpoint answers (live self-check)';
+  const title = 'Version endpoint answers (self-check via loopback)';
   try {
     const res = await fetch(`${origin}/api/version`, {
       cache: 'no-store',
@@ -113,9 +112,14 @@ async function selfCheckVersion(origin: string): Promise<{
 }
 
 export default async function StatusPage() {
-  const h = await headers();
-  const proto = h.get('x-forwarded-proto') ?? 'http';
-  const origin = `${proto}://${h.get('host') ?? 'localhost:3000'}`;
+  // Self-check over LOOPBACK, not the public URL: the App Hosting edge
+  // 403s the runtime's own requests to its public hostname (verified in
+  // production), while external reachability of that hostname is exactly
+  // what the scheduled rollout-health watch already proves from Actions.
+  // The loopback fetch isolates what this page can attest to: the app
+  // layer of THIS process answers and self-reports its provenance.
+  const port = process.env.PORT ?? '3000';
+  const origin = `http://127.0.0.1:${port}`;
   const versionCheck = await selfCheckVersion(origin);
 
   const checks: { state: CheckState; title: string; detail: string }[] = [
