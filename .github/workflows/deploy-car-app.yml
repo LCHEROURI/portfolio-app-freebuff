@@ -81,7 +81,7 @@ jobs:
   notify-failure:
     name: Alert on failed deployment
     needs: deploy
-    if: needs.deploy.result == 'failure'
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -92,8 +92,13 @@ jobs:
       - name: Create or update the deploy-failure issue
         env:
           GH_TOKEN: ${{ github.token }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
         run: |
           set -euo pipefail
+          if [ "$DEPLOY_RESULT" != "failure" ]; then
+            echo "deploy result: $DEPLOY_RESULT — not alerting"
+            exit 0
+          fi
           SHORT_SHA="${GITHUB_SHA::7}"
           RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           COMMIT_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA"
@@ -131,7 +136,7 @@ jobs:
   notify-success:
     name: Close deploy-failure issue on recovery
     needs: deploy
-    if: needs.deploy.result == 'success'
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -139,8 +144,13 @@ jobs:
       - name: Close any open deploy-failure issue
         env:
           GH_TOKEN: ${{ github.token }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
         run: |
           set -euo pipefail
+          if [ "$DEPLOY_RESULT" != "success" ]; then
+            echo "deploy result: $DEPLOY_RESULT — nothing to close"
+            exit 0
+          fi
           EXISTING="$(gh issue list --repo "$GITHUB_REPOSITORY" --label deploy-failure --state open --limit 1 --json number --jq '.[0].number' 2>/dev/null || true)"
           if [ -n "$EXISTING" ]; then
             gh issue close "$EXISTING" --repo "$GITHUB_REPOSITORY" \
