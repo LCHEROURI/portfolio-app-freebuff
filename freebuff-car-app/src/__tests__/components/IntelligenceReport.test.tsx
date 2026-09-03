@@ -110,4 +110,32 @@ describe('IntelligenceReport', () => {
     generateReport(RICH_STATE);
     expect(screen.getByRole('button', { name: /print report/i })).toBeInTheDocument();
   });
+
+  it('offers Start Over in the generated view and shows a confirmation dialog', () => {
+    generateReport(RICH_STATE);
+    fireEvent.click(screen.getByTestId('start-over'));
+    expect(screen.getByTestId('reset-confirm')).toBeInTheDocument();
+    expect(screen.getByText(/cannot be undone/i)).toBeInTheDocument();
+  });
+
+  it('cancel keeps the generated report', () => {
+    generateReport(RICH_STATE);
+    fireEvent.click(screen.getByTestId('start-over'));
+    fireEvent.click(screen.getByTestId('reset-confirm-no'));
+    expect(screen.queryByTestId('reset-confirm')).not.toBeInTheDocument();
+    expect(screen.getByText(/Car Purchase Intelligence Report/i)).toBeInTheDocument();
+  });
+
+  it('confirm clears the report marker, resets the view, and notifies the parent', () => {
+    window.localStorage.setItem('freebuff-car-advisor-report-v1', JSON.stringify({ savedAt: 'x' }));
+    const onReset = jest.fn();
+    // Pre-set marker → the component restores straight into the generated view.
+    render(<IntelligenceReport advisor={RICH_STATE} onReset={onReset} />);
+    fireEvent.click(screen.getByTestId('start-over'));
+    fireEvent.click(screen.getByTestId('reset-confirm-yes'));
+    // Report marker gone; back at the consent gate, not the report.
+    expect(window.localStorage.getItem('freebuff-car-advisor-report-v1')).toBeNull();
+    expect(screen.getByRole('button', { name: /generate report/i })).toBeInTheDocument();
+    expect(onReset).toHaveBeenCalledTimes(1);
+  });
 });

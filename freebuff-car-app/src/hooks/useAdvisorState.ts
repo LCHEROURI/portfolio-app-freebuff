@@ -50,6 +50,10 @@ export function useAdvisorState() {
   }, [state, hydrated, cleared]);
 
   const update = useCallback((patch: Partial<AdvisorState>) => {
+    // A real user action after a reset starts a new session — re-enable
+    // persistence (reset() set `cleared` to suppress the immediate re-write
+    // of the empty default state).
+    setCleared(false);
     setState((prev) => ({ ...prev, ...patch }));
   }, []);
 

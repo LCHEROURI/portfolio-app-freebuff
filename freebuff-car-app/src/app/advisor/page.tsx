@@ -45,7 +45,7 @@ const STEP_DESCRIPTIONS: Record<Step, string> = {
 };
 
 export default function AdvisorPage() {
-  const { state: advisorState, update: updateAdvisorState, hydrated } = useAdvisorState();
+  const { state: advisorState, update: updateAdvisorState, reset: resetAdvisorState, hydrated } = useAdvisorState();
   const [step, setStep] = useState<Step>(1);
 
   // Restore the saved step once the hook has hydrated from localStorage.
@@ -103,7 +103,14 @@ export default function AdvisorPage() {
       ) : step === 10 ? (
         <DealScoreCard onComplete={() => goToStep(11)} onSaveData={saveData('dealScore')} />
       ) : (
-        <IntelligenceReport advisor={advisorState} onComplete={() => updateAdvisorState({})} />
+        <IntelligenceReport
+          advisor={advisorState}
+          onComplete={() => updateAdvisorState({})}
+          onReset={() => {
+            resetAdvisorState();
+            setStep(1);
+          }}
+        />
       )}
 
       <div className="flex items-center justify-between pt-4">
