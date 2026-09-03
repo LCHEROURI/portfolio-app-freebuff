@@ -96,7 +96,7 @@ export default function AdvisorPage() {
       {step === 1 ? (
         <IntakeForm onComplete={() => goToStep(2)} onSaveData={saveData('intake')} />
       ) : step === 2 ? (
-        <VehicleNeeds onContinue={() => goToStep(3)} />
+        <VehicleNeeds onContinue={() => goToStep(3)} intake={advisorState.intake} />
       ) : step === 3 ? (
         <FinanceCalc onComplete={() => goToStep(4)} onSaveData={saveData('finance')} />
       ) : step === 4 ? (

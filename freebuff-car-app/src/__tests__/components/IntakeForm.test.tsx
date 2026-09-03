@@ -65,9 +65,58 @@ describe('IntakeState shape', () => {
       monthlyBudget: '4500',
       downPayment: '5000',
       creditRange: 'good' as CreditRange,
+      zip: '60601',
+      bodyStyle: 'suv',
       phase: 1,
     };
     expect(state.monthlyBudget).toBe('4500');
     expect(state.creditRange).toBe('good');
+    expect(state.zip).toBe('60601');
+    expect(state.bodyStyle).toBe('suv');
+  });
+});
+
+describe('IntakeForm optional search fields', () => {
+  it('renders optional ZIP and body-style inputs', () => {
+    render(<IntakeForm />);
+    expect(screen.getByLabelText(/zip code/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/body style/i)).toBeInTheDocument();
+  });
+
+  it('rejects a malformed ZIP', () => {
+    render(<IntakeForm />);
+    fireEvent.change(screen.getByLabelText(/monthly budget/i), { target: { value: '4500' } });
+    fireEvent.change(screen.getByLabelText(/desired down payment/i), { target: { value: '5000' } });
+    fireEvent.click(screen.getByLabelText('Good'));
+    fireEvent.change(screen.getByLabelText(/zip code/i), { target: { value: '12' } });
+    fireEvent.click(screen.getByRole('button', { name: /save & continue/i }));
+    expect(screen.getByText(/zip must be 5 digits/i)).toBeInTheDocument();
+  });
+
+  it('accepts a valid ZIP and body style and shows them in the summary', () => {
+    render(<IntakeForm />);
+    fireEvent.change(screen.getByLabelText(/monthly budget/i), { target: { value: '4500' } });
+    fireEvent.change(screen.getByLabelText(/desired down payment/i), { target: { value: '5000' } });
+    fireEvent.click(screen.getByLabelText('Good'));
+    fireEvent.change(screen.getByLabelText(/zip code/i), { target: { value: '60601' } });
+    fireEvent.change(screen.getByLabelText(/body style/i), { target: { value: 'suv' } });
+    fireEvent.click(screen.getByRole('button', { name: /save & continue/i }));
+    expect(screen.getByText(/got it/i)).toBeInTheDocument();
+    expect(screen.getByText('60601')).toBeInTheDocument();
+    expect(screen.getByText('suv')).toBeInTheDocument();
+  });
+
+  it('passes the full intake state to onSaveData', () => {
+    const onSaveData = jest.fn();
+    render(<IntakeForm onSaveData={onSaveData} />);
+    fireEvent.change(screen.getByLabelText(/monthly budget/i), { target: { value: '4500' } });
+    fireEvent.change(screen.getByLabelText(/desired down payment/i), { target: { value: '5000' } });
+    fireEvent.click(screen.getByLabelText('Good'));
+    fireEvent.change(screen.getByLabelText(/zip code/i), { target: { value: '60601' } });
+    fireEvent.click(screen.getByRole('button', { name: /save & continue/i }));
+    expect(onSaveData).toHaveBeenCalledTimes(1);
+    const payload = onSaveData.mock.calls[0][0] as Record<string, unknown>;
+    expect(payload.monthlyBudget).toBe('4500');
+    expect(payload.zip).toBe('60601');
   });
 });

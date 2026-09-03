@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { Vehicle } from '@/data/vehicles';
-import { SAMPLE_VEHICLES } from '@/data/vehicles';
+import { MPG_UNKNOWN } from '@/lib/marketcheck';
 
 interface Needs {
   awd: boolean;
@@ -22,6 +22,28 @@ const DEFAULT_NEEDS: Needs = {
   androidAuto: false,
 };
 
+/** Shape of the intake payload saved by Step 1 (IntakeForm). */
+export interface IntakeSummary {
+  monthlyBudget?: string;
+  downPayment?: string;
+  creditRange?: string;
+  zip?: string;
+  bodyStyle?: string;
+  [key: string]: unknown;
+}
+
+interface InventoryResponse {
+  source: 'marketcheck' | 'demo';
+  vehicles: Vehicle[];
+  numFound?: number;
+  demoReason?: string;
+}
+
+type FetchState =
+  | { phase: 'loading' }
+  | { phase: 'error' }
+  | { phase: 'ready'; source: InventoryResponse['source']; vehicles: Vehicle[] };
+
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -31,10 +53,15 @@ function formatCurrency(value: number): string {
   }).format(value);
 }
 
+function mpgLabel(mpg: number): string {
+  return mpg === MPG_UNKNOWN ? 'n/a' : `${mpg}`;
+}
+
 function vehicleMeetsNeeds(vehicle: Vehicle, needs: Needs): Record<string, boolean> {
   return {
     awd: !needs.awd || vehicle.drive === 'awd',
     seating5plus: !needs.seating5plus || vehicle.seating >= 5,
+    // MPG 0 = unknown in this feed → the need counts as unmet, never faked.
     highFuelEconomy: !needs.highFuelEconomy || vehicle.fuelEconomyCombined >= 30,
     topSafetyPick: !needs.topSafetyPick || vehicle.safetyRating.includes('Top Safety Pick'),
     appleCarPlay: !needs.appleCarPlay || vehicle.tech.includes('Apple CarPlay'),
@@ -52,15 +79,52 @@ function meetsCount(meets: Record<string, boolean>): number {
 
 interface Props {
   onContinue?: () => void;
+  /** Step 1 intake; budget/zip/body style funnel into the inventory query. */
+  intake?: IntakeSummary | null;
 }
 
-export default function VehicleNeeds({ onContinue }: Props = {}) {
+export default function VehicleNeeds({ onContinue, intake }: Props = {}) {
   const [needs, setNeeds] = useState<Needs>(DEFAULT_NEEDS);
   const [comparing, setComparing] = useState<string[]>([]);
+  const [fetchState, setFetchState] = useState<FetchState>({ phase: 'loading' });
 
-  const windowData = typeof window !== 'undefined' ? (window as unknown as Record<string, unknown>).__VEHICLE_DATA__ : undefined;
-  const vehicleData = windowData as Vehicle[] | undefined;
-  const vehicles: Vehicle[] = vehicleData && vehicleData.length > 0 ? vehicleData : SAMPLE_VEHICLES;
+  // Deterministic query string from intake + a refresh nonce, so a retry
+  // re-runs the effect (React deps) rather than refetching imperatively.
+  const query = (() => {
+    const p = new URLSearchParams();
+    if (intake?.monthlyBudget) p.set('budget', intake.monthlyBudget);
+    if (intake?.zip) p.set('zip', intake.zip);
+    if (intake?.bodyStyle) p.set('bodyType', intake.bodyStyle);
+    return p.toString();
+  })();
+  const [nonce, setNonce] = useState(0);
+
+  const loadInventory = useCallback(async () => {
+    setFetchState({ phase: 'loading' });
+    try {
+      // Test hook: injected data bypasses the network entirely.
+      const injected = typeof window !== 'undefined'
+        ? (window as unknown as Record<string, unknown>).__VEHICLE_DATA__
+        : undefined;
+      if (Array.isArray(injected) && injected.length > 0) {
+        setFetchState({ phase: 'ready', source: 'demo', vehicles: injected as Vehicle[] });
+        return;
+      }
+      const qs = query ? `?${query}` : '';
+      const res = await fetch(`/api/inventory${qs}`);
+      if (!res.ok) throw new Error(`inventory request failed: ${res.status}`);
+      const body = (await res.json()) as InventoryResponse;
+      if (!Array.isArray(body.vehicles)) throw new Error('inventory payload malformed');
+      setFetchState({ phase: 'ready', source: body.source, vehicles: body.vehicles });
+    } catch (err) {
+      console.error('[VehicleNeeds] inventory load failed:', err);
+      setFetchState({ phase: 'error' });
+    }
+  }, [query]);
+
+  useEffect(() => {
+    void loadInventory();
+  }, [loadInventory, nonce]);
 
   function toggleNeed<K extends keyof Needs>(key: K) {
     setNeeds((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -73,6 +137,8 @@ export default function VehicleNeeds({ onContinue }: Props = {}) {
   }
 
   const activeNeeds = Object.entries(needs).filter(([, v]) => v);
+  const anyNeedActive =
+    needs.awd || needs.seating5plus || needs.highFuelEconomy || needs.topSafetyPick || needs.appleCarPlay || needs.androidAuto;
 
   return (
     <div className="space-y-8">
@@ -83,6 +149,27 @@ export default function VehicleNeeds({ onContinue }: Props = {}) {
           are flagged.
         </p>
       </div>
+
+      {/* Live-feed status banner */}
+      {fetchState.phase === 'ready' && fetchState.source === 'demo' && (
+        <div data-testid="demo-banner" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Demo inventory — live feed not configured. These are sample vehicles; when a MarketCheck key is set,
+          real listings replace them automatically.
+        </div>
+      )}
+      {fetchState.phase === 'error' && (
+        <div data-testid="error-banner" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <p className="font-semibold">Could not load inventory.</p>
+          <p className="mt-1">The vehicle feed is temporarily unavailable.</p>
+          <button
+            type="button"
+            onClick={() => setNonce((n) => n + 1)}
+            className="mt-2 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Needs checklist */}
       <fieldset className="rounded-xl border border-ink-200 bg-white p-5 shadow-sm">
@@ -125,101 +212,128 @@ export default function VehicleNeeds({ onContinue }: Props = {}) {
       </fieldset>
 
       {/* Vehicle cards */}
-      <div className="space-y-4">
-        {vehicles.map((vehicle) => {
-          const meets = vehicleMeetsNeeds(vehicle, needs);
-          const allMet = allNeedsMet(meets);
-          const met = meetsCount(meets);
-          const total = Object.keys(needs).length;
-          const isComparing = comparing.includes(vehicle.id);
+      {fetchState.phase === 'loading' && (
+        <div data-testid="loading" className="space-y-4" aria-busy="true" aria-label="Loading vehicles">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="animate-pulse rounded-xl border border-ink-200 bg-white p-5 shadow-sm">
+              <div className="h-4 w-2/3 rounded bg-ink-100" />
+              <div className="mt-2 h-3 w-1/2 rounded bg-ink-100" />
+              <div className="mt-3 h-3 w-1/3 rounded bg-ink-100" />
+            </div>
+          ))}
+        </div>
+      )}
 
-          return (
-            <div
-              key={vehicle.id}
-              className={`rounded-xl border bg-white p-5 shadow-sm transition-colors ${
-                needs.awd || needs.seating5plus || needs.highFuelEconomy || needs.topSafetyPick || needs.appleCarPlay || needs.androidAuto
-                  ? allMet
-                    ? 'border-good-200'
-                    : 'border-red-200'
-                  : 'border-ink-200'
-              }`}
-            >
-              <div className="flex items-start justify-between">
-                <div className="min-w-0 flex-1">
-                  <h3 className="text-base font-semibold text-navy-900">
-                    {vehicle.year} {vehicle.make} {vehicle.model} {vehicle.trim}
-                  </h3>
-                  <p className="mt-1 text-sm text-ink-600">
-                    {formatCurrency(vehicle.msrp)} MSRP · {vehicle.fuelEconomyCombined} MPG combined ·{' '}
-                    {vehicle.seating} seats · {vehicle.drive.toUpperCase()} · {vehicle.safetyRating}
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {vehicle.tech.map((t) => (
-                      <span
-                        key={t}
-                        className="rounded-full bg-ink-100 px-2.5 py-0.5 text-xs text-ink-600"
-                      >
-                        {t}
-                      </span>
-                    ))}
+      {fetchState.phase === 'ready' && (
+        <div className="space-y-4">
+          {fetchState.vehicles.map((vehicle) => {
+            const meets = vehicleMeetsNeeds(vehicle, needs);
+            const allMet = allNeedsMet(meets);
+            const met = meetsCount(meets);
+            const total = Object.keys(needs).length;
+            const isComparing = comparing.includes(vehicle.id);
+
+            return (
+              <div
+                key={vehicle.id}
+                data-testid="vehicle-card"
+                className={`rounded-xl border bg-white p-5 shadow-sm transition-colors ${
+                  anyNeedActive
+                    ? allMet
+                      ? 'border-good-200'
+                      : 'border-red-200'
+                    : 'border-ink-200'
+                }`}
+              >
+                <div className="flex items-start justify-between">
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-base font-semibold text-navy-900">
+                      {vehicle.year} {vehicle.make} {vehicle.model} {vehicle.trim}
+                    </h3>
+                    <p className="mt-1 text-sm text-ink-600">
+                      {formatCurrency(vehicle.msrp)} MSRP · {mpgLabel(vehicle.fuelEconomyCombined)}
+                      {vehicle.fuelEconomyCombined === MPG_UNKNOWN ? '' : ' MPG combined'} ·{' '}
+                      {vehicle.seating} seats · {vehicle.drive.toUpperCase()} · {vehicle.safetyRating}
+                    </p>
+                    {vehicle.tech.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {vehicle.tech.map((t) => (
+                          <span
+                            key={t}
+                            className="rounded-full bg-ink-100 px-2.5 py-0.5 text-xs text-ink-600"
+                          >
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="ml-4 shrink-0">
+                    {anyNeedActive ? (
+                      <div className="flex items-center gap-1 rounded-full bg-ink-100 px-2.5 py-1 text-xs font-medium text-ink-600">
+                        {met}/{total} needs met
+                      </div>
+                    ) : (
+                      <span className="text-xs text-ink-400">No needs selected</span>
+                    )}
                   </div>
                 </div>
-                <div className="ml-4 shrink-0">
-                  {needs.awd || needs.seating5plus || needs.highFuelEconomy || needs.topSafetyPick || needs.appleCarPlay || needs.androidAuto ? (
-                    <div className="flex items-center gap-1 rounded-full bg-ink-100 px-2.5 py-1 text-xs font-medium text-ink-600">
-                      {met}/{total} needs met
-                    </div>
-                  ) : (
-                    <span className="text-xs text-ink-400">No needs selected</span>
-                  )}
+
+                {/* Needs status */}
+                {anyNeedActive && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {Object.entries(meets).map(([key, met]) => {
+                      const label = ({
+                        awd: 'AWD',
+                        seating5plus: '5+ seats',
+                        highFuelEconomy: '30+ MPG',
+                        topSafetyPick: 'Top Safety Pick+',
+                        appleCarPlay: 'CarPlay',
+                        androidAuto: 'Android Auto',
+                      }[key] as string);
+                      return (
+                        <span
+                          key={key}
+                          className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
+                            met
+                              ? 'bg-good-100 text-good-800'
+                              : 'bg-red-100 text-red-700 line-through'
+                          }`}
+                        >
+                          {label}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Compare checkbox */}
+                <div className="mt-3 flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    id={`compare-${vehicle.id}`}
+                    checked={isComparing}
+                    onChange={() => toggleCompare(vehicle.id)}
+                    className="h-4 w-4 rounded border-ink-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <label htmlFor={`compare-${vehicle.id}`} className="text-sm text-ink-700">
+                    Include in comparison
+                  </label>
                 </div>
               </div>
+            );
+          })}
 
-              {/* Needs status */}
-              {needs.awd || needs.seating5plus || needs.highFuelEconomy || needs.topSafetyPick || needs.appleCarPlay || needs.androidAuto ? (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {Object.entries(meets).map(([key, met]) => {
-                    const label = ({
-                      awd: 'AWD',
-                      seating5plus: '5+ seats',
-                      highFuelEconomy: '30+ MPG',
-                      topSafetyPick: 'Top Safety Pick+',
-                      appleCarPlay: 'CarPlay',
-                      androidAuto: 'Android Auto',
-                    }[key] as string);
-                    return (
-                      <span
-                        key={key}
-                        className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                          met
-                            ? 'bg-good-100 text-good-800'
-                            : 'bg-red-100 text-red-700 line-through'
-                        }`}
-                      >
-                        {label}
-                      </span>
-                    );
-                  })}
-                </div>
-              ) : null}
-
-              {/* Compare checkbox */}
-              <div className="mt-3 flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id={`compare-${vehicle.id}`}
-                  checked={isComparing}
-                  onChange={() => toggleCompare(vehicle.id)}
-                  className="h-4 w-4 rounded border-ink-300 text-blue-600 focus:ring-blue-500"
-                />
-                <label htmlFor={`compare-${vehicle.id}`} className="text-sm text-ink-700">
-                  Include in comparison
-                </label>
-              </div>
+          {fetchState.vehicles.length === 0 && (
+            <div className="rounded-xl border border-ink-200 bg-white p-6 text-center">
+              <p className="text-sm font-semibold text-navy-900">No vehicles matched your search.</p>
+              <p className="mt-1 text-sm text-ink-600">
+                Try going back and widening the budget or clearing the body-style filter.
+              </p>
             </div>
-          );
-        })}
-      </div>
+          )}
+        </div>
+      )}
 
       {/* Comparison summary */}
       {comparing.length > 0 && (
@@ -247,12 +361,6 @@ export default function VehicleNeeds({ onContinue }: Props = {}) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
             </svg>
           </button>
-        </div>
-      )}
-
-      {vehicles.length === 0 && (
-        <div className="rounded-xl border border-ink-200 bg-white p-6 text-center">
-          <p className="text-sm text-ink-600">No vehicles loaded. Check that vehicle data is published.</p>
         </div>
       )}
     </div>

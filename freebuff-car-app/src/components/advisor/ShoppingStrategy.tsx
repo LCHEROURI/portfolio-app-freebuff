@@ -53,10 +53,13 @@ function buildStrengthsConcerns(
   const strengths: string[] = [];
   const concerns: string[] = [];
 
-  if (vehicle.fuelEconomyCombined >= 30) {
-    strengths.push(vehicle.fuelEconomyCombined + ' MPG combined');
-  } else {
-    concerns.push('only ' + vehicle.fuelEconomyCombined + ' MPG combined');
+  // 0 = MPG unknown in the live feed — neither a strength nor a concern.
+  if (vehicle.fuelEconomyCombined > 0) {
+    if (vehicle.fuelEconomyCombined >= 30) {
+      strengths.push(vehicle.fuelEconomyCombined + ' MPG combined');
+    } else {
+      concerns.push('only ' + vehicle.fuelEconomyCombined + ' MPG combined');
+    }
   }
 
   if (vehicle.drive === 'awd') {
