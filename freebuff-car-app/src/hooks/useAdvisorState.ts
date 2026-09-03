@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 
-const STORAGE_KEY = 'freebuff-car-advisor-state';
+export const STORAGE_KEY = 'freebuff-car-advisor-state';
 
 export interface AdvisorState {
   step: number;
