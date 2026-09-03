@@ -104,3 +104,27 @@ jobs:
         if: steps.detect.outputs.changed == 'true'
         working-directory: freebuff-car-app
         run: npm run test:e2e
+
+      # Playwright browser E2E: drives the real UI against the production
+      # build (Playwright's webServer runs `next build && next start`) —
+      # seeds a full advisor session, generates the Intelligence Report
+      # through the consent gate, and downloads the vehicle-named .md/.txt
+      # files, asserting their exact contents on disk. The chromium cache
+      # makes repeat runs fast; PLAYWRIGHT_BROWSERS_PATH keeps the cache key
+      # stable with @playwright/test's default install location.
+      - name: Cache Playwright chromium
+        if: steps.detect.outputs.changed == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('freebuff-car-app/package-lock.json') }}
+
+      - name: Install Playwright chromium
+        if: steps.detect.outputs.changed == 'true'
+        working-directory: freebuff-car-app
+        run: npx playwright install --with-deps chromium
+
+      - name: E2E browser (Playwright) — report generate + download
+        if: steps.detect.outputs.changed == 'true'
+        working-directory: freebuff-car-app
+        run: npm run test:e2e:playwright
