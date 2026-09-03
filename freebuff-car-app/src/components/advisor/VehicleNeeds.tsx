@@ -128,10 +128,17 @@ export default function VehicleNeeds({ onContinue, intake, onSaveData }: Props =
     void loadInventory();
   }, [loadInventory, nonce]);
 
+  // id -> "make model" snapshot of the loaded vehicles, persisted with the
+  // step data so exports can name the compared vehicles in filenames.
+  function namesSnapshot(): Record<string, string> {
+    if (fetchState.phase !== 'ready') return {};
+    return Object.fromEntries(fetchState.vehicles.map((v) => [v.id, `${v.make} ${v.model}`]));
+  }
+
   function toggleNeed<K extends keyof Needs>(key: K) {
     setNeeds((prev) => {
       const next = { ...prev, [key]: !prev[key] };
-      onSaveData?.({ needs: next, comparing });
+      onSaveData?.({ needs: next, comparing, names: namesSnapshot() });
       return next;
     });
   }
@@ -139,7 +146,7 @@ export default function VehicleNeeds({ onContinue, intake, onSaveData }: Props =
   function toggleCompare(id: string) {
     setComparing((prev) => {
       const next = prev.includes(id) ? prev.filter((v) => v !== id) : prev.length < 3 ? [...prev, id] : prev;
-      onSaveData?.({ needs, comparing: next });
+      onSaveData?.({ needs, comparing: next, names: namesSnapshot() });
       return next;
     });
   }

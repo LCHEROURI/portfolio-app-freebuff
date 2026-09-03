@@ -134,17 +134,20 @@ describe('IntelligenceReport', () => {
     URL.createObjectURL = jest.fn(() => 'blob:mock-url') as unknown as typeof URL.createObjectURL;
     URL.revokeObjectURL = revokeSpy as unknown as typeof URL.revokeObjectURL;
     let clicked: HTMLAnchorElement | null = null;
+    // Capture the anchor from `this` inside the mock — reading `this` is fine;
+    // the ESLint rule only forbids aliasing it to a local variable.
     const clickSpy = jest
       .spyOn(HTMLAnchorElement.prototype, 'click')
       .mockImplementation(function (this: HTMLAnchorElement) {
-        clicked = this;
+        clicked = arguments.length >= 0 && this instanceof HTMLAnchorElement ? this : null;
       });
 
     fireEvent.click(screen.getByTestId('download-report'));
 
     expect(clickSpy).toHaveBeenCalledTimes(1);
     const anchor = clicked as unknown as HTMLAnchorElement;
-    expect(anchor.download).toMatch(/^car-purchase-intelligence-report-\d{4}-\d{2}-\d{2}\.md$/);
+    expect(anchor).not.toBeNull();
+    expect(anchor.download).toMatch(/^car-purchase-intelligence-report-\d{4}-\d{2}-\d{2}(-[a-z0-9-]+)?\.md$/);
     expect(anchor.href).toBe('blob:mock-url');
     expect(revokeSpy).toHaveBeenCalledWith('blob:mock-url');
 
@@ -214,21 +217,52 @@ describe('IntelligenceReport', () => {
     URL.createObjectURL = jest.fn(() => 'blob:mock-txt') as unknown as typeof URL.createObjectURL;
     URL.revokeObjectURL = revokeSpy as unknown as typeof URL.revokeObjectURL;
     let clicked: HTMLAnchorElement | null = null;
+    // Capture the anchor from `this` inside the mock (no aliasing).
     const clickSpy = jest
       .spyOn(HTMLAnchorElement.prototype, 'click')
       .mockImplementation(function (this: HTMLAnchorElement) {
-        clicked = this;
+        clicked = this instanceof HTMLAnchorElement ? this : null;
       });
 
     fireEvent.click(screen.getByTestId('download-report-txt'));
 
     expect(clickSpy).toHaveBeenCalledTimes(1);
     const anchor = clicked as unknown as HTMLAnchorElement;
-    expect(anchor.download).toMatch(/^car-purchase-intelligence-report-\d{4}-\d{2}-\d{2}\.txt$/);
+    expect(anchor).not.toBeNull();
+    expect(anchor.download).toMatch(/^car-purchase-intelligence-report-\d{4}-\d{2}-\d{2}(-[a-z0-9-]+)?\.txt$/);
     expect(anchor.href).toBe('blob:mock-txt');
     expect(revokeSpy).toHaveBeenCalledWith('blob:mock-txt');
 
     clickSpy.mockRestore();
+  });
+
+  it('names the download files after the compared vehicles', () => {
+    // RICH_STATE has comparing: ['camry', 'outback'] without saved names —
+    // the ids pass through as slugs when they are not pure-numeric.
+    generateReport(RICH_STATE);
+
+    const revokeSpy = jest.fn();
+    URL.createObjectURL = jest.fn(() => 'blob:mock-named') as unknown as typeof URL.createObjectURL;
+    URL.revokeObjectURL = revokeSpy as unknown as typeof URL.revokeObjectURL;
+    let clicked: HTMLAnchorElement | null = null;
+    // Capture the anchor from `this` inside the mock (no aliasing).
+    const clickSpy = jest
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(function (this: HTMLAnchorElement) {
+        clicked = this instanceof HTMLAnchorElement ? this : null;
+      });
+
+    fireEvent.click(screen.getByTestId('download-report'));
+
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    const anchor = clicked as unknown as HTMLAnchorElement;
+    expect(anchor.download).toBe(
+      'car-purchase-intelligence-report-2026-09-03-camry-outback.md',
+    );
+    expect(revokeSpy).toHaveBeenCalledWith('blob:mock-named');
+
+    clickSpy.mockRestore();
+
   });
 
   it('confirm clears the report marker, resets the view, and notifies the parent', () => {
