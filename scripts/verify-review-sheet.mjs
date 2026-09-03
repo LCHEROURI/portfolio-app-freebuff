@@ -475,14 +475,36 @@ if (preview) {
 
 // ── 6b. Assert the print-all contract on the captured review sheet ──────────
 // The gate's core proof: the review sheet must render BOTH numbered
-// recommendations with the friendly model label. The preview window and the
-// in-page fallback render the SAME document (shared builder), so either
-// surface satisfies the assertions — but at least one must be captured.
+// recommendations. The friendly model label is required ONLY when the app's
+// own recommend-winner API reports AI configured (OPENROUTER_API_KEY present
+// server-side); when the deployment has no AI credential the page's graceful
+// fallback renders no model label by design, so the label sub-check reports a
+// loud SKIP instead of failing the gate. The preview window and the in-page
+// fallback render the SAME document (shared builder), so either surface
+// satisfies the assertions — but at least one must be captured.
 const sectionFails = {};
 const subFail = (section, msg) => {
   sectionFails[section] = (sectionFails[section] ?? 0) + 1;
   fail(msg);
 };
+
+// Probe the deployed app's own AI-availability flag with the same throwaway
+// identity the driver already minted — one POST mirrors exactly what the UI
+// flow above just exercised. Decides whether the model-label assertion is
+// required (AI configured) or a loud skip (AI unconfigured deployment).
+let aiConfigured = false;
+try {
+  const probe = await fetch(`${APP}/api/ai/recommend-winner`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      projectName: 'review-sheet AI-availability probe',
+      candidates: [{ versionId: 'probe-v1', versionName: 'v1', builder: 'probe', model: 'probe-model', overallScore: 5, scores: {} }],
+    }),
+  }).then((r) => r.json());
+  aiConfigured = Boolean(probe?.configured);
+} catch { /* unreachable API → treat as unconfigured (label stays a skip) */ }
+console.log(`  ↳ app reports AI ${aiConfigured ? 'CONFIGURED — model label required' : 'not configured — model label sub-check will skip'}`);
 
 if (!reviewSheetText) {
   subFail('review-sheet-preview', 'no review sheet captured (popup blocked AND in-page fallback already cleared)');
@@ -502,17 +524,24 @@ if (!reviewSheetText) {
     ? ok('numbered entries 1. and 2. render')
     : subFail('review-sheet-entries', 'numbered entries 1./2. missing from the review sheet');
   const label = /DeepSeek Chat/.test(reviewSheetText);
-  label
-    ? ok('friendly model label (DeepSeek Chat) renders')
-    : subFail('review-sheet-model-label', 'friendly model label missing from the review sheet');
+  if (label) {
+    ok('friendly model label (DeepSeek Chat) renders');
+  } else if (aiConfigured) {
+    subFail('review-sheet-model-label', 'friendly model label missing from the review sheet (AI is configured, so it must render)');
+  } else {
+    console.log('  SKIP: friendly model label not rendered — deployed app has no OPENROUTER_API_KEY (page falls back to no label by design)');
+  }
 }
 
 // Machine-readable sub-check markers for verify:all (same contract as the
 // other capture gates). Emitted ALWAYS so the summary shows the sub-rows even
 // when an early failure short-circuited the content assertions.
+const modelLabelVerdict = (sectionFails['review-sheet-model-label'] ?? 0) > 0
+  ? 'FAIL'
+  : (/DeepSeek Chat/.test(reviewSheetText ?? '') ? 'PASS' : 'SKIP');
 console.log(`VERIFY-SUBRESULT|review-sheet-preview|${(sectionFails['review-sheet-preview'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
 console.log(`VERIFY-SUBRESULT|review-sheet-entries|${(sectionFails['review-sheet-entries'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
-console.log(`VERIFY-SUBRESULT|review-sheet-model-label|${(sectionFails['review-sheet-model-label'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
+console.log(`VERIFY-SUBRESULT|review-sheet-model-label|${modelLabelVerdict}`);
 
 // ── 6c. --check: byte-compare the captured pair against the committed PNGs ──
 // The byte gate the docs PNGs get from capture-docs.mjs --check, applied to
