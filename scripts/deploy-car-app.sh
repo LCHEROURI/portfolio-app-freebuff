@@ -73,6 +73,11 @@ echo "build id: $BUILD_ID"
 # silently excluded.
 printf 'NEXT_PUBLIC_COMMIT_SHA=%s\nNEXT_PUBLIC_ROLLOUT_ID=%s\nNEXT_PUBLIC_DEPLOYED_AT=%s\n' \
   "$GITHUB_SHA" "$BUILD_ID" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$CAR_APP_DIR/.env.production"
+# Server-side secrets ride in .env.production too (Next.js loads it at server
+# runtime). Absent locally = demo inventory; set in CI from the GitHub secret.
+if [ -n "${MARKETCHECK_API_KEY:-}" ]; then
+  printf 'MARKETCHECK_API_KEY=%s\n' "$MARKETCHECK_API_KEY" >> "$CAR_APP_DIR/.env.production"
+fi
 
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
 ZIP="/tmp/car-app-src-${STAMP}-${GITHUB_SHA::7}.zip"

@@ -9,6 +9,8 @@ export interface IntakeState {
   monthlyBudget: string;
   downPayment: string;
   creditRange: CreditRange | '';
+  zip: string;
+  bodyStyle: string;
   phase: number;
 }
 
@@ -19,6 +21,8 @@ const DEFAULT_STATE: IntakeState = {
   monthlyBudget: '',
   downPayment: '',
   creditRange: '',
+  zip: '',
+  bodyStyle: '',
   phase: 1,
 };
 
@@ -68,6 +72,10 @@ export default function IntakeForm({ onComplete, onSaveData }: Props = {}) {
       nextErrors.creditRange = 'Credit range is required.';
     }
 
+    if (state.zip.trim() !== '' && !/^\d{5}$/.test(state.zip.trim())) {
+      nextErrors.zip = 'ZIP must be 5 digits.';
+    }
+
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
   }
@@ -100,6 +108,16 @@ export default function IntakeForm({ onComplete, onSaveData }: Props = {}) {
               Monthly budget: <strong>{formatCurrency(parsePositive(state.monthlyBudget))}</strong>
               {' '}· Down payment: <strong>{formatCurrency(parsePositive(state.downPayment))}</strong>
               {' '}· Credit: <strong>{state.creditRange}</strong>
+              {state.zip.trim() !== '' && (
+                <>
+                  {' '}· ZIP: <strong>{state.zip.trim()}</strong>
+                </>
+              )}
+              {state.bodyStyle !== '' && (
+                <>
+                  {' '}· Body style: <strong>{state.bodyStyle}</strong>
+                </>
+              )}
             </p>
             <p className="mt-2 text-sm text-ink-600">
               Now let us rank what matters most to you.
@@ -160,6 +178,51 @@ export default function IntakeForm({ onComplete, onSaveData }: Props = {}) {
           <p id="downPayment-error" className="text-xs text-red-600">{errors.downPayment}</p>
         )}
         <p className="text-xs text-ink-500">Cash you plan to put down upfront.</p>
+      </div>
+
+      <div className="space-y-1.5">
+        <label htmlFor="zip" className="block text-sm font-semibold text-navy-900">
+          ZIP code (optional)
+        </label>
+        <input
+          id="zip"
+          type="text"
+          inputMode="numeric"
+          maxLength={5}
+          value={state.zip}
+          onChange={(e) => update('zip', e.target.value.replace(/\D/g, ''))}
+          className={`block w-full rounded-lg border bg-white px-3 py-2.5 text-sm text-ink-900 placeholder-ink-400 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 ${errors.zip ? 'border-red-400 focus:border-red-500 focus:ring-red-500' : 'border-ink-200'}`}
+          placeholder="60601"
+          aria-invalid={!!errors.zip}
+          aria-describedby={errors.zip ? 'zip-error' : undefined}
+        />
+        {errors.zip && (
+          <p id="zip-error" className="text-xs text-red-600">{errors.zip}</p>
+        )}
+        <p className="text-xs text-ink-500">Narrows the inventory search to dealers near you.</p>
+      </div>
+
+      <div className="space-y-1.5">
+        <label htmlFor="bodyStyle" className="block text-sm font-semibold text-navy-900">
+          Body style (optional)
+        </label>
+        <select
+          id="bodyStyle"
+          value={state.bodyStyle}
+          onChange={(e) => update('bodyStyle', e.target.value)}
+          className="block w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-sm text-ink-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+        >
+          <option value="">Any body style</option>
+          <option value="sedan">Sedan</option>
+          <option value="suv">SUV</option>
+          <option value="crossover">Crossover</option>
+          <option value="hatchback">Hatchback</option>
+          <option value="pickup">Pickup</option>
+          <option value="minivan">Minivan</option>
+          <option value="wagon">Wagon</option>
+          <option value="coupe">Coupe</option>
+        </select>
+        <p className="text-xs text-ink-500">Filters the live inventory feed by vehicle type.</p>
       </div>
 
       <fieldset>
