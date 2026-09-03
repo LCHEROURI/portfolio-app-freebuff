@@ -135,7 +135,35 @@ echo "packaged source: $ZIP ($SIZE)"
 IMAGE="gcr.io/${PROJECT}/portfolio-app-freebuff:${GITHUB_SHA}"
 echo "building image ${IMAGE}…"
 # --project is explicit: gcloud on a fresh runner has no default project.
-gcloud builds submit --project "$PROJECT" --quiet --tag "$IMAGE" .
+# --async + REST poll instead of the sync form: gcloud streams build logs to
+# the caller, which requires Viewer/Owner on the project — the CI service
+# account can CREATE builds (cloudbuild.editor) but cannot stream logs, so the
+# sync form exits 1 even after a SUCCESSFUL build (seen live: image built, job
+# red). The REST poll below is the same pattern as the App Hosting op poll.
+gcloud builds submit --project "$PROJECT" --quiet --async --tag "$IMAGE" . > /tmp/cb-submit.log 2>&1
+CB_ID="$(grep -oE 'builds/[a-z0-9-]{36}' /tmp/cb-submit.log | head -1 | cut -d/ -f2)"
+if [ -z "$CB_ID" ]; then
+  echo "could not parse Cloud Build id from submit output:" >&2
+  cat /tmp/cb-submit.log >&2
+  exit 1
+fi
+echo "cloud build $CB_ID submitted (image ${IMAGE})"
+CB_URL="https://cloudbuild.googleapis.com/v1/projects/$PROJECT/builds/$CB_ID"
+CB_STATUS=""
+for _ in $(seq 1 80); do
+  CB_STATUS="$(auth "$CB_URL" | jq -r '.status')"
+  case "$CB_STATUS" in
+    SUCCESS) echo "cloud build $CB_ID SUCCEEDED"; break ;;
+    FAILURE|INTERNAL_ERROR|TIMEOUT|CANCELLED|EXPIRED)
+      echo "cloud build $CB_ID $CB_STATUS — $(auth "$CB_URL" | jq -c '{status, failureInfo, statusDetail}')" >&2
+      exit 1 ;;
+  esac
+  sleep 15
+done
+if [ "$CB_STATUS" != "SUCCESS" ]; then
+  echo "cloud build $CB_ID did not reach SUCCESS (last status: $CB_STATUS)" >&2
+  exit 1
+fi
 
 cleanup() { rm -f "$ZIP" "$ENV_PROD"; }
 trap cleanup EXIT
