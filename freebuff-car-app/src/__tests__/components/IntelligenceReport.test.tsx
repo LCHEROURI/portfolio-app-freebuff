@@ -207,6 +207,30 @@ describe('IntelligenceReport', () => {
     }
   });
 
+  it('downloads the .txt variant when Download .txt is clicked', () => {
+    generateReport(RICH_STATE);
+
+    const revokeSpy = jest.fn();
+    URL.createObjectURL = jest.fn(() => 'blob:mock-txt') as unknown as typeof URL.createObjectURL;
+    URL.revokeObjectURL = revokeSpy as unknown as typeof URL.revokeObjectURL;
+    let clicked: HTMLAnchorElement | null = null;
+    const clickSpy = jest
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(function (this: HTMLAnchorElement) {
+        clicked = this;
+      });
+
+    fireEvent.click(screen.getByTestId('download-report-txt'));
+
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    const anchor = clicked as unknown as HTMLAnchorElement;
+    expect(anchor.download).toMatch(/^car-purchase-intelligence-report-\d{4}-\d{2}-\d{2}\.txt$/);
+    expect(anchor.href).toBe('blob:mock-txt');
+    expect(revokeSpy).toHaveBeenCalledWith('blob:mock-txt');
+
+    clickSpy.mockRestore();
+  });
+
   it('confirm clears the report marker, resets the view, and notifies the parent', () => {
     window.localStorage.setItem('freebuff-car-advisor-report-v1', JSON.stringify({ savedAt: 'x' }));
     const onReset = jest.fn();
