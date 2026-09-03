@@ -41,3 +41,7 @@ data/
 .agents/
 .claude/
 skills-lock.json
+
+# Playwright artifacts (car-app E2E)
+freebuff-car-app/test-results/
+freebuff-car-app/playwright-report/
