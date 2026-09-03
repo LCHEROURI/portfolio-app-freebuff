@@ -6,6 +6,7 @@ import { docFeeFlags, addOnFlags } from '@/utils/redFlags';
 import type { AdvisorState } from '@/hooks/useAdvisorState';
 
 import { REPORT_STORAGE_KEY } from '@/lib/progress';
+import { buildReportMarkdown, reportFileName } from '@/lib/reportExport';
 
 type StoredReport = {
   savedAt: string;
@@ -155,6 +156,19 @@ export default function IntelligenceReport({ onComplete, advisor, onReset }: Pro
     setSavedAt(null);
     setConsent(false);
     onReset?.();
+  }
+
+  function download() {
+    const markdown = buildReportMarkdown(advisor, savedAt);
+    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = reportFileName(savedAt);
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
   }
 
   function generate() {
@@ -373,6 +387,14 @@ export default function IntelligenceReport({ onComplete, advisor, onReset }: Pro
               className="inline-flex items-center gap-1.5 rounded-lg bg-navy-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-navy-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
             >
               Print report
+            </button>
+            <button
+              type="button"
+              onClick={download}
+              data-testid="download-report"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-ink-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 shadow-sm transition-colors hover:bg-ink-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+            >
+              Download report
             </button>
             <button
               type="button"
