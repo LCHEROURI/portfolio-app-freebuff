@@ -36,6 +36,10 @@ const SESSION = {
     needs: { awd: true, appleCarPlay: true },
     comparing: ['camry', 'outback'],
     names: { camry: 'Toyota Camry', outback: 'Subaru Outback', rav4: 'Toyota RAV4' },
+    specs: {
+      camry: { title: '2025 Toyota Camry LE', msrp: 28595, mpg: 33, seating: 5, drive: 'fwd', safety: 'IIHS Top Safety Pick+' },
+      outback: { title: '2025 Subaru Outback Premium', msrp: 32495, mpg: 29, seating: 5, drive: 'awd', safety: 'IIHS Top Safety Pick+' },
+    },
   },
   dealScore: {
     input: {},
@@ -99,6 +103,12 @@ test.describe('Intelligence Report generate + download', () => {
     await expect(page.getByText('72')).toBeVisible(); // deal score headline
     await expect(page.getByText(/Documentation fee is above/i)).toBeVisible();
 
+    // Side-by-side comparison table renders the saved Step 2 specs.
+    await expect(page.getByRole('columnheader', { name: 'Toyota Camry' })).toBeVisible();
+    await expect(page.getByRole('columnheader', { name: 'Subaru Outback' })).toBeVisible();
+    await expect(page.getByText('$28,595')).toBeVisible();
+    await expect(page.getByText('$32,495')).toBeVisible();
+
     // --- Download .md: real browser download, real file on disk ---
     const mdPromise = page.waitForEvent('download');
     await page.getByTestId('download-report').click();
@@ -120,6 +130,11 @@ test.describe('Intelligence Report generate + download', () => {
     expect(mdText).toContain('72 / 100');
     expect(mdText).toContain('- All-wheel drive');
     expect(mdText).toContain('- Negotiate the out-the-door price first');
+    // The comparison table is IN the export — specs, not just filename names.
+    expect(mdText).toContain('## Side-by-side comparison');
+    expect(mdText).toContain('| MSRP | $28,595 | $32,495 |');
+    expect(mdText).toContain('| MPG combined | 33 | 29 |');
+    expect(mdText).toContain('| Drivetrain | FWD | AWD |');
 
     // --- Download .txt: same session, plain-text syntax ---
     const txtPromise = page.waitForEvent('download');
@@ -136,6 +151,10 @@ test.describe('Intelligence Report generate + download', () => {
     expect(txtText).toContain('Monthly payment: $522');
     expect(txtText).toContain('Equity: +$3,000');
     expect(txtText).toContain('72 / 100');
+    // The comparison table is in the plain-text export too (aligned text).
+    expect(txtText).toContain('SIDE-BY-SIDE COMPARISON');
+    expect(txtText).toContain('$28,595');
+    expect(txtText).toContain('$32,495');
     // Plain text must carry no Markdown syntax.
     expect(txtText).not.toContain('##');
     expect(txtText).not.toContain('**');

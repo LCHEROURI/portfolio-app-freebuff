@@ -10,7 +10,15 @@ const RICH_STATE: AdvisorState = {
   trade: { tradeValue: '12000', payoff: '9000' },
   fees: { docFee: '299', titleRegistration: '345', addOnsText: 'Fabric Protection, Nitrogen Tires' },
   ownership: { monthlyLoan: '500', insurance: '120', fuel: '150', maintenance: '75', registration: '30', parking: '0', taxesAndFees: '40', other: '0' },
-  vehicles: { needs: { awd: true, appleCarPlay: true }, comparing: ['camry', 'outback'] },
+  vehicles: {
+    needs: { awd: true, appleCarPlay: true },
+    comparing: ['camry', 'outback'],
+    names: { camry: 'Toyota Camry', outback: 'Subaru Outback' },
+    specs: {
+      camry: { title: '2025 Toyota Camry LE', msrp: 28595, mpg: 33, seating: 5, drive: 'fwd', safety: 'IIHS Top Safety Pick+' },
+      outback: { title: '2025 Subaru Outback Premium', msrp: 32495, mpg: 29, seating: 5, drive: 'awd', safety: 'IIHS Top Safety Pick+' },
+    },
+  },
   dealScore: {
     input: {},
     result: {
@@ -236,6 +244,17 @@ describe('IntelligenceReport', () => {
     clickSpy.mockRestore();
   });
 
+  it('renders the side-by-side comparison table from the saved specs', () => {
+    generateReport(RICH_STATE);
+    expect(screen.getByRole('columnheader', { name: 'Spec' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Toyota Camry' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'Subaru Outback' })).toBeInTheDocument();
+    expect(screen.getByText('$28,595')).toBeInTheDocument();
+    expect(screen.getByText('$32,495')).toBeInTheDocument();
+    expect(screen.getByText('FWD')).toBeInTheDocument();
+    expect(screen.getByText('AWD')).toBeInTheDocument();
+  });
+
   it('names the download files after the compared vehicles', () => {
     // RICH_STATE has comparing: ['camry', 'outback'] without saved names —
     // the ids pass through as slugs when they are not pure-numeric.
@@ -257,7 +276,7 @@ describe('IntelligenceReport', () => {
     expect(clickSpy).toHaveBeenCalledTimes(1);
     const anchor = clicked as unknown as HTMLAnchorElement;
     expect(anchor.download).toBe(
-      'car-purchase-intelligence-report-2026-09-03-camry-outback.md',
+      'car-purchase-intelligence-report-2026-09-03-toyota-camry-subaru-outback.md',
     );
     expect(revokeSpy).toHaveBeenCalledWith('blob:mock-named');
 

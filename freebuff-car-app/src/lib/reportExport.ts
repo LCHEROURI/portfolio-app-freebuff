@@ -54,9 +54,65 @@ export interface ReportSection {
   footnote?: string;
 }
 
+/** One compared vehicle's spec column (from the Step 2 specs snapshot). */
+export interface CompareColumn {
+  /** Short label, from the names snapshot ("Toyota Camry"). */
+  label: string;
+  msrp: number | null;
+  /** Combined MPG; null when unknown — rendered as "n/a", never fabricated. */
+  mpg: number | null;
+  seating: number | null;
+  drive: string;
+  safety: string;
+}
+
+/** The five spec rows every comparison shows, in order. */
+export function compareRowValues(c: CompareColumn): { label: string; value: string }[] {
+  return [
+    { label: 'MSRP', value: c.msrp === null ? 'n/a' : usd(c.msrp) },
+    { label: 'MPG combined', value: c.mpg === null ? 'n/a' : `${c.mpg}` },
+    { label: 'Seating', value: c.seating === null ? 'n/a' : `${c.seating} seats` },
+    { label: 'Drivetrain', value: c.drive || 'n/a' },
+    { label: 'Safety', value: c.safety || 'n/a' },
+  ];
+}
+
+/**
+ * Extract the compared vehicles' spec columns from the Step 2 store slice.
+ * Shared by the on-screen report and the .md/.txt exporters so the three
+ * renderings cannot disagree. Vehicles without a saved spec (sessions saved
+ * before snapshots existed) render as all-n/a columns instead of vanishing.
+ */
+export function buildCompareColumns(
+  vehicles: Record<string, unknown> | null | undefined,
+): CompareColumn[] {
+  const comparing = vehicles?.comparing;
+  if (!Array.isArray(comparing)) return [];
+  const names = rec(vehicles?.names);
+  const specs = rec(vehicles?.specs);
+  return (comparing as string[]).map((id) => {
+    const label = typeof names?.[id] === 'string' && names[id].trim() !== '' ? names[id] : id;
+    const spec = rec(specs?.[id]);
+    const num = (v: unknown): number | null => {
+      const n = Number(v);
+      return v !== undefined && v !== null && Number.isFinite(n) ? n : null;
+    };
+    return {
+      label,
+      msrp: num(spec?.msrp),
+      mpg: num(spec?.mpg),
+      seating: num(spec?.seating),
+      drive: typeof spec?.drive === 'string' ? spec.drive.toUpperCase() : '',
+      safety: typeof spec?.safety === 'string' ? spec.safety : '',
+    };
+  });
+}
+
 interface ReportData {
   sections: ReportSection[];
   rules: string[];
+  /** Side-by-side spec comparison (Step 2 snapshot); empty when none. */
+  compare: CompareColumn[];
 }
 
 function sanitizeSlug(raw: string): string {
@@ -196,6 +252,9 @@ export function buildReportData(advisor: AdvisorState | null | undefined): Repor
     footnote: comparingCount > 0 ? `${comparingCount} vehicle${comparingCount === 1 ? '' : 's'} marked for comparison.` : undefined,
   });
 
+  // Side-by-side comparison (Step 2 specs snapshot)
+  const compare = buildCompareColumns(vehicles);
+
   // Deal score (Step 10)
   const dealScore = rec(s?.dealScore);
   const result = rec(dealScore?.result);
@@ -213,6 +272,7 @@ export function buildReportData(advisor: AdvisorState | null | undefined): Repor
 
   return {
     sections,
+    compare,
     rules: [
       'Negotiate the out-the-door price first — payments last.',
       'Get every number in writing before discussing financing.',
@@ -264,6 +324,18 @@ export function buildReportMarkdown(
     lines.push('');
   }
 
+  // Side-by-side comparison — a real Markdown table.
+  if (data.compare.length > 0) {
+    lines.push('## Side-by-side comparison');
+    const rows = compareRowValues(data.compare[0]);
+    lines.push(`| Spec | ${data.compare.map((c) => c.label).join(' | ')} |`);
+    lines.push(`| ${['---', ...data.compare.map(() => '---')].join(' | ')} |`);
+    for (const row of rows) {
+      lines.push(`| ${row.label} | ${data.compare.map((c) => compareRowValues(c).find((r) => r.label === row.label)?.value ?? '').join(' | ')} |`);
+    }
+    lines.push('');
+  }
+
   lines.push('## Negotiation ground rules');
   for (const rule of data.rules) lines.push(`- ${rule}`);
   lines.push('');
@@ -298,6 +370,35 @@ export function buildReportPlainText(
       for (const item of section.sub.items) lines.push(`* ${item}`);
     }
     if (section.footnote) lines.push(section.footnote);
+    lines.push('');
+  }
+
+  // Side-by-side comparison — aligned plain text (no Markdown syntax).
+  if (data.compare.length > 0) {
+    lines.push('SIDE-BY-SIDE COMPARISON');
+    lines.push('-----------------------');
+    const rowDefs = compareRowValues(data.compare[0]);
+    // Column width = widest cell in that column (label or any row value),
+    // floored at 12, plus 2 spaces of gutter so columns never abut —
+    // including the spec-label column itself.
+    const widthOf = (i: number) =>
+      Math.max(
+        12,
+        data.compare[i].label.length,
+        ...rowDefs.map((r) => (compareRowValues(data.compare[i]).find((x) => x.label === r.label)?.value ?? '').length),
+      ) + 2;
+    const labelWidth = Math.max(12, ...rowDefs.map((r) => r.label.length)) + 2;
+    lines.push(
+      'Spec'.padEnd(labelWidth) + data.compare.map((c, i) => c.label.padEnd(widthOf(i))).join(''),
+    );
+    for (const row of rowDefs) {
+      lines.push(
+        row.label.padEnd(labelWidth) +
+          data.compare
+            .map((c, i) => (compareRowValues(c).find((r) => r.label === row.label)?.value ?? '').padEnd(widthOf(i)))
+            .join(''),
+      );
+    }
     lines.push('');
   }
 

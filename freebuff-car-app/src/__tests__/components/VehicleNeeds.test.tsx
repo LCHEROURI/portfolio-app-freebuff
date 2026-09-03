@@ -176,6 +176,48 @@ describe('VehicleNeeds', () => {
     expect(await screen.findByText('2025 Toyota Camry LE')).toBeInTheDocument();
   });
 
+  it('persists a specs snapshot for compared vehicles via onSaveData', async () => {
+    mockFetchOnce({ source: 'marketcheck', vehicles: FLEET });
+    const onSaveData = jest.fn();
+    setup({ onSaveData });
+    await screen.findByText('2025 Toyota Camry LE');
+    fireEvent.click(screen.getAllByLabelText('Include in comparison')[0]);
+
+    const last = onSaveData.mock.calls[onSaveData.mock.calls.length - 1][0] as Record<string, unknown>;
+    expect(last.comparing).toEqual(['camry']);
+    const specs = last.specs as Record<string, Record<string, unknown>>;
+    expect(specs.camry).toEqual({
+      title: '2025 Toyota Camry LE',
+      msrp: 28595,
+      mpg: 33,
+      seating: 5,
+      drive: 'fwd',
+      safety: 'IIHS Top Safety Pick+',
+    });
+    // Names map persists alongside (filename labeling for exports).
+    expect((last.names as Record<string, string>).camry).toBe('Toyota Camry');
+  });
+
+  it('persists mpg as null for unknown-MPG vehicles and drops specs on un-compare', async () => {
+    const fleet = [{ ...FLEET[0], fuelEconomyCombined: 0 }];
+    mockFetchOnce({ source: 'marketcheck', vehicles: fleet });
+    const onSaveData = jest.fn();
+    setup({ onSaveData });
+    await screen.findByText('2025 Toyota Camry LE');
+    const box = screen.getAllByLabelText('Include in comparison')[0];
+    fireEvent.click(box);
+
+    let last = onSaveData.mock.calls[onSaveData.mock.calls.length - 1][0] as Record<string, unknown>;
+    let specs = last.specs as Record<string, Record<string, unknown>>;
+    expect(specs.camry.mpg).toBeNull(); // unknown MPG is null, never fabricated
+
+    fireEvent.click(box); // un-compare
+    last = onSaveData.mock.calls[onSaveData.mock.calls.length - 1][0] as Record<string, unknown>;
+    expect(last.comparing).toEqual([]);
+    specs = last.specs as Record<string, Record<string, unknown>>;
+    expect(specs.camry).toBeUndefined();
+  });
+
   it('shows an explicit empty state when no vehicles match', async () => {
     mockFetchOnce({ source: 'marketcheck', vehicles: [] });
     setup();
