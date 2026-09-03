@@ -126,6 +126,31 @@ describe('IntelligenceReport', () => {
     expect(screen.getByText(/Car Purchase Intelligence Report/i)).toBeInTheDocument();
   });
 
+  it('downloads the report as a Markdown file when Download is clicked', () => {
+    generateReport(RICH_STATE);
+
+    // jsdom lacks blob URL APIs — stub them; capture the anchor via its click.
+    const revokeSpy = jest.fn();
+    URL.createObjectURL = jest.fn(() => 'blob:mock-url') as unknown as typeof URL.createObjectURL;
+    URL.revokeObjectURL = revokeSpy as unknown as typeof URL.revokeObjectURL;
+    let clicked: HTMLAnchorElement | null = null;
+    const clickSpy = jest
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(function (this: HTMLAnchorElement) {
+        clicked = this;
+      });
+
+    fireEvent.click(screen.getByTestId('download-report'));
+
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    const anchor = clicked as unknown as HTMLAnchorElement;
+    expect(anchor.download).toMatch(/^car-purchase-intelligence-report-\d{4}-\d{2}-\d{2}\.md$/);
+    expect(anchor.href).toBe('blob:mock-url');
+    expect(revokeSpy).toHaveBeenCalledWith('blob:mock-url');
+
+    clickSpy.mockRestore();
+  });
+
   it('confirm clears the report marker, resets the view, and notifies the parent', () => {
     window.localStorage.setItem('freebuff-car-advisor-report-v1', JSON.stringify({ savedAt: 'x' }));
     const onReset = jest.fn();
