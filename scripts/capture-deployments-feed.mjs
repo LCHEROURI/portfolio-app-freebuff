@@ -4,9 +4,10 @@
 //
 // Drives the DEPLOYED app in a real headless Chrome (same CDP pattern as
 // verify-review-sheet.mjs / tour-live.mjs) and captures a full-page PNG of
-// the /deployments page showing the REAL Vercel + Firebase feed rows, the
-// same data the verify:deployments gate proves at the API level — now proven
-// at the UI level and captured for the gallery.
+// the /deployments page showing the REAL App Hosting feed rows (one per
+// backend, with live health checks), the same data the verify:deployments
+// gate proves at the API level — now proven at the UI level and captured for
+// the gallery.
 //
 //  1. Mints a throwaway Identity Toolkit user (deleted on the way out).
 //  2. Signs in, navigates to /deployments.
@@ -37,38 +38,42 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { readLocalEnv } from './local-env.mjs';
 
-// Minimum deployment cards the live feed must show. Currently 7 Vercel rows +
-// 1 Firebase row; raise/lower here when the monitored repo set changes (the
-// classifier unit test locks this constant to the same number).
-export const MIN_ROWS = 8;
+// Minimum deployment cards the live feed must show. Currently 3 App Hosting
+// rows (one per backend in lib/server/deployments.ts APPHOSTING_BACKENDS);
+// raise/lower here when the monitored backend set changes (the classifier
+// unit test locks this constant to the same number).
+export const MIN_ROWS = 3;
 
 // ── Pure classifier (unit-tested) ───────────────────────────────────────────
 // Turns the /deployments page's innerText into a readiness verdict. Tolerates
-// the headless font quirk that drops trailing letters ('Fireba e' instead of
-// 'Firebase'), so provider checks use a tolerant prefix. `ready` requires the
-// LIVE-feed markers (live badge + metric grid + BOTH providers + enough
-// cards), so demo-mode data (live flag off) never satisfies the gate.
+// the headless font quirk that drops trailing letters ('App Hostin ' instead
+// of 'App Hosting'), so provider checks use a tolerant prefix. `ready`
+// requires the LIVE-feed markers (live badge + metric grid + App Hosting
+// provider rows + enough cards), so demo-mode data (live flag off) never
+// satisfies the gate. The Firebase Hosting row is optional (only present when
+// a Hosting release exists), so it is detected but NOT required for ready.
 export const classifyFeedPage = (text) => {
   const t = text ?? '';
   const rows = (t.match(/Open/g) ?? []).length;
-  const live = t.includes('Live health checks') || t.includes('Live from the Vercel API');
+  const live = t.includes('Live health checks');
   const metrics = t.includes('TOTAL DEPLOYMENTS');
   // Provider ROWS, not bare words: the page description also says "fetched
-  // from Vercel", so a provider check must match the card line — provider
-  // label + interpunct + environment (e.g. "Firebase · production"). The
-  // `[^·]{0,4}` gap tolerates the headless font quirk that drops trailing
-  // letters ('Fireba e' instead of 'Firebase') while stopping well short of
-  // the NEXT interpunct, so "Fireba" can never satisfy the check via the
-  // response-time text ("200 · 251ms") on a different card.
+  // from Firebase App Hosting", so a provider check must match the card line
+  // — provider label + interpunct + environment (e.g. "App Hosting ·
+  // production"). The `[^·]{0,7}` gap tolerates the headless font quirk that
+  // drops trailing letters ('App Hostin ' instead of 'App Hosting') while
+  // stopping well short of the NEXT interpunct, so "App Host" can never
+  // satisfy the check via the response-time text ("200 · 251ms") on a
+  // different card.
   const firebase = /Fireba[^·]{0,4}·\s*\w+/.test(t);
-  const vercel = /Verce[^·]{0,4}·\s*\w+/.test(t);
+  const apphosting = /App Host[^·]{0,7}·\s*\w+/.test(t);
   return {
     rows,
     live,
     metrics,
     firebase,
-    vercel,
-    ready: live && metrics && firebase && vercel && rows >= MIN_ROWS,
+    apphosting,
+    ready: live && metrics && apphosting && rows >= MIN_ROWS,
   };
 };
 
@@ -81,7 +86,7 @@ if (isMain) {
     return i >= 0 && args[i + 1] ? args[i + 1] : fallback;
   };
 
-  const APP = (flag('--app', process.env.VERIFY_BASE_URL) ?? 'https://portfolio-app-freebuff.vercel.app').replace(/\/$/, '');
+  const APP = (flag('--app', process.env.VERIFY_BASE_URL) ?? 'https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app').replace(/\/$/, '');
   const OUT = flag('--out', '/tmp/deployments-feed');
   const API_KEY =
     flag('--api-key') ??

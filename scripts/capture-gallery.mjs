@@ -17,7 +17,7 @@
  *
  * Usage:
  *   node scripts/capture-gallery.mjs \
- *     --url https://portfolio-app-freebuff-dvn3k3egz-laredj-chehrouris-projects.vercel.app \
+ *     --url http://127.0.0.1:4399 \
  *     --out screenshots \
  *     --header 'x-vercel-protection-bypass: <secret>'   # repeatable; sent on every request
  *
@@ -85,18 +85,18 @@ const valOf = (flag) => {
   return i >= 0 && args[i + 1] ? args[i + 1] : undefined;
 };
 const urlArg = valOf('--url')
-  ?? 'https://portfolio-app-freebuff.vercel.app';
+  ?? 'https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app';
 const outArg = valOf('--out') ?? 'screenshots';
 // The review-sheet cells need the LIVE app (Firebase auth + server AI), which
 // the demo-mode preview this driver targets does not have — so they default to
 // the production URL, independent of --url.
 const reviewSheetAppArg = valOf('--review-sheet-app')
-  ?? 'https://portfolio-app-freebuff.vercel.app';
+  ?? 'https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app';
 // The deployments-feed cell also needs the LIVE app (Firebase auth): the
 // demo-mode preview this driver targets cannot sign in. Defaults to
 // production, independent of --url, same as the review-sheet cells.
 const deploymentsFeedAppArg = valOf('--deployments-feed-app')
-  ?? 'https://portfolio-app-freebuff.vercel.app';
+  ?? 'https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app';
 
 // Repeatable --header 'Name: value' pairs (e.g. Vercel protection bypass).
 // Sent on every request via Network.setExtraHTTPHeaders.
