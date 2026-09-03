@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { monthlyPayment, totalCost } from '@/utils/financeCalculators';
 import { docFeeFlags, addOnFlags } from '@/utils/redFlags';
 import type { AdvisorState } from '@/hooks/useAdvisorState';
@@ -95,6 +95,14 @@ export default function IntelligenceReport({ onComplete, advisor, onReset }: Pro
   const [generated, setGenerated] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [confirmingReset, setConfirmingReset] = useState(false);
+  const [copyState, setCopyState] = useState<'idle' | 'ok' | 'error'>('idle');
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+    };
+  }, []);
 
   useEffect(() => {
     const existing = loadReport();
@@ -156,6 +164,19 @@ export default function IntelligenceReport({ onComplete, advisor, onReset }: Pro
     setSavedAt(null);
     setConsent(false);
     onReset?.();
+  }
+
+  async function copyReport() {
+    const markdown = buildReportMarkdown(advisor, savedAt);
+    try {
+      await navigator.clipboard.writeText(markdown);
+      setCopyState('ok');
+    } catch {
+      // Clipboard unavailable (permissions, insecure context) — say so instead of failing silently.
+      setCopyState('error');
+    }
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+    copyTimer.current = setTimeout(() => setCopyState('idle'), 2500);
   }
 
   function download() {
@@ -387,6 +408,15 @@ export default function IntelligenceReport({ onComplete, advisor, onReset }: Pro
               className="inline-flex items-center gap-1.5 rounded-lg bg-navy-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-navy-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
             >
               Print report
+            </button>
+            <button
+              type="button"
+              onClick={copyReport}
+              data-testid="copy-report"
+              aria-live="polite"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-ink-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 shadow-sm transition-colors hover:bg-ink-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+            >
+              {copyState === 'ok' ? 'Copied!' : copyState === 'error' ? 'Copy failed' : 'Copy report'}
             </button>
             <button
               type="button"
