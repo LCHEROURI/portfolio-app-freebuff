@@ -6,7 +6,7 @@ import { docFeeFlags, addOnFlags } from '@/utils/redFlags';
 import type { AdvisorState } from '@/hooks/useAdvisorState';
 
 import { REPORT_STORAGE_KEY } from '@/lib/progress';
-import { buildReportMarkdown, buildReportPlainText, reportFileName } from '@/lib/reportExport';
+import { buildReportMarkdown, buildReportPlainText, reportFileName, buildCompareColumns, compareRowValues } from '@/lib/reportExport';
 
 type StoredReport = {
   savedAt: string;
@@ -149,6 +149,10 @@ export default function IntelligenceReport({ onComplete, advisor, onReset }: Pro
     ? Object.entries(vehicles.needs).filter(([, v]) => v).map(([k]) => NEED_LABELS[k] ?? k)
     : [];
   const comparingCount = vehicles?.comparing?.length ?? 0;
+
+  // Side-by-side spec columns for the compared vehicles (shared extractor
+  // with the .md/.txt exporters — one source for all three renderings).
+  const compareColumns = buildCompareColumns(vehicles);
 
   const score = dealScore?.result?.score;
   const hasScore = typeof score === 'number';
@@ -370,6 +374,37 @@ export default function IntelligenceReport({ onComplete, advisor, onReset }: Pro
               <Empty step="2" />
             )}
           </Section>
+
+          {/* Side-by-side comparison (Step 2 specs snapshot) */}
+          {compareColumns.length > 0 && (
+            <Section title="Side-by-side comparison">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-ink-200">
+                      <th className="px-2 py-1.5 text-left font-semibold text-ink-700">Spec</th>
+                      {compareColumns.map((c) => (
+                        <th key={c.label} className="px-2 py-1.5 text-left font-semibold text-navy-900">{c.label}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {compareRowValues(compareColumns[0]).map((row) => (
+                      <tr key={row.label} className="border-b border-ink-100">
+                        <td className="px-2 py-1.5 text-ink-600">{row.label}</td>
+                        {compareColumns.map((c) => {
+                          const value = compareRowValues(c).find((r) => r.label === row.label)?.value ?? '';
+                          return (
+                            <td key={c.label} className={`px-2 py-1.5 font-medium ${value === 'n/a' ? 'text-ink-400' : 'text-ink-800'}`}>{value}</td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Section>
+          )}
 
           {/* Deal score (Step 10) */}
           <Section title="Deal score">

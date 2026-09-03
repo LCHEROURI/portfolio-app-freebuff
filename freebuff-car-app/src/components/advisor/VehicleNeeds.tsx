@@ -4,6 +4,17 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Vehicle } from '@/data/vehicles';
 import { MPG_UNKNOWN } from '@/lib/marketcheck';
 
+/** Persisted spec snapshot for one compared vehicle (Step 2 → report). */
+export interface VehicleSpecSnapshot {
+  title: string;
+  msrp: number;
+  /** Combined MPG; null when the feed has no figure — never fabricated. */
+  mpg: number | null;
+  seating: number;
+  drive: string;
+  safety: string;
+}
+
 interface Needs {
   awd: boolean;
   seating5plus: boolean;
@@ -135,10 +146,34 @@ export default function VehicleNeeds({ onContinue, intake, onSaveData }: Props =
     return Object.fromEntries(fetchState.vehicles.map((v) => [v.id, `${v.make} ${v.model}`]));
   }
 
+  /**
+   * Spec snapshots for the compared vehicles, persisted with the step data
+   * so the Intelligence Report (screen + .md/.txt exports) can show a real
+   * side-by-side comparison — not just the names in the filename. Takes the
+   * comparison list explicitly: callers mid-toggle pass the NEXT list, since
+   * state has not committed yet.
+   */
+  function specsSnapshot(forIds: string[]): Record<string, VehicleSpecSnapshot> {
+    if (fetchState.phase !== 'ready') return {};
+    const snapshot: Record<string, VehicleSpecSnapshot> = {};
+    for (const v of fetchState.vehicles) {
+      if (!forIds.includes(v.id)) continue;
+      snapshot[v.id] = {
+        title: `${v.year} ${v.make} ${v.model}${v.trim ? ` ${v.trim}` : ''}`,
+        msrp: v.msrp,
+        mpg: v.fuelEconomyCombined === MPG_UNKNOWN ? null : v.fuelEconomyCombined,
+        seating: v.seating,
+        drive: v.drive,
+        safety: v.safetyRating,
+      };
+    }
+    return snapshot;
+  }
+
   function toggleNeed<K extends keyof Needs>(key: K) {
     setNeeds((prev) => {
       const next = { ...prev, [key]: !prev[key] };
-      onSaveData?.({ needs: next, comparing, names: namesSnapshot() });
+      onSaveData?.({ needs: next, comparing, names: namesSnapshot(), specs: specsSnapshot(comparing) });
       return next;
     });
   }
@@ -146,7 +181,7 @@ export default function VehicleNeeds({ onContinue, intake, onSaveData }: Props =
   function toggleCompare(id: string) {
     setComparing((prev) => {
       const next = prev.includes(id) ? prev.filter((v) => v !== id) : prev.length < 3 ? [...prev, id] : prev;
-      onSaveData?.({ needs, comparing: next, names: namesSnapshot() });
+      onSaveData?.({ needs, comparing: next, names: namesSnapshot(), specs: specsSnapshot(next) });
       return next;
     });
   }
