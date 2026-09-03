@@ -5,7 +5,7 @@ import { monthlyPayment, totalCost } from '@/utils/financeCalculators';
 import { docFeeFlags, addOnFlags } from '@/utils/redFlags';
 import type { AdvisorState } from '@/hooks/useAdvisorState';
 
-const STORAGE_KEY = 'freebuff-car-advisor-report-v1';
+import { REPORT_STORAGE_KEY } from '@/lib/progress';
 
 type StoredReport = {
   savedAt: string;
@@ -13,7 +13,7 @@ type StoredReport = {
 
 function loadReport(): StoredReport | null {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(REPORT_STORAGE_KEY);
     return raw ? (JSON.parse(raw) as StoredReport) : null;
   } catch {
     return null;
@@ -62,6 +62,8 @@ interface Props {
   onComplete?: () => void;
   /** The advisor session store — every section renders from what the user actually entered. */
   advisor?: AdvisorState | null;
+  /** Clears the advisor session (store + report marker) and returns to Step 1. */
+  onReset?: () => void;
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -87,10 +89,11 @@ function Row({ label, value, tone }: { label: string; value: string; tone?: 'goo
   );
 }
 
-export default function IntelligenceReport({ onComplete, advisor }: Props = {}) {
+export default function IntelligenceReport({ onComplete, advisor, onReset }: Props = {}) {
   const [consent, setConsent] = useState(false);
   const [generated, setGenerated] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [confirmingReset, setConfirmingReset] = useState(false);
 
   useEffect(() => {
     const existing = loadReport();
@@ -141,10 +144,23 @@ export default function IntelligenceReport({ onComplete, advisor }: Props = {}) 
   const score = dealScore?.result?.score;
   const hasScore = typeof score === 'number';
 
+  function performReset() {
+    try {
+      window.localStorage.removeItem(REPORT_STORAGE_KEY);
+    } catch {
+      // storage unavailable: nothing to remove
+    }
+    setConfirmingReset(false);
+    setGenerated(false);
+    setSavedAt(null);
+    setConsent(false);
+    onReset?.();
+  }
+
   function generate() {
     const report: StoredReport = { savedAt: new Date().toISOString() };
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(report));
+      window.localStorage.setItem(REPORT_STORAGE_KEY, JSON.stringify(report));
     } catch {
       // Storage unavailable — the report still renders for printing.
     }
@@ -350,13 +366,59 @@ export default function IntelligenceReport({ onComplete, advisor }: Props = {}) 
             </ul>
           </Section>
 
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-navy-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-navy-800 print:hidden focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
-          >
-            Print report
-          </button>
+          <div className="flex flex-wrap items-center gap-3 print:hidden">
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-navy-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-navy-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+            >
+              Print report
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmingReset(true)}
+              data-testid="start-over"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-700 shadow-sm transition-colors hover:bg-red-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500"
+            >
+              Start Over
+            </button>
+          </div>
+
+          {confirmingReset && (
+            <div
+              role="alertdialog"
+              aria-modal="false"
+              aria-labelledby="reset-confirm-title"
+              data-testid="reset-confirm"
+              className="rounded-xl border border-red-200 bg-red-50 p-5 print:hidden"
+            >
+              <h4 id="reset-confirm-title" className="font-semibold text-red-900">
+                Start over from Step 1?
+              </h4>
+              <p className="mt-1 text-sm text-red-800">
+                This clears your saved session — every step, your budgets, and this generated
+                report. This cannot be undone.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={performReset}
+                  data-testid="reset-confirm-yes"
+                  className="inline-flex items-center rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-red-700"
+                >
+                  Yes, clear everything
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingReset(false)}
+                  data-testid="reset-confirm-no"
+                  className="inline-flex items-center rounded-lg border border-ink-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 shadow-sm transition-colors hover:bg-ink-50"
+                >
+                  Keep my session
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
