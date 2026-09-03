@@ -10,10 +10,14 @@
 #
 # Runs every 30 minutes + manual dispatch. Files/updates the SAME single
 # open issue labeled deploy-failure that the deploy workflow uses (one
-# failure, one issue), and closes it on recovery. If the ALERT_WEBHOOK_URL
-# secret is set, an unhealthy classification also POSTs a Slack/Discord-
-# compatible webhook alert — the same optional channel the deploy
-# workflows use — so scheduled-watch failures surface outside GitHub too.
+# failure, one issue), and closes it on recovery. Webhook alerts are
+# severity-routed (check-rollout-health.sh emits severity=page|warning):
+#   page    — deploy failures + serving outages (failed/stuck/unreachable/
+#             unprovenanced/degraded) → POST to ALERT_WEBHOOK_URL
+#   warning — rollout-stale (main advanced past what serves; the app still
+#             works) → POST to ALERT_WEBHOOK_URL_QUIET (silent channel) when
+#             that secret exists; the deploy-failure issue still records it
+#             either way, so a quiet warning never silently disappears
 # Requires gcloud credentials: FIREBASE_SERVICE_ACCOUNT secret.
 name: Rollout health watch
 
@@ -23,7 +27,7 @@ on:
   workflow_dispatch:
     inputs:
       test_webhook:
-        description: 'Force an unhealthy result to prove webhook delivery end to end (does not touch the deploy-failure issue)'
+        description: 'Force a PAGE-tier unhealthy result to prove webhook delivery end to end (does not touch the deploy-failure issue)'
         required: false
         default: false
         type: boolean
@@ -44,6 +48,7 @@ jobs:
 
     env:
       ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+      ALERT_WEBHOOK_URL_QUIET: ${{ secrets.ALERT_WEBHOOK_URL_QUIET }}
 
     steps:
       - name: Check out repository
@@ -80,9 +85,11 @@ jobs:
           OUT="$(bash scripts/check-rollout-health.sh)"
           printf '%s\n' "$OUT"
           OUTCOME="$(printf '%s\n' "$OUT" | sed -n 's/^outcome=//p')"
+          SEVERITY="$(printf '%s\n' "$OUT" | sed -n 's/^severity=//p')"
           DETAIL="$(printf '%s\n' "$OUT" | sed -n 's/^detail=//p')"
           {
             echo "outcome=$OUTCOME"
+            echo "severity=${SEVERITY:-page}"
             echo "detail<<EOF"
             printf '%s\n' "$DETAIL"
             echo "EOF"
@@ -110,14 +117,31 @@ jobs:
               --assignee "${GITHUB_REPOSITORY_OWNER}"
           fi
 
-      - name: Send webhook alert (optional, Slack/Discord compatible)
+      - name: Send webhook alert (severity-routed, Slack/Discord compatible)
         if: steps.classify.outputs.outcome != 'healthy'
         env:
           OUTCOME: ${{ steps.classify.outputs.outcome }}
+          SEVERITY: ${{ steps.classify.outputs.severity }}
           DETAIL: ${{ steps.classify.outputs.detail }}
           TEST_MODE: ${{ steps.classify.outputs.test_mode == 'true' }}
         run: |
           set -euo pipefail
+          if [ "$SEVERITY" = "warning" ] && [ "$TEST_MODE" != "true" ]; then
+            # Silent tier: rollout-stale warnings go to the quiet channel when
+            # one exists, and never page. The deploy-failure issue still
+            # records the warning (filed by the step above), so nothing is
+            # lost — the paging channel just stays calm.
+            if [ -n "${ALERT_WEBHOOK_URL_QUIET:-}" ]; then
+              TEXT="⚠️ Portfolio rollout warning: $OUTCOME — $DETAIL
+              $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+              jq -n --arg text "$TEXT" '{text: $text, content: $text}' \
+                | curl -sfS -X POST -H 'Content-Type: application/json' -d @- "$ALERT_WEBHOOK_URL_QUIET"
+              echo "webhook_delivery=quiet-channel"
+            else
+              echo "severity=warning and no ALERT_WEBHOOK_URL_QUIET — delivered as the deploy-failure issue only (no webhook)."
+            fi
+            exit 0
+          fi
           if [ -z "${ALERT_WEBHOOK_URL:-}" ]; then
             if [ "$TEST_MODE" = "true" ]; then
               echo "::error::Webhook test FAILED — ALERT_WEBHOOK_URL is not set in this repo's Actions secrets. Set it with: gh secret set ALERT_WEBHOOK_URL --repo $GITHUB_REPOSITORY"
@@ -131,7 +155,7 @@ jobs:
           # Slack reads "text", Discord reads "content"; each ignores the other.
           jq -n --arg text "$TEXT" '{text: $text, content: $text}' \
             | curl -sfS -X POST -H 'Content-Type: application/json' -d @- "$ALERT_WEBHOOK_URL"
-          echo "webhook_delivery=success"
+          echo "webhook_delivery=page-channel"
 
       - name: Close the deploy-failure issue on recovery
         if: steps.classify.outputs.outcome == 'healthy'

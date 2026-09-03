@@ -114,6 +114,14 @@ working even after deploys move off Actions.
 Optional: set the `ALERT_WEBHOOK_URL` secret to a Slack/Discord incoming
 webhook and failures also ping that channel — no other change needed.
 
+Alerts are severity-routed (see `scripts/check-rollout-health.sh`, which emits
+`severity=page|warning` with every verdict):
+
+| Severity | Outcomes | Webhook channel |
+|---|---|---|
+| **page** | deploy-failure run alerts, rollout `failed` / `stuck`, serving outages (`unreachable` / `unprovenanced` / `degraded`) | `ALERT_WEBHOOK_URL` — the channel that gets pinged |
+| **warning** | rollout `stale` (main advanced past what serves; the app still works) | `ALERT_WEBHOOK_URL_QUIET` — a silent/log-only channel; if the secret is unset the warning lands as the deploy-failure issue only, never a page |
+
 ## 5. Gotchas (each one bit us once)
 
 - **Label values** can't contain `:` or `/` — URLs belong in `annotations`.
