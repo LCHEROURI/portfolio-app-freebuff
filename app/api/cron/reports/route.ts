@@ -12,8 +12,9 @@ import {
   withWinnerRecommendations,
   type WinnerRecommendationSection,
 } from '@/lib/openrouter';
-import type { ReportPreviewPayload } from '@/lib/reportPreview';
+import type { IncidentsSummary, ReportPreviewPayload } from '@/lib/reportPreview';
 import { loadLiveSnapshot, serverProfile } from '@/lib/server/reporting/data';
+import { fetchIncidentsSummary } from '@/lib/server/incidents';
 import {
   FIRESTORE_COLLECTIONS, firestoreUpsert, isFirestoreAdminConfigured,
 } from '@/lib/server/firestoreAdmin';
@@ -69,6 +70,42 @@ const withAlertsSection = (body: string, alerts: AutomationAlert[]): string => {
       `- **[${a.severity.toUpperCase()}] Rule ${a.ruleNumber}** — ${a.title}: ${a.description}`,
     ),
   ];
+  return `${body}\n${lines.join('\n')}`;
+};
+
+/**
+ * Append the weekly deploy-incident summary to a report body. Renders one line
+ * per incident (source-tagged, linked to its issue) plus a recoveries line;
+ * a quiet week renders a clean "no incidents" line and an unreadable log says
+ * so explicitly — never silently blank. null → body unchanged (non-weekly).
+ */
+const withIncidentsSummary = (
+  body: string,
+  summary: IncidentsSummary | null,
+): string => {
+  if (!summary) return body;
+  const lines: string[] = [
+    '',
+    '## 🚨 Deploy incidents this week',
+  ];
+  if (summary.fetchError) {
+    lines.push(`- Incident log unavailable (${summary.fetchError}) — check GitHub API access.`);
+  } else if (summary.incidents.length === 0) {
+    lines.push('- None — no deploy failures or rollout-health incidents in the past 7 days. 🎉');
+  } else {
+    lines.push(
+      ...summary.incidents.map((i) => {
+        const when = i.firstSeenAt ? ` (first seen ${i.firstSeenAt.slice(0, 10)}${i.resolvedAt ? `, resolved ${i.resolvedAt.slice(0, 10)}` : ', still open at last report'})` : '';
+        const link = i.url ? ` — [issue history](${i.url})` : '';
+        return `- **[${i.source}]** ${i.title}${when}${link}`;
+      }),
+    );
+  }
+  lines.push(
+    summary.resolvedCount > 0
+      ? `- Recovered this week: ${summary.resolvedCount} incident(s) resolved.`
+      : '- No recoveries recorded this week.',
+  );
   return `${body}\n${lines.join('\n')}`;
 };
 
@@ -189,6 +226,21 @@ export async function GET(req: NextRequest) {
   // due — the AI briefing narrates exactly these figures (never invented ones).
   const monthlyFacts = wantMonthly ? buildMonthlyBriefingFacts(state) : null;
 
+  // Weekly incident summary: the shared deploy-failure issue log is the
+  // durable record of deploy failures AND rollout-health incidents, so the
+  // weekly report summarizes it over the past 7 days. Computed once when a
+  // weekly report is due, in parallel with the summaries; every failure mode
+  // degrades to an empty summary (with fetchError) so the report never fails
+  // because this section is missing.
+  const incidentsPromise: Promise<IncidentsSummary | null> = wantWeekly
+    ? fetchIncidentsSummary(7).catch(
+        (): IncidentsSummary => ({
+          incidents: [], recoveries: [], resolvedCount: 0,
+          fetchError: 'incident fetch failed',
+        }),
+      )
+    : Promise.resolve(null);
+
   const summarized = await Promise.all(pending.map(async ({ r, kind }) => {
     const ai = await summarizeReport({ kind, title: r.title, body: r.body, attentionCount: r.attentionCount });
     // The 'why these three matter today' briefing is a daily feature; weekly
@@ -203,6 +255,7 @@ export async function GET(req: NextRequest) {
     // Awaited inside the map so weekly bodies always render the freshest winner
     // sections; the promise is computed once, in parallel with the summaries.
     const winnerSections = await winnerPromise;
+    const incidentsSummary = await incidentsPromise;
     let body = withExecutiveSummary(withAlertsSection(r.body, alerts), ai?.summary ?? null, ai?.model ?? null);
     if (kind === 'daily') {
       body = withTopThreeNarration(body, narration?.paragraph ?? null, narration?.model ?? null);
@@ -212,6 +265,7 @@ export async function GET(req: NextRequest) {
     }
     if (kind === 'weekly') {
       body = withWinnerRecommendations(body, winnerSections);
+      body = withIncidentsSummary(body, incidentsSummary);
     }
     return {
       kind,
@@ -226,6 +280,8 @@ export async function GET(req: NextRequest) {
       winnerRecommendations: winnerSections,
       // Structured monthly briefing (monthly only) for the same reason.
       briefing,
+      // Structured incident summary (weekly only) for the same reason.
+      incidentsSummary,
     };
   }));
 
@@ -242,6 +298,7 @@ export async function GET(req: NextRequest) {
       narration: s.narration,
       winnerRecommendations: s.winnerRecommendations,
       briefing: s.briefing,
+      incidentsSummary: s.incidentsSummary ?? undefined,
     });
 
     // Log a report_generated activity doc (Firestore, camelCase like the client

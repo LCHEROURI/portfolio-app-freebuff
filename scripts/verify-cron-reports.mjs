@@ -144,6 +144,44 @@ if (!weeklyBody.includes('# Weekly Command Center Report'))
 // --owner strict mode the section is REQUIRED: the fixture is seeded under
 // that owner, so its absence means the SA wiring or the seed itself failed.
 const weeklyRecs = weeklyReport?.winnerRecommendations;
+// Weekly incident summary (deploy failures + rollout-health incidents from the
+// past 7 days, read from the shared deploy-failure issue log). Data-dependent
+// like the other weekly sections: the structured field always rides along on
+// the weekly report, the body section is only REQUIRED when there were
+// incidents or an explicit fetchError (never fail CI on a quiet week).
+const weeklyIncidents = weeklyReport?.incidentsSummary;
+if (!weeklyIncidents) {
+  // Deploy-race tolerance: CI's live check can hit the PREVIOUS rollout right
+  // after a merge (the new deploy races it). An old build has neither the
+  // structured field nor the section — soft-pass with an explicit note; the
+  // unit tests lock the field's presence in code, so a removed feature fails
+  // there. A section WITHOUT the field is a real inconsistency and fails.
+  if (weeklyBody.includes('## 🚨 Deploy incidents this week')) {
+    fail('weekly body renders the incidents section but the structured incidentsSummary field is missing', 'weekly-incidents');
+  } else {
+    ok('deployed build predates the incident-summary feature (no field, no section) — re-verify after the next deploy');
+  }
+} else if (typeof weeklyIncidents !== 'object') {
+  fail('weekly incidentsSummary is not an object', 'weekly-incidents');
+} else {
+  const sectionPresent = weeklyBody.includes('## 🚨 Deploy incidents this week');
+  if (weeklyIncidents.fetchError) {
+    if (!sectionPresent || !weeklyBody.includes('Incident log unavailable'))
+      fail('weekly incidentsSummary.fetchError set but the body does not say so', 'weekly-incidents');
+    else ok(`weekly incident log unreadable — body says so explicitly (${weeklyIncidents.fetchError})`);
+  } else if (weeklyIncidents.incidents.length > 0) {
+    if (!sectionPresent) fail('weekly incident(s) returned but the body section is missing', 'weekly-incidents');
+    for (const inc of weeklyIncidents.incidents) {
+      if (!inc.title || (inc.source !== 'deploy' && inc.source !== 'rollout-health'))
+        fail('weekly incidentsSummary has an incomplete incident entry', 'weekly-incidents');
+    }
+    ok(`weekly incident summary present (${weeklyIncidents.incidents.length} incident(s), ${weeklyIncidents.resolvedCount} resolved)`);
+  } else {
+    if (sectionPresent && !weeklyBody.includes('no deploy failures or rollout-health incidents'))
+      fail('weekly incidents section present but missing the quiet-week line', 'weekly-incidents');
+    ok('no incidents in the past week — quiet-week line rendered (graceful path)');
+  }
+}
 const ownerScoped = OWNER && weekly.json?.ownerId === OWNER;
 if (weeklyRecs && weeklyRecs.length > 0) {
   if (!weeklyBody.includes('## 🏆 AI winner recommendations (DeepSeek Chat)'))
@@ -266,6 +304,7 @@ console.log(`VERIFY-SUBRESULT|auth-gate|${(sectionFails['auth-gate'] ?? 0) === 0
 console.log(`VERIFY-SUBRESULT|secret-drift|${(sectionFails['secret-drift'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
 console.log(`VERIFY-SUBRESULT|weekly-body|${(sectionFails['weekly-body'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
 console.log(`VERIFY-SUBRESULT|daily-body|${(sectionFails['daily-body'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
+console.log(`VERIFY-SUBRESULT|weekly-incidents|${(sectionFails['weekly-incidents'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
 console.log(`VERIFY-SUBRESULT|monthly-body|${(sectionFails['monthly-body'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
 console.log(`VERIFY-SUBRESULT|email-envelope-sweep|${envelopeHits === 0 ? 'PASS' : 'FAIL'}`);
 
