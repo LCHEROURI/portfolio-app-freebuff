@@ -4,6 +4,8 @@ export const STORAGE_KEY = 'freebuff-car-advisor-state';
 
 export interface AdvisorState {
   step: number;
+  /** Furthest step ever reached — unlike `step`, it never moves backward. */
+  maxStep?: number;
   intake?: Record<string, unknown>;
   priorities?: Record<string, unknown>;
   vehicles?: Record<string, unknown>;

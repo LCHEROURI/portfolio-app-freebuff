@@ -15,6 +15,7 @@ import { useEffect, useState } from 'react';
 import { useAdvisorState } from '@/hooks/useAdvisorState';
 import type { AdvisorState } from '@/hooks/useAdvisorState';
 import { STEP_LABELS, type Step } from '@/lib/steps';
+import StepProgress from '@/components/StepProgress';
 
 const BACK_LABELS: Partial<Record<Step, string>> = {
   2: 'intake',
@@ -71,11 +72,14 @@ export default function AdvisorPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-navy-900">
-          Step {step} of 11 — {stepLabel}
-        </h1>
-        <p className="mt-1 text-ink-600">{stepDescription}</p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-navy-900">
+            Step {step} of 11 — {stepLabel}
+          </h1>
+          <p className="mt-1 text-ink-600">{stepDescription}</p>
+        </div>
+        <StepProgress advisor={advisorState} />
       </div>
 
       {step === 1 ? (
@@ -99,7 +103,7 @@ export default function AdvisorPage() {
       ) : step === 10 ? (
         <DealScoreCard onComplete={() => goToStep(11)} onSaveData={saveData('dealScore')} />
       ) : (
-        <IntelligenceReport advisor={advisorState} />
+        <IntelligenceReport advisor={advisorState} onComplete={() => updateAdvisorState({})} />
       )}
 
       <div className="flex items-center justify-between pt-4">
