@@ -174,4 +174,35 @@ test.describe('Intelligence Report generate + download', () => {
     expect(stored.step).toBe(11);
     expect(stored.vehicles.comparing).toEqual(['camry', 'outback']);
   });
+
+  test('Step 3 prefills the vehicle price from the first compared vehicle', async ({ page }) => {
+    // Same seed as above, but parked ON Step 3 to inspect the form.
+    await page.addInitScript(
+      ({ state }) => {
+        window.localStorage.setItem('freebuff-car-advisor-state', JSON.stringify({ ...state, step: 3 }));
+      },
+      { state: SESSION },
+    );
+    await page.goto('/advisor');
+
+    await expect(page.getByRole('heading', { name: /Run the financing math/i })).toBeVisible();
+
+    // Price prefilled from camry's MSRP snapshot (28595), with the chip.
+    await expect(page.getByLabel('Vehicle price')).toHaveValue('28595');
+    await expect(page.getByTestId('msrp-suggestion')).toContainText('Toyota Camry');
+
+    // The live preview computes from the prefill immediately once down/APR
+    // are typed (term defaults to 60): 28595 - 5000 = 23595 financed.
+    await page.getByLabel('Down payment').fill('5000');
+    await page.getByLabel(/APR/).fill('6');
+    await expect(page.getByText('$23,595')).toBeVisible();
+    await expect(page.getByText('$456.16')).toBeVisible();
+
+    // Submitting persists the prefilled price into the advisor store.
+    await page.getByRole('button', { name: /calculate/i }).click();
+    await page.waitForURL(/advisor/);
+    const stored = await page.evaluate((key) => JSON.parse(window.localStorage.getItem(key) || 'null'), STORAGE_KEY);
+    expect(stored.finance.vehiclePrice).toBe('28595');
+    expect(stored.step).toBe(4);
+  });
 });

@@ -66,6 +66,18 @@ export default function AdvisorPage() {
     updateAdvisorState({ [key]: data } as Partial<AdvisorState>);
   };
 
+  // Suggested MSRP for Step 3: the first compared vehicle's saved specs
+  // snapshot (Step 2). A previously saved finance price overrides it via
+  // FinanceCalc's prefill logic.
+  const compared = Array.isArray(advisorState.vehicles?.comparing)
+    ? (advisorState.vehicles?.comparing as string[])
+    : [];
+  const specs = (advisorState.vehicles?.specs ?? {}) as Record<string, { msrp?: number } | undefined>;
+  const suggestedMSRP = compared.length > 0 ? (specs[compared[0]]?.msrp ?? null) : null;
+  const suggestedLabel = compared.length > 0
+    ? ((advisorState.vehicles?.names ?? {}) as Record<string, string>)[compared[0]]
+    : undefined;
+
   const stepLabel = STEP_LABELS[step];
 
   const stepDescription = STEP_DESCRIPTIONS[step];
@@ -87,7 +99,12 @@ export default function AdvisorPage() {
       ) : step === 2 ? (
         <VehicleNeeds onContinue={() => goToStep(3)} intake={advisorState.intake} onSaveData={saveData('vehicles')} />
       ) : step === 3 ? (
-        <FinanceCalc onComplete={() => goToStep(4)} onSaveData={saveData('finance')} />
+        <FinanceCalc
+          onComplete={() => goToStep(4)}
+          onSaveData={saveData('finance')}
+          suggestedMSRP={suggestedMSRP}
+          suggestedLabel={suggestedLabel}
+        />
       ) : step === 4 ? (
         <LeaseMatrix onComplete={() => goToStep(5)} onSaveData={saveData('lease')} />
       ) : step === 5 ? (
