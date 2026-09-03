@@ -81,9 +81,11 @@ interface Props {
   onContinue?: () => void;
   /** Step 1 intake; budget/zip/body style funnel into the inventory query. */
   intake?: IntakeSummary | null;
+  /** Persist the needs selection + comparison set to the advisor store. */
+  onSaveData?: (data: unknown) => void;
 }
 
-export default function VehicleNeeds({ onContinue, intake }: Props = {}) {
+export default function VehicleNeeds({ onContinue, intake, onSaveData }: Props = {}) {
   const [needs, setNeeds] = useState<Needs>(DEFAULT_NEEDS);
   const [comparing, setComparing] = useState<string[]>([]);
   const [fetchState, setFetchState] = useState<FetchState>({ phase: 'loading' });
@@ -127,13 +129,19 @@ export default function VehicleNeeds({ onContinue, intake }: Props = {}) {
   }, [loadInventory, nonce]);
 
   function toggleNeed<K extends keyof Needs>(key: K) {
-    setNeeds((prev) => ({ ...prev, [key]: !prev[key] }));
+    setNeeds((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      onSaveData?.({ needs: next, comparing });
+      return next;
+    });
   }
 
   function toggleCompare(id: string) {
-    setComparing((prev) =>
-      prev.includes(id) ? prev.filter((v) => v !== id) : prev.length < 3 ? [...prev, id] : prev
-    );
+    setComparing((prev) => {
+      const next = prev.includes(id) ? prev.filter((v) => v !== id) : prev.length < 3 ? [...prev, id] : prev;
+      onSaveData?.({ needs, comparing: next });
+      return next;
+    });
   }
 
   const activeNeeds = Object.entries(needs).filter(([, v]) => v);

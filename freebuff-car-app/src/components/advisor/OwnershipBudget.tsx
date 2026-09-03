@@ -40,9 +40,10 @@ function formatCurrencyCents(value: number): string {
 
 interface Props {
   onComplete?: () => void;
+  onSaveData?: (data: unknown) => void;
 }
 
-export default function OwnershipBudget({ onComplete }: Props = {}) {
+export default function OwnershipBudget({ onComplete, onSaveData }: Props = {}) {
   const [state, setState] = useState<OwnershipState>(DEFAULT_STATE);
   const [errors, setErrors] = useState<Partial<OwnershipState>>({});
   const [submitted, setSubmitted] = useState(false);
@@ -119,6 +120,7 @@ export default function OwnershipBudget({ onComplete }: Props = {}) {
       setErrors((prev) => ({ ...prev }));
     } else {
       setSubmitted(true);
+      onSaveData?.(state);
       onComplete?.();
     }
   }

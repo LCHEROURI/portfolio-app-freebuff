@@ -96,13 +96,13 @@ export default function AdvisorPage() {
       {step === 1 ? (
         <IntakeForm onComplete={() => goToStep(2)} onSaveData={saveData('intake')} />
       ) : step === 2 ? (
-        <VehicleNeeds onContinue={() => goToStep(3)} intake={advisorState.intake} />
+        <VehicleNeeds onContinue={() => goToStep(3)} intake={advisorState.intake} onSaveData={saveData('vehicles')} />
       ) : step === 3 ? (
         <FinanceCalc onComplete={() => goToStep(4)} onSaveData={saveData('finance')} />
       ) : step === 4 ? (
-        <LeaseMatrix onComplete={() => goToStep(5)} />
+        <LeaseMatrix onComplete={() => goToStep(5)} onSaveData={saveData('lease')} />
       ) : step === 5 ? (
-        <OwnershipBudget onComplete={() => goToStep(6)} />
+        <OwnershipBudget onComplete={() => goToStep(6)} onSaveData={saveData('ownership')} />
       ) : step === 6 ? (
         <ShoppingStrategy onContinue={() => goToStep(7)} />
       ) : step === 7 ? (
@@ -112,9 +112,9 @@ export default function AdvisorPage() {
       ) : step === 9 ? (
         <DriveScript onComplete={() => goToStep(10)} />
       ) : step === 10 ? (
-        <DealScoreCard onComplete={() => goToStep(11)} />
+        <DealScoreCard onComplete={() => goToStep(11)} onSaveData={saveData('dealScore')} />
       ) : (
-        <IntelligenceReport />
+        <IntelligenceReport advisor={advisorState} />
       )}
 
       <div className="flex items-center justify-between pt-4">
