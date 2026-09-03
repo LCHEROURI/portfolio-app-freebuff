@@ -27,6 +27,7 @@ export const SUBRESULT_LABELS = {
   'auth-gate': 'Unauthenticated 401 gate',
   'secret-drift': 'Deployed CRON_SECRET matches local',
   'weekly-body': 'Weekly body: heading + footer',
+  'weekly-incidents': 'Weekly incident summary (deploy + rollout health)',
   'daily-body': 'Daily body: narration + footer',
   'monthly-body': 'Monthly body: briefing + sections',
   'email-envelope-sweep': 'Email-envelope sweep',

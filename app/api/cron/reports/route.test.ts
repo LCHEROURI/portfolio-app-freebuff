@@ -49,9 +49,14 @@ vi.mock('@/lib/openrouter', async (importOriginal) => {
   };
 });
 
+vi.mock('@/lib/server/incidents', () => ({
+  fetchIncidentsSummary: vi.fn(async () => ({ incidents: [], recoveries: [], resolvedCount: 0 })),
+}));
+
 import { GET } from './route';
 import { loadLiveSnapshot } from '@/lib/server/reporting/data';
 import { narrateMonthlyBriefing, narrateTopThree, recommendWinner } from '@/lib/openrouter';
+import { fetchIncidentsSummary } from '@/lib/server/incidents';
 import { firestoreUpsert, isFirestoreAdminConfigured } from '@/lib/server/firestoreAdmin';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -134,6 +139,8 @@ const makeTextPreviewReq = (kind: string) =>
 beforeEach(() => {
   process.env.CRON_SECRET = 'test-secret';
   vi.mocked(loadLiveSnapshot).mockResolvedValue(snapshotWithTopThree);
+  // Default: a quiet week — no deploy-failure incidents in the window.
+  vi.mocked(fetchIncidentsSummary).mockResolvedValue({ incidents: [], recoveries: [], resolvedCount: 0 });
   vi.mocked(narrateTopThree).mockResolvedValue({
     paragraph: 'Fix the failing deploy first, then push your work and close the overdue task.',
     model: 'deepseek/deepseek-chat',
@@ -426,6 +433,78 @@ describe('GET /api/cron/reports — weekly AI winner recommendation', () => {
     expect(json.reports[0].winnerRecommendations).toEqual([
       { projectName: 'Takeout Voice 2', versionName: 'Gemini Build', note: 'Gemini wins on features and overall score.', model: 'deepseek/deepseek-chat' },
     ]);
+  });
+});
+
+// ─── Weekly incident summary ────────────────────────────────────────────────
+
+describe('GET /api/cron/reports — weekly deploy-incident summary', () => {
+  it('renders the incidents section with source tags when the week had incidents', async () => {
+    vi.mocked(fetchIncidentsSummary).mockResolvedValue({
+      incidents: [
+        {
+          source: 'deploy',
+          title: '🚨 Portfolio-app deploy failed on main (a1b2c3d)',
+          firstSeenAt: '2026-09-01T10:00:00Z',
+          resolvedAt: '2026-09-01T12:00:00Z',
+          url: 'https://github.com/LCHEROURI/portfolio-app-freebuff/issues/7',
+        },
+        {
+          source: 'rollout-health',
+          title: '🚨 Car-app rollout unhealthy (stale)',
+          firstSeenAt: '2026-09-02T08:00:00Z',
+          url: 'https://github.com/LCHEROURI/portfolio-app-freebuff/issues/7',
+        },
+      ],
+      recoveries: ['🚨 Portfolio-app deploy failed on main (a1b2c3d) — resolved 2026-09-01'],
+      resolvedCount: 1,
+    });
+    const res = await GET(makePreviewReq('weekly'));
+    const json = (await res.json()) as { reports: Array<{ body: string; incidentsSummary?: { incidents: unknown[]; resolvedCount: number } }> };
+    const body = json.reports[0].body;
+    expect(body).toContain('## 🚨 Deploy incidents this week');
+    expect(body).toContain('**[deploy]** 🚨 Portfolio-app deploy failed on main (a1b2c3d)');
+    expect(body).toContain('**[rollout-health]** 🚨 Car-app rollout unhealthy (stale)');
+    expect(body).toContain('resolved 2026-09-01');
+    expect(body).toContain('Recovered this week: 1 incident(s) resolved.');
+    // The structured field rides along so verifiers never parse prose.
+    expect(json.reports[0].incidentsSummary?.incidents).toHaveLength(2);
+    expect(json.reports[0].incidentsSummary?.resolvedCount).toBe(1);
+  });
+
+  it('renders the quiet-week line and no fetchError when there were no incidents', async () => {
+    const res = await GET(makePreviewReq('weekly'));
+    const json = (await res.json()) as { reports: Array<{ body: string; incidentsSummary?: { incidents: unknown[]; fetchError?: string } }> };
+    const body = json.reports[0].body;
+    expect(body).toContain('## 🚨 Deploy incidents this week');
+    expect(body).toContain('no deploy failures or rollout-health incidents in the past 7 days');
+    expect(json.reports[0].incidentsSummary?.incidents).toHaveLength(0);
+    expect(json.reports[0].incidentsSummary?.fetchError).toBeUndefined();
+  });
+
+  it('says so explicitly in the body when the incident log could not be read', async () => {
+    vi.mocked(fetchIncidentsSummary).mockResolvedValue({
+      incidents: [],
+      recoveries: [],
+      resolvedCount: 0,
+      fetchError: 'HTTP 502',
+    });
+    const res = await GET(makePreviewReq('weekly'));
+    const json = (await res.json()) as { reports: Array<{ body: string }> };
+    expect(json.reports[0].body).toContain('Incident log unavailable (HTTP 502)');
+  });
+
+  it('does not add the incidents section to daily or monthly reports', async () => {
+    await GET(makeReq('daily'));
+    await GET(makeReq('monthly'));
+    // fetchIncidentsSummary itself must never fire outside the weekly path.
+    expect(fetchIncidentsSummary).toHaveBeenCalledTimes(0);
+    const dailyRes = await GET(makePreviewReq('daily'));
+    const monthlyRes = await GET(makePreviewReq('monthly'));
+    const dailyJson = (await dailyRes.json()) as { reports: Array<{ body: string }> };
+    const monthlyJson = (await monthlyRes.json()) as { reports: Array<{ body: string }> };
+    expect(dailyJson.reports[0].body).not.toContain('Deploy incidents this week');
+    expect(monthlyJson.reports[0].body).not.toContain('Deploy incidents this week');
   });
 });
 
