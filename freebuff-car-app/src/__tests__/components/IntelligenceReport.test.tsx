@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import IntelligenceReport from '@/components/advisor/IntelligenceReport';
 import type { AdvisorState } from '@/hooks/useAdvisorState';
 
@@ -149,6 +149,62 @@ describe('IntelligenceReport', () => {
     expect(revokeSpy).toHaveBeenCalledWith('blob:mock-url');
 
     clickSpy.mockRestore();
+  });
+
+  function stubClipboard(impl: (text: string) => Promise<void>) {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: jest.fn(impl) },
+      configurable: true,
+    });
+  }
+
+  afterEach(() => {
+    // Remove the clipboard stub so other tests see the default navigator.
+    delete (navigator as unknown as Record<string, unknown>).clipboard;
+  });
+
+  it('copies the report Markdown to the clipboard and shows Copied!', async () => {
+    const writeText = jest.fn().mockResolvedValue(undefined);
+    stubClipboard((text: string) => writeText(text));
+    generateReport(RICH_STATE);
+
+    fireEvent.click(screen.getByTestId('copy-report'));
+    await waitFor(() => expect(screen.getByText('Copied!')).toBeInTheDocument());
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    const copied = writeText.mock.calls[0][0] as string;
+    expect(copied).toContain('# Car Purchase Intelligence Report');
+    expect(copied).toContain('- Monthly budget: $4,500');
+  });
+
+  it('shows Copy failed when the clipboard is unavailable', async () => {
+    stubClipboard(() => Promise.reject(new Error('denied')));
+    generateReport(RICH_STATE);
+
+    fireEvent.click(screen.getByTestId('copy-report'));
+    await waitFor(() => expect(screen.getByText('Copy failed')).toBeInTheDocument());
+    expect(screen.queryByText('Copied!')).not.toBeInTheDocument();
+  });
+
+  it('returns the label to idle after the feedback window', async () => {
+    jest.useFakeTimers();
+    try {
+      stubClipboard(() => Promise.resolve());
+      generateReport(RICH_STATE);
+
+      fireEvent.click(screen.getByTestId('copy-report'));
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(screen.getByText('Copied!')).toBeInTheDocument();
+
+      act(() => {
+        jest.advanceTimersByTime(2500);
+      });
+      expect(screen.getByText('Copy report')).toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('confirm clears the report marker, resets the view, and notifies the parent', () => {
