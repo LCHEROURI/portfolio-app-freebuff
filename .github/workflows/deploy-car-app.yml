@@ -175,6 +175,9 @@ jobs:
               --assignee "${GITHUB_REPOSITORY_OWNER}"
           fi
 
+      # Page-tier alert: a failed deploy is always a page — it goes to the
+      # ALERT_WEBHOOK_URL channel (never the quiet one), mirroring the
+      # severity routing in rollout-health.yml.
       - name: Send webhook alert (optional, Slack/Discord compatible)
         if: env.ALERT_WEBHOOK_URL != ''
         run: |

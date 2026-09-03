@@ -25,10 +25,17 @@
 #   stale     — SUCCEEDED but an older car-app commit than main's latest
 #               (only when the rollout carries a commit-sha label)
 #
-# Output: "outcome=<verdict>" plus human-readable detail lines. The calling
-# workflow files/updates one open issue labeled deploy-failure (shared with
-# the deploy workflow's run-level alerts, so a single failure produces a
-# single issue) and closes it on recovery.
+# Every verdict carries a SEVERITY used for alert routing:
+#   page      — deploy failures and serving outages: the pipeline is broken
+#               or traffic is broken. Wakes someone up.
+#   warning   — rollout-stale (main advanced past what serves, e.g. a
+#               cancelled deploy): the app still works; record it quietly.
+#
+# Output: "outcome=<verdict>" plus "severity=<page|warning>" (healthy emits
+# severity=page so the caller's default path stays simple) plus human-readable
+# detail lines. The calling workflow files/updates one open issue labeled
+# deploy-failure (shared with the deploy workflow's run-level alerts, so a
+# single failure produces a single issue) and closes it on recovery.
 # Requires: gcloud auth (token), GH_TOKEN for the staleness commit lookup.
 # ============================================================================
 set -euo pipefail
@@ -48,6 +55,7 @@ NEWEST="$(printf '%s' "$ROLLOUTS" | jq -r '[.rollouts[]] | sort_by(.createTime) 
 
 if [ -z "$NEWEST" ]; then
   echo "outcome=failed"
+  echo "severity=page"
   echo "detail=no rollouts found for backend $BACKEND — something is very wrong"
   exit 0
 fi
@@ -63,6 +71,7 @@ echo "newest rollout: $ROLLOUT_ID state=$STATE created=$CREATE live_sha=${LIVE_S
 case "$STATE" in
   FAILED)
     echo "outcome=failed"
+    echo "severity=page"
     echo "detail=newest rollout $ROLLOUT_ID FAILED (created $CREATE) — the previous build is still serving"
     exit 0
     ;;
@@ -72,6 +81,7 @@ case "$STATE" in
     AGE_MINUTES="$(( ($(date -u +%s) - CREATE_EPOCH) / 60 ))"
     if [ "$CREATE_EPOCH" -lt "$CUTOFF_EPOCH" ]; then
       echo "outcome=stuck"
+      echo "severity=page"
       echo "detail=rollout $ROLLOUT_ID has been $STATE since $CREATE (over ${STUCK_MINUTES}m) — deploy pipeline wedged"
     else
       echo "outcome=healthy"
@@ -83,6 +93,7 @@ esac
 
 if [ "$STATE" != "SUCCEEDED" ]; then
   echo "outcome=failed"
+  echo "severity=page"
   echo "detail=newest rollout $ROLLOUT_ID is in unexpected state $STATE"
   exit 0
 fi
@@ -100,11 +111,13 @@ VERSION_BODY="$(printf '%s' "$VERSION_JSON" | sed '$d')"
 VERSION_COMMIT="$(printf '%s' "$VERSION_BODY" | jq -r '.commit // empty' 2>/dev/null || true)"
 if [ -z "$HTTP_CODE" ] || [ "$HTTP_CODE" = "000" ]; then
   echo "outcome=unreachable"
+  echo "severity=page"
   echo "detail=rollout $ROLLOUT_ID is SUCCEEDED but $VERSION_URL did not answer — serving is down while Firebase reports healthy"
   exit 0
 fi
 if [ "$HTTP_CODE" != "200" ] || [ -z "$VERSION_COMMIT" ]; then
   echo "outcome=unprovenanced"
+  echo "severity=page"
   echo "detail=$VERSION_URL answered HTTP ${HTTP_CODE:-none} with commit='${VERSION_COMMIT:-null}' — serving is broken or the cloud build lacks provenance env"
   exit 0
 fi
@@ -118,6 +131,7 @@ STATUS_URL="${STATUS_URL:-https://freebuff-car-app--portfolio-app-freebuff2.us-c
 STATUS_HTML="$(curl -sS -m 30 "$STATUS_URL" 2>&1 || true)"
 if ! printf '%s' "$STATUS_HTML" | grep -q 'All checks passed'; then
   echo "outcome=degraded"
+  echo "severity=page"
   echo "detail=$STATUS_URL does not report 'All checks passed' — the app's own self-check is failing while the rollout API reports healthy"
   exit 0
 fi
@@ -136,6 +150,7 @@ if [ -n "$LIVE_SHA" ] && [ -n "${GH_TOKEN:-}" ] && [ -n "${GITHUB_REPOSITORY:-}"
     CREATE_EPOCH="$(date -u -d "$CREATE" +%s)"
     if [ "$LAST_EPOCH" -gt "$CREATE_EPOCH" ]; then
       echo "outcome=stale"
+      echo "severity=warning"
       echo "detail=live rollout $ROLLOUT_ID serves ${LIVE_SHA::7} but main's latest car-app commit is ${LAST_SHA::7} ($LAST_DATE) — a deploy was cancelled or skipped"
       exit 0
     fi
@@ -143,4 +158,5 @@ if [ -n "$LIVE_SHA" ] && [ -n "${GH_TOKEN:-}" ] && [ -n "${GITHUB_REPOSITORY:-}"
 fi
 
 echo "outcome=healthy"
+echo "severity=page"
 echo "detail=rollout $ROLLOUT_ID SUCCEEDED, $VERSION_URL self-reports commit ${VERSION_COMMIT}, /status reports All checks passed, and it serves the latest car-app commit ${LIVE_SHA:+(${LIVE_SHA::7})}"
