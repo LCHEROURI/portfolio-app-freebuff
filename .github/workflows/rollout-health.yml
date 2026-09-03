@@ -10,8 +10,11 @@
 #
 # Runs every 30 minutes + manual dispatch. Files/updates the SAME single
 # open issue labeled deploy-failure that the deploy workflow uses (one
-# failure, one issue), and closes it on recovery. Requires gcloud
-# credentials: FIREBASE_SERVICE_ACCOUNT secret.
+# failure, one issue), and closes it on recovery. If the ALERT_WEBHOOK_URL
+# secret is set, an unhealthy classification also POSTs a Slack/Discord-
+# compatible webhook alert — the same optional channel the deploy
+# workflows use — so scheduled-watch failures surface outside GitHub too.
+# Requires gcloud credentials: FIREBASE_SERVICE_ACCOUNT secret.
 name: Rollout health watch
 
 on:
@@ -32,6 +35,9 @@ jobs:
     name: Classify rollout health
     runs-on: ubuntu-latest
     timeout-minutes: 10
+
+    env:
+      ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
 
     steps:
       - name: Check out repository
@@ -84,6 +90,19 @@ jobs:
               --label deploy-failure \
               --assignee "${GITHUB_REPOSITORY_OWNER}"
           fi
+
+      - name: Send webhook alert (optional, Slack/Discord compatible)
+        if: steps.classify.outputs.outcome != 'healthy' && env.ALERT_WEBHOOK_URL != ''
+        env:
+          OUTCOME: ${{ steps.classify.outputs.outcome }}
+          DETAIL: ${{ steps.classify.outputs.detail }}
+        run: |
+          set -euo pipefail
+          TEXT="🚨 Portfolio rollout unhealthy: $OUTCOME — $DETAIL
+          $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          # Slack reads "text", Discord reads "content"; each ignores the other.
+          jq -n --arg text "$TEXT" '{text: $text, content: $text}' \
+            | curl -sfS -X POST -H 'Content-Type: application/json' -d @- "$ALERT_WEBHOOK_URL"
 
       - name: Close the deploy-failure issue on recovery
         if: steps.classify.outputs.outcome == 'healthy'
