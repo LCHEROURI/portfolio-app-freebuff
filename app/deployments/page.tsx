@@ -37,7 +37,7 @@ export default function DeploymentsPage() {
       <PageHeader
         title="Deployments"
         description={live
-          ? 'Live from the Vercel API with real-time health checks (status code + response time) on every environment.'
+          ? 'Live from Firebase App Hosting with real-time health checks (status code + response time) on every environment.'
           : 'Every environment, health check, and rollout across all versions.'}
         action={
           <button type="button" className="btn-secondary" onClick={refresh} disabled={refreshing}>
