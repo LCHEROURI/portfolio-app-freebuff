@@ -298,8 +298,7 @@ if (isMain) {
   ok(`feed rendered (${v.rows} rows)`);
   if (!v.live) fail('live-feed badge missing — the page may be in demo mode (NEXT_PUBLIC_LIVE_DEPLOYMENTS off)');
   if (!v.metrics) fail('metric grid (TOTAL DEPLOYMENTS) missing');
-  if (!v.firebase) fail('no Firebase provider row rendered');
-  if (!v.vercel) fail('no Vercel provider row rendered');
+  if (!v.apphosting) fail('no App Hosting provider row rendered');
   if (v.rows < MIN_ROWS) fail(`expected >= ${MIN_ROWS} deployment rows, found ${v.rows}`);
   if (failures > 0) {
     const t = await main.text();
