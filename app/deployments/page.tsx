@@ -50,7 +50,7 @@ export default function DeploymentsPage() {
       {live && (
         <div className="mb-4 flex items-center gap-2 text-xs text-pepper-500 dark:text-pepper-300">
           <Badge tone="basil"><HeartPulse size={11} aria-hidden="true" /> Live health checks</Badge>
-          <span>Deployments and statuses fetched from Vercel; each URL is probed for its HTTP status and response time.</span>
+          <span>Deployments and statuses fetched from Firebase App Hosting; each URL is probed for its HTTP status and response time.</span>
         </div>
       )}
 

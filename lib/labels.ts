@@ -12,7 +12,7 @@ export const QUEUE_RULE_LABELS: Record<QueueRule, string> = {
 };
 
 export const PROVIDER_LABELS: Record<string, string> = {
-  vercel: 'Vercel', firebase: 'Firebase', cloud_run: 'Cloud Run', replit: 'Replit',
+  vercel: 'Vercel', firebase: 'Firebase', apphosting: 'App Hosting', cloud_run: 'Cloud Run', replit: 'Replit',
   netlify: 'Netlify', railway: 'Railway', render: 'Render', lovable: 'Lovable',
   ai_studio: 'AI Studio', other: 'Other',
   github: 'GitHub', bitbucket: 'Bitbucket', gitlab: 'GitLab',
