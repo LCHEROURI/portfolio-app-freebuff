@@ -6,7 +6,7 @@ import { docFeeFlags, addOnFlags } from '@/utils/redFlags';
 import type { AdvisorState } from '@/hooks/useAdvisorState';
 
 import { REPORT_STORAGE_KEY } from '@/lib/progress';
-import { buildReportMarkdown, reportFileName } from '@/lib/reportExport';
+import { buildReportMarkdown, buildReportPlainText, reportFileName } from '@/lib/reportExport';
 
 type StoredReport = {
   savedAt: string;
@@ -179,13 +179,15 @@ export default function IntelligenceReport({ onComplete, advisor, onReset }: Pro
     copyTimer.current = setTimeout(() => setCopyState('idle'), 2500);
   }
 
-  function download() {
-    const markdown = buildReportMarkdown(advisor, savedAt);
-    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+  function downloadFormat(ext: 'md' | 'txt') {
+    const markdown = ext === 'md' ? buildReportMarkdown(advisor, savedAt) : buildReportPlainText(advisor, savedAt);
+    const blob = new Blob([markdown], {
+      type: ext === 'md' ? 'text/markdown;charset=utf-8' : 'text/plain;charset=utf-8',
+    });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = reportFileName(savedAt);
+    anchor.download = reportFileName(savedAt, ext);
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
@@ -420,11 +422,19 @@ export default function IntelligenceReport({ onComplete, advisor, onReset }: Pro
             </button>
             <button
               type="button"
-              onClick={download}
+              onClick={() => downloadFormat('md')}
               data-testid="download-report"
               className="inline-flex items-center gap-1.5 rounded-lg border border-ink-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 shadow-sm transition-colors hover:bg-ink-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
             >
-              Download report
+              Download .md
+            </button>
+            <button
+              type="button"
+              onClick={() => downloadFormat('txt')}
+              data-testid="download-report-txt"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-ink-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 shadow-sm transition-colors hover:bg-ink-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+            >
+              Download .txt
             </button>
             <button
               type="button"
