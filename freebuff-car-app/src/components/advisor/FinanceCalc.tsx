@@ -57,10 +57,24 @@ function formatCurrencyCents(value: number): string {
 interface Props {
   onComplete?: () => void;
   onSaveData?: (data: unknown) => void;
+  /**
+   * MSRP suggested from Step 2's first compared vehicle — prefills the
+   * price so the math starts from the vehicle the user actually picked.
+   * A previously saved price always wins over the suggestion.
+   */
+  suggestedMSRP?: number | null;
+  /** Make/model of the suggested vehicle, shown on the suggestion chip. */
+  suggestedLabel?: string;
 }
 
-export default function FinanceCalc({ onComplete, onSaveData }: Props = {}) {
-  const [state, setState] = useState<FinanceState>(DEFAULT_STATE);
+export default function FinanceCalc({ onComplete, onSaveData, suggestedMSRP, suggestedLabel }: Props = {}) {
+  const [state, setState] = useState<FinanceState>(() => ({
+    ...DEFAULT_STATE,
+    // Prefill from the compared vehicle when there is no saved price — the
+    // user can still edit it freely.
+    vehiclePrice:
+      typeof suggestedMSRP === 'number' && suggestedMSRP > 0 ? String(Math.round(suggestedMSRP)) : '',
+  }));
   const [errors, setErrors] = useState<Partial<FinanceState>>({});
   const [submitted, setSubmitted] = useState(false);
 
@@ -190,6 +204,18 @@ export default function FinanceCalc({ onComplete, onSaveData }: Props = {}) {
         {errors.vehiclePrice && (
           <p id="vehiclePrice-error" className="text-xs text-red-600">{errors.vehiclePrice}</p>
         )}
+        {state.vehiclePrice !== '' &&
+          typeof suggestedMSRP === 'number' &&
+          suggestedMSRP > 0 &&
+          parsePositive(state.vehiclePrice) === Math.round(suggestedMSRP) && (
+            <p
+              data-testid="msrp-suggestion"
+              className="text-xs text-good-700"
+            >              Prefilled from{" "}
+              {suggestedLabel ? `${suggestedLabel} MSRP` : 'your compared vehicle MSRP'}.
+              Edit freely if the deal price differs.
+            </p>
+          )}
         <p className="text-xs text-ink-500">Sticker price before taxes and fees.</p>
       </div>
 
