@@ -255,6 +255,13 @@ describe('IntelligenceReport', () => {
     expect(screen.getByText('AWD')).toBeInTheDocument();
   });
 
+  it('marks the winning vehicle per metric row with a Best chip', () => {
+    generateReport(RICH_STATE);
+    // Camry wins both metric rows (lowest MSRP, highest MPG) — exactly two
+    // chips; the other rows get none.
+    expect(screen.getAllByText('Best')).toHaveLength(2);
+  });
+
   it('names the download files after the compared vehicles', () => {
     // RICH_STATE has comparing: ['camry', 'outback'] without saved names —
     // the ids pass through as slugs when they are not pure-numeric.
