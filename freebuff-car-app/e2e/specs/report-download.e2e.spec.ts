@@ -103,11 +103,14 @@ test.describe('Intelligence Report generate + download', () => {
     await expect(page.getByText('72')).toBeVisible(); // deal score headline
     await expect(page.getByText(/Documentation fee is above/i)).toBeVisible();
 
-    // Side-by-side comparison table renders the saved Step 2 specs.
+    // Side-by-side comparison table renders the saved Step 2 specs, with
+    // the metric winner (Camry: lowest MSRP, highest MPG) marked "Best".
     await expect(page.getByRole('columnheader', { name: 'Toyota Camry' })).toBeVisible();
     await expect(page.getByRole('columnheader', { name: 'Subaru Outback' })).toBeVisible();
     await expect(page.getByText('$28,595')).toBeVisible();
     await expect(page.getByText('$32,495')).toBeVisible();
+    // Camry wins both metric rows — exactly two Best chips in the table.
+    await expect(page.locator('td', { hasText: 'Best' })).toHaveCount(2);
 
     // --- Download .md: real browser download, real file on disk ---
     const mdPromise = page.waitForEvent('download');
@@ -132,8 +135,8 @@ test.describe('Intelligence Report generate + download', () => {
     expect(mdText).toContain('- Negotiate the out-the-door price first');
     // The comparison table is IN the export — specs, not just filename names.
     expect(mdText).toContain('## Side-by-side comparison');
-    expect(mdText).toContain('| MSRP | $28,595 | $32,495 |');
-    expect(mdText).toContain('| MPG combined | 33 | 29 |');
+    expect(mdText).toContain('| MSRP | $28,595 *(best)* | $32,495 |');
+    expect(mdText).toContain('| MPG combined | 33 *(best)* | 29 |');
     expect(mdText).toContain('| Drivetrain | FWD | AWD |');
 
     // --- Download .txt: same session, plain-text syntax ---
@@ -153,7 +156,7 @@ test.describe('Intelligence Report generate + download', () => {
     expect(txtText).toContain('72 / 100');
     // The comparison table is in the plain-text export too (aligned text).
     expect(txtText).toContain('SIDE-BY-SIDE COMPARISON');
-    expect(txtText).toContain('$28,595');
+    expect(txtText).toContain('$28,595 (best)');
     expect(txtText).toContain('$32,495');
     // Plain text must carry no Markdown syntax.
     expect(txtText).not.toContain('##');

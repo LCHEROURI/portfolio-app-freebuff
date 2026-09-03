@@ -77,6 +77,48 @@ export function compareRowValues(c: CompareColumn): { label: string; value: stri
   ];
 }
 
+/** Rows where a lower number wins (a subtle "best" marker highlights them). */
+export const COMPARE_MIN_ROWS = new Set(['MSRP']);
+/** Rows where a higher number wins. */
+export const COMPARE_MAX_ROWS = new Set(['MPG combined']);
+
+/**
+ * Row labels that have a genuine winner in this comparison: the extreme
+ * value must exist, be shared by 2+ columns (ties mark every tied vehicle),
+ * and not belong to every column (all-equal rows have no winner to show).
+ * Pure metric — renderers decide HOW to mark it.
+ */
+export function winningRows(columns: CompareColumn[]): Set<string> {
+  const rows = compareRowValues(columns[0]);
+  const winners = new Set<string>();
+  for (const { label } of rows) {
+    if (!COMPARE_MIN_ROWS.has(label) && !COMPARE_MAX_ROWS.has(label)) continue;
+    const values = columns
+      .map((c) => compareRowValues(c).find((r) => r.label === label)?.value ?? null)
+      .filter((v): v is string => v !== null && v !== 'n/a')
+      .map((v) => Number(v.replace(/[^0-9.]/g, '')));
+    if (values.length < 2) continue;
+    const best = COMPARE_MIN_ROWS.has(label) ? Math.min(...values) : Math.max(...values);
+    if (values.length === columns.length && values.every((v) => v === best)) continue;
+    if (values.some((v) => v === best)) winners.add(label);
+  }
+  return winners;
+}
+
+/** Which columns hold the best value for `rowLabel` (ties included). */
+export function bestColumnsFor(columns: CompareColumn[], rowLabel: string): Set<number> {
+  const values = columns.map((c) => {
+    const raw = compareRowValues(c).find((r) => r.label === rowLabel)?.value ?? null;
+    if (raw === null || raw === 'n/a') return null;
+    return Number(raw.replace(/[^0-9.]/g, ''));
+  });
+  const usable = values.filter((v): v is number => v !== null);
+  if (usable.length < 2) return new Set();
+  const best = COMPARE_MIN_ROWS.has(rowLabel) ? Math.min(...usable) : Math.max(...usable);
+  if (usable.length === columns.length && usable.every((v) => v === best)) return new Set();
+  return new Set(values.map((v, i) => (v === best ? i : -1)).filter((i) => i >= 0));
+}
+
 /**
  * Extract the compared vehicles' spec columns from the Step 2 store slice.
  * Shared by the on-screen report and the .md/.txt exporters so the three
@@ -324,14 +366,25 @@ export function buildReportMarkdown(
     lines.push('');
   }
 
-  // Side-by-side comparison — a real Markdown table.
+  // Side-by-side comparison — a real Markdown table. The metric winner per
+  // row (lowest MSRP, highest MPG) gets a subtle *(best)* marker.
   if (data.compare.length > 0) {
     lines.push('## Side-by-side comparison');
     const rows = compareRowValues(data.compare[0]);
+    const winners = winningRows(data.compare);
+    const marked = (c: CompareColumn, rowLabel: string): string => {
+      const raw = compareRowValues(c).find((r) => r.label === rowLabel)?.value ?? '';
+      if (winners.has(rowLabel)) {
+        const bestIdx = bestColumnsFor(data.compare, rowLabel);
+        const colIdx = data.compare.indexOf(c);
+        if (bestIdx.has(colIdx)) return `${raw} *(best)*`;
+      }
+      return raw;
+    };
     lines.push(`| Spec | ${data.compare.map((c) => c.label).join(' | ')} |`);
     lines.push(`| ${['---', ...data.compare.map(() => '---')].join(' | ')} |`);
     for (const row of rows) {
-      lines.push(`| ${row.label} | ${data.compare.map((c) => compareRowValues(c).find((r) => r.label === row.label)?.value ?? '').join(' | ')} |`);
+      lines.push(`| ${row.label} | ${data.compare.map((c) => marked(c, row.label)).join(' | ')} |`);
     }
     lines.push('');
   }
@@ -373,11 +426,21 @@ export function buildReportPlainText(
     lines.push('');
   }
 
-  // Side-by-side comparison — aligned plain text (no Markdown syntax).
+  // Side-by-side comparison — aligned plain text (no Markdown syntax). The
+  // metric winner per row gets a subtle "(best)" suffix.
   if (data.compare.length > 0) {
     lines.push('SIDE-BY-SIDE COMPARISON');
     lines.push('-----------------------');
     const rowDefs = compareRowValues(data.compare[0]);
+    const winners = winningRows(data.compare);
+    const marked = (c: CompareColumn, rowLabel: string): string => {
+      const raw = compareRowValues(c).find((r) => r.label === rowLabel)?.value ?? '';
+      if (winners.has(rowLabel)) {
+        const colIdx = data.compare.indexOf(c);
+        if (bestColumnsFor(data.compare, rowLabel).has(colIdx)) return `${raw} (best)`;
+      }
+      return raw;
+    };
     // Column width = widest cell in that column (label or any row value),
     // floored at 12, plus 2 spaces of gutter so columns never abut —
     // including the spec-label column itself.
@@ -385,7 +448,7 @@ export function buildReportPlainText(
       Math.max(
         12,
         data.compare[i].label.length,
-        ...rowDefs.map((r) => (compareRowValues(data.compare[i]).find((x) => x.label === r.label)?.value ?? '').length),
+        ...rowDefs.map((r) => marked(data.compare[i], r.label).length),
       ) + 2;
     const labelWidth = Math.max(12, ...rowDefs.map((r) => r.label.length)) + 2;
     lines.push(
@@ -395,7 +458,7 @@ export function buildReportPlainText(
       lines.push(
         row.label.padEnd(labelWidth) +
           data.compare
-            .map((c, i) => (compareRowValues(c).find((r) => r.label === row.label)?.value ?? '').padEnd(widthOf(i)))
+            .map((c, i) => marked(c, row.label).padEnd(widthOf(i)))
             .join(''),
       );
     }

@@ -6,7 +6,7 @@ import { docFeeFlags, addOnFlags } from '@/utils/redFlags';
 import type { AdvisorState } from '@/hooks/useAdvisorState';
 
 import { REPORT_STORAGE_KEY } from '@/lib/progress';
-import { buildReportMarkdown, buildReportPlainText, reportFileName, buildCompareColumns, compareRowValues } from '@/lib/reportExport';
+import { buildReportMarkdown, buildReportPlainText, reportFileName, buildCompareColumns, compareRowValues, bestColumnsFor, COMPARE_MIN_ROWS, COMPARE_MAX_ROWS } from '@/lib/reportExport';
 
 type StoredReport = {
   savedAt: string;
@@ -375,7 +375,9 @@ export default function IntelligenceReport({ onComplete, advisor, onReset }: Pro
             )}
           </Section>
 
-          {/* Side-by-side comparison (Step 2 specs snapshot) */}
+          {/* Side-by-side comparison (Step 2 specs snapshot). The metric
+              winner per row (lowest MSRP, highest MPG) gets a subtle green
+              "Best" chip; ties mark every tied vehicle. */}
           {compareColumns.length > 0 && (
             <Section title="Side-by-side comparison">
               <div className="overflow-x-auto">
@@ -389,20 +391,33 @@ export default function IntelligenceReport({ onComplete, advisor, onReset }: Pro
                     </tr>
                   </thead>
                   <tbody>
-                    {compareRowValues(compareColumns[0]).map((row) => (
-                      <tr key={row.label} className="border-b border-ink-100">
-                        <td className="px-2 py-1.5 text-ink-600">{row.label}</td>
-                        {compareColumns.map((c) => {
-                          const value = compareRowValues(c).find((r) => r.label === row.label)?.value ?? '';
-                          return (
-                            <td key={c.label} className={`px-2 py-1.5 font-medium ${value === 'n/a' ? 'text-ink-400' : 'text-ink-800'}`}>{value}</td>
-                          );
-                        })}
-                      </tr>
-                    ))}
+                    {compareRowValues(compareColumns[0]).map((row) => {
+                      const isMetric = COMPARE_MIN_ROWS.has(row.label) || COMPARE_MAX_ROWS.has(row.label);
+                      const best = isMetric ? bestColumnsFor(compareColumns, row.label) : new Set<number>();
+                      return (
+                        <tr key={row.label} className="border-b border-ink-100">
+                          <td className="px-2 py-1.5 text-ink-600">{row.label}</td>
+                          {compareColumns.map((c, colIdx) => {
+                            const value = compareRowValues(c).find((r) => r.label === row.label)?.value ?? '';
+                            const isBest = best.has(colIdx);
+                            return (
+                              <td key={c.label} className={`px-2 py-1.5 font-medium ${value === 'n/a' ? 'text-ink-400' : 'text-ink-800'}`}>
+                                {value}
+                                {isBest && (
+                                  <span className="ml-1.5 rounded-full bg-good-100 px-1.5 py-0.5 text-[10px] font-semibold text-good-800">Best</span>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
+              {(COMPARE_MIN_ROWS.size > 0 || COMPARE_MAX_ROWS.size > 0) && (
+                <p className="mt-2 text-xs text-ink-500">Green “Best” marks the lowest MSRP and highest combined MPG among your compared vehicles.</p>
+              )}
             </Section>
           )}
 
