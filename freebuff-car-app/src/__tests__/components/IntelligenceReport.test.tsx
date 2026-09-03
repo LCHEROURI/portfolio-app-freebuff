@@ -1,10 +1,39 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import IntelligenceReport from '@/components/advisor/IntelligenceReport';
+import type { AdvisorState } from '@/hooks/useAdvisorState';
+
+// A session store shaped like what the advisor flow saves across the steps.
+const RICH_STATE: AdvisorState = {
+  step: 11,
+  intake: { monthlyBudget: '4500', downPayment: '5000', creditRange: 'good' },
+  finance: { vehiclePrice: '32000', downPayment: '5000', apr: '6', termMonths: '60' },
+  trade: { tradeValue: '12000', payoff: '9000' },
+  fees: { docFee: '299', titleRegistration: '345', addOnsText: 'Fabric Protection, Nitrogen Tires' },
+  ownership: { monthlyLoan: '500', insurance: '120', fuel: '150', maintenance: '75', registration: '30', parking: '0', taxesAndFees: '40', other: '0' },
+  vehicles: { needs: { awd: true, appleCarPlay: true }, comparing: ['camry', 'outback'] },
+  dealScore: {
+    input: {},
+    result: {
+      score: 72,
+      breakdown: [
+        { label: 'Financing affordability', points: 25, maxPoints: 25, earned: 25, reason: 'fits' },
+        { label: 'No unnecessary add-ons', points: 20, maxPoints: 20, earned: 10, reason: 'some' },
+      ],
+    },
+  },
+};
+
+function generateReport(advisor?: AdvisorState) {
+  render(<IntelligenceReport advisor={advisor} />);
+  fireEvent.click(screen.getByLabelText(/educational guidance/i));
+  fireEvent.click(screen.getByRole('button', { name: /generate report/i }));
+}
 
 describe('IntelligenceReport', () => {
   beforeEach(() => {
     window.localStorage.clear();
   });
+
   it('blocks report generation until consent is checked', () => {
     render(<IntelligenceReport />);
     const button = screen.getByRole('button', { name: /generate report/i });
@@ -13,22 +42,72 @@ describe('IntelligenceReport', () => {
     expect(button).toBeEnabled();
   });
 
-  it('generates the report after consent', () => {
-    render(<IntelligenceReport />);
-    fireEvent.click(screen.getByLabelText(/educational guidance/i));
-    fireEvent.click(screen.getByRole('button', { name: /generate report/i }));
+  it('renders every section filled from the saved session data', () => {
+    generateReport(RICH_STATE);
     expect(screen.getByText(/Car Purchase Intelligence Report/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /print report/i })).toBeInTheDocument();
+
+    // Budget (Step 1)
+    expect(screen.getByText('$4,500')).toBeInTheDocument();
+    // Financing (Step 3): 27000 financed at 6% for 60mo = 521.99/mo — computed live, not stored
+    expect(screen.getByText(/monthly payment/i)).toBeInTheDocument();
+    expect(screen.getByText(/\$522/)).toBeInTheDocument();
+    // Trade (Step 7): 12000 - 9000 = +3000
+    expect(screen.getByText('+$3,000')).toBeInTheDocument();
+    // Fees (Step 8): 299 doc fee flags red + the high-margin add-on list
+    expect(screen.getByText('$299')).toBeInTheDocument();
+    expect(screen.getByText(/documentation fee is above/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/high-margin add-on detected/i).length).toBeGreaterThan(0);
+    // Ownership (Step 5): 500+120+150+75+30+0+40+0 = 915
+    expect(screen.getByText('$915')).toBeInTheDocument();
+    // Needs (Step 2)
+    expect(screen.getByText('All-wheel drive')).toBeInTheDocument();
+    expect(screen.getByText('Apple CarPlay')).toBeInTheDocument();
+    expect(screen.getByText(/2 vehicles marked for comparison/i)).toBeInTheDocument();
+    // Deal score (Step 10)
+    expect(screen.getByText('72')).toBeInTheDocument();
+    expect(screen.getByText('25/25')).toBeInTheDocument();
   });
 
-  it('renders all five score components', () => {
+  it('shows per-step empty states when the store is empty', () => {
+    generateReport(undefined);
+    expect(screen.getAllByText(/not completed yet/i).length).toBeGreaterThanOrEqual(6);
+    // And the pre-generation tip warned about it:
+  });
+
+  it('warns before generating with no saved session data', () => {
     render(<IntelligenceReport />);
-    fireEvent.click(screen.getByLabelText(/educational guidance/i));
-    fireEvent.click(screen.getByRole('button', { name: /generate report/i }));
-    expect(screen.getByText(/Financing affordability/i)).toBeInTheDocument();
-    expect(screen.getByText(/No unnecessary add-ons/i)).toBeInTheDocument();
-    expect(screen.getByText(/Reasonable doc fee/i)).toBeInTheDocument();
-    expect(screen.getByText(/Priorities matched/i)).toBeInTheDocument();
-    expect(screen.getByText(/Trade equity/i)).toBeInTheDocument();
+    expect(screen.getByText(/you have not saved any step data yet/i)).toBeInTheDocument();
+  });
+
+  it('warns when a payment exceeds the budget', () => {
+    const over: AdvisorState = {
+      ...RICH_STATE,
+      intake: { monthlyBudget: '300' },
+    };
+    generateReport(over);
+    expect(screen.getByText(/over your monthly budget/i)).toBeInTheDocument();
+  });
+
+  it('shows negative-equity warning for an underwater trade', () => {
+    const underwater: AdvisorState = {
+      ...RICH_STATE,
+      trade: { tradeValue: '8000', payoff: '11000' },
+    };
+    generateReport(underwater);
+    expect(screen.getByText(/negative equity/i)).toBeInTheDocument();
+  });
+
+  it('shows the clean-quote message when no fee flags fire', () => {
+    const clean: AdvisorState = {
+      ...RICH_STATE,
+      fees: { docFee: '129', titleRegistration: '345', addOnsText: '' },
+    };
+    generateReport(clean);
+    expect(screen.getByText(/no red flags detected/i)).toBeInTheDocument();
+  });
+
+  it('supports the legacy print path after generation', () => {
+    generateReport(RICH_STATE);
+    expect(screen.getByRole('button', { name: /print report/i })).toBeInTheDocument();
   });
 });

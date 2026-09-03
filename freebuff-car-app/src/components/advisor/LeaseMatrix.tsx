@@ -133,7 +133,7 @@ function computeBuyUsed(input: ComparisonInput): OptionResult {
   };
 }
 
-export default function LeaseMatrix({ onComplete }: { onComplete?: () => void } = {}) {
+export default function LeaseMatrix({ onComplete, onSaveData }: { onComplete?: () => void; onSaveData?: (data: unknown) => void } = {}) {
   const [input, setInput] = useState<ComparisonInput>(DEFAULT_INPUT);
   const [submitted, setSubmitted] = useState(false);
 
@@ -144,6 +144,7 @@ export default function LeaseMatrix({ onComplete }: { onComplete?: () => void } 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setSubmitted(true);
+    onSaveData?.(input);
     onComplete?.();
   }
 

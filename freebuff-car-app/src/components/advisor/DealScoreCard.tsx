@@ -30,9 +30,10 @@ function parseNumber(value: string): number {
 
 interface Props {
   onComplete?: () => void;
+  onSaveData?: (data: unknown) => void;
 }
 
-export default function DealScoreCard({ onComplete }: Props = {}) {
+export default function DealScoreCard({ onComplete, onSaveData }: Props = {}) {
   const [state, setState] = useState<DealState>(DEFAULT_STATE);
   const [errors, setErrors] = useState<Partial<DealState>>({});
   const [result, setResult] = useState<DealScoreResult | null>(null);
@@ -80,6 +81,7 @@ export default function DealScoreCard({ onComplete }: Props = {}) {
         tradeEquity: parseNumber(state.tradeEquity),
       }),
     );
+    onSaveData?.({ input: state, result });
     onComplete?.();
   }
 
