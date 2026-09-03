@@ -2,16 +2,16 @@
 #
 # Regenerate every README gallery screenshot in one command.
 #
-# The gallery is captured from a deployed Vercel build (so the PNGs match what
-# visitors see at the live link, not a local dev server). Pass --url to point
-# at a different source (a preview deployment, or http://localhost:3000 in demo
-# mode). Chrome must be installed; Node is required for the CDP driver.
+# The gallery's 18 route cells are captured from the --url source (in CI, a
+# locally built demo-mode server; locally, default to the deployed Firebase
+# App Hosting build). The review-sheet and deployments-feed cells need live
+# auth + AI, so they always default to the production hosted.app URL.
+# Chrome must be installed; Node is required for the CDP driver.
 #
 # Usage:
 #   ./scripts/capture-screenshots.sh                 # deployed production build
 #   ./scripts/capture-screenshots.sh --url http://localhost:3000
 #   ./scripts/capture-screenshots.sh --out /tmp/gallery
-#   ./scripts/capture-screenshots.sh --header 'x-vercel-protection-bypass: <secret>'
 #   ./scripts/capture-screenshots.sh --diff          # only rewrite PNGs whose pixels changed
 #   ./scripts/capture-screenshots.sh --review-sheet-app https://...  # review-sheet cells source
 #   ./scripts/capture-screenshots.sh --deployments-feed-app https://...  # deployments-feed cell source
@@ -25,9 +25,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="screenshots"
-URL="https://portfolio-app-freebuff.vercel.app"
-REVIEW_SHEET_APP="https://portfolio-app-freebuff.vercel.app"
-DEPLOYMENTS_FEED_APP="https://portfolio-app-freebuff.vercel.app"
+URL="https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app"
+REVIEW_SHEET_APP="https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app"
+DEPLOYMENTS_FEED_APP="https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app"
 EXPECTED=18
 DIFF=0
 HEADERS=()
@@ -76,8 +76,8 @@ if ! reachable "$URL"; then
   else
     echo "Neither $URL nor http://localhost:3000 answered HTTP 200." >&2
     if [[ ${#HEADERS[@]} -eq 0 ]]; then
-      echo "Hint: if the target is a protection-gated preview, add" >&2
-      echo "  --header 'x-vercel-protection-bypass: <secret>'">&2
+    echo "Hint: if the target is a protection-gated preview, add" >&2
+    echo "  --header 'Authorization: Bearer <token>'" >&2
     fi
     exit 1
   fi

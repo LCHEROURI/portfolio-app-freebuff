@@ -17,7 +17,7 @@
  *
  * Usage:
  *   node scripts/capture-gallery.mjs \
- *     --url https://portfolio-app-freebuff-dvn3k3egz-laredj-chehrouris-projects.vercel.app \
+ *     --url http://127.0.0.1:4399 \
  *     --out screenshots \
  *     --header 'x-vercel-protection-bypass: <secret>'   # repeatable; sent on every request
  *
