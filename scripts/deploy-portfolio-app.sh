@@ -134,7 +134,8 @@ echo "packaged source: $ZIP ($SIZE)"
 # uploaded at that point); it is removed by the cleanup trap below.
 IMAGE="gcr.io/${PROJECT}/portfolio-app-freebuff:${GITHUB_SHA}"
 echo "building image ${IMAGE}…"
-gcloud builds submit --quiet --tag "$IMAGE" .
+# --project is explicit: gcloud on a fresh runner has no default project.
+gcloud builds submit --project "$PROJECT" --quiet --tag "$IMAGE" .
 
 cleanup() { rm -f "$ZIP" "$ENV_PROD"; }
 trap cleanup EXIT
