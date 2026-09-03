@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 // ============================================================================
 // scripts/ship-go.mjs — one-command release: commit → push → wait for the
-// Vercel deploy → prove the deployed build with ship:ready.
+// Firebase App Hosting deploy → prove the deployed build with ship:ready.
 //
 //   npm run ship:go -- "feat(ui): polish the Command Center"
 //
 // ship:ready (scripts/ship-ready.mjs) answers "are we ready to ship?" but
-// only proves LOCAL HEAD is green — it cannot see whether the build Vercel is
-// serving actually carries that commit. ship:go closes the loop:
+// only proves LOCAL HEAD is green — it cannot see whether the build App
+// Hosting is serving actually carries that commit. ship:go closes the loop:
 //
 //   1. COMMIT — stages and commits the ENTIRE working tree with the given
 //      message (default: "chore(release): ship working tree via ship:go").
@@ -20,7 +20,7 @@
 //      leaves the machine.
 //   3. WAIT  — polls the canonical production URL through
 //      verify-deployed-hash.mjs --url ... --expect <sha> (the repo's single
-//      source of truth for token resolution + deployed-hash lookup) until the
+//      source of truth for the deployed-hash lookup) until the
 //      deployment serving it carries the pushed commit. Default 6 minutes at
 //      15s intervals; --max-wait <sec> and --poll <sec> tune it.
 //   4. VERIFY — runs npm run ship:ready (clean-tree check + the full
@@ -29,7 +29,7 @@
 //      against what is ACTUALLY live, not just local HEAD.
 //
 // Exit codes: 0 SHIP READY · 1 a step failed (push, deploy timeout, or
-// ship:ready nonzero) · 2 VERCEL_TOKEN invalid/revoked · 3 unusable (git
+// ship:ready nonzero) · 2 (reserved; the driver no longer exits 2) · 3 unusable (git
 // failed). Pure helpers (parseArgs / pollDecision) are exported so the flow
 // is unit-tested in scripts/ship-go.test.ts; main() runs only as the entry
 // point. Write access: commits the working tree and pushes — deliberate.
@@ -90,7 +90,7 @@ export function parseArgs(rawArgs) {
 
 /**
  * Decide what a deploy-poll attempt means. exitCode comes from
- * verify-deployed-hash.mjs: 0 = deployed commit matches · 2 = token
+ * verify-deployed-hash.mjs: 0 = deployed commit matches · 1 = no match
  * invalid/revoked (no point retrying) · anything else = not yet deployed.
  * @returns {'deployed'|'token-invalid'|'timeout'|'keep-waiting'}
  */
@@ -198,7 +198,9 @@ async function main() {
       break;
     }
     if (decision === 'token-invalid') {
-      console.error('  ✗ VERCEL_TOKEN is invalid or revoked — paste a fresh token from https://vercel.com/account/tokens into .env.local, then re-run ship:go');
+      // Reserved path: the App Hosting driver never exits 2 (it authenticates
+      // via gcloud ADC, not a token), so this branch is defensive only.
+      console.error('  ✗ could not authenticate to read the App Hosting rollouts — run `gcloud auth login`, then re-run ship:go');
       process.exit(2);
     }
     if (decision === 'timeout') {

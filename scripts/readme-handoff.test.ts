@@ -31,7 +31,7 @@ const VERIFY_ALL = readFileSync('scripts/verify-all.mjs', 'utf8');
  * satisfy the assertions. Returns [] when the section is missing.
  */
 export function parseReadmeGateNames(readmeText: string): string[] {
-  const sectionStart = readmeText.indexOf('### The 18 verification gates');
+  const sectionStart = readmeText.indexOf('### The 16 verification gates');
   if (sectionStart === -1) return [];
   const nextHeading = readmeText.indexOf('\n### ', sectionStart + 1);
   const section =
@@ -55,16 +55,16 @@ describe('parseReadmeGateNames (pure helper)', () => {
   it('returns the gate column of the handoff table in order', () => {
     const readme = [
       '## Handoff — read this first',
-      '### The 18 verification gates',
+      '### The 16 verification gates',
       '| Gate | Requires | Proves |',
       '| --- | --- | --- |',
-      '| token-health | `VERCEL_TOKEN` | alive token |',
+      '| deployed-hash | — | live commit |',
       '| dead-words | — | no dead phrasing |',
       '### The three-secret-store reality',
       '| Gate | Requires | Proves |',
       '| rogue-table | — | not part of the handoff |',
     ].join('\n');
-    expect(parseReadmeGateNames(readme)).toEqual(['token-health', 'dead-words']);
+    expect(parseReadmeGateNames(readme)).toEqual(['deployed-hash', 'dead-words']);
   });
 
   it('ignores tables outside the handoff section', () => {
@@ -72,7 +72,7 @@ describe('parseReadmeGateNames (pure helper)', () => {
       '# README',
       '| Gate | Requires | Proves |',
       '| not-a-handoff-row | — | earlier table |',
-      '### The 18 verification gates',
+      '### The 16 verification gates',
       '| Gate | Requires | Proves |',
       '| --- | --- | --- |',
       '| import-surface | — | lint |',
@@ -87,14 +87,14 @@ describe('parseReadmeGateNames (pure helper)', () => {
 
 describe('README handoff gate table contract', () => {
   it('has the expected table shape in the handoff section', () => {
-    const sectionStart = README.indexOf('### The 18 verification gates');
+    const sectionStart = README.indexOf('### The 16 verification gates');
     expect(sectionStart).toBeGreaterThan(-1);
     const section = README.slice(sectionStart);
     expect(section).toContain('| Gate | Requires | Proves |');
   });
 
   it('lists exactly the runner gate names, in order, with no drift', () => {
-    expect(runnerGateNames).toHaveLength(18);
+    expect(runnerGateNames).toHaveLength(16);
     expect(parseReadmeGateNames(README)).toEqual(runnerGateNames);
   });
 

@@ -1,0 +1,227 @@
+# Parent-app deploy: builds and deploys the portfolio app (this repo root)
+# to its Firebase App Hosting backend (portfolio-app-freebuff, project
+# portfolio-app-freebuff2) whenever parent-app files change on main.
+# Deploys run scripts/deploy-portfolio-app.sh, which performs the same steps
+# as `firebase deploy --only apphosting` but labels the build and rollout
+# with the commit SHA and run URL, so the rollout history in the Firebase
+# Console is self-describing (no Console repo link needed).
+#
+# Auth: reuses the repo's FIREBASE_SERVICE_ACCOUNT secret (a full service
+# account JSON key). The key is written to a temp file and used to activate
+# the service account for gcloud (API calls in the deploy script).
+#
+# Build config: the NEXT_PUBLIC_* values exported below are baked into
+# .env.production by the deploy script and inlined by Next.js during the
+# cloud build (public Firebase web config + live feature flags).
+#
+# Failure alerting: when the deploy job fails, notify-failure files (or
+# updates) a single open issue labeled deploy-failure — the repo owner is
+# assigned, so GitHub emails them — and, if the ALERT_WEBHOOK_URL secret is
+# set, also POSTs to that Slack/Discord-compatible webhook. When a later
+# deploy succeeds, notify-success closes any open deploy-failure issue, so
+# the alert lifecycle is self-managing. A run cancelled by a newer push is
+# NOT an alert: concurrency cancels only superseded deploys, and the newer
+# run owns the outcome.
+name: Deploy portfolio app
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'freebuff-car-app/**'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+  deployments: write
+
+concurrency:
+  group: deploy-portfolio-app-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build & deploy portfolio app
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npx next build
+
+      # One key file for the whole job: gcloud (for API calls below) and
+      # firebase-tools (GOOGLE_APPLICATION_CREDENTIALS) both authenticate from
+      # it. Removed in the always-run cleanup step at the bottom.
+      - name: Activate service account
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT" > /tmp/fb-key.json
+          chmod 600 /tmp/fb-key.json
+          gcloud auth activate-service-account --key-file=/tmp/fb-key.json
+
+      - name: Deploy to Firebase App Hosting (labeled rollout)
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: /tmp/fb-key.json
+          GITHUB_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
+          NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ secrets.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET }}
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID }}
+          NEXT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_APP_ID }}
+          NEXT_PUBLIC_LIVE_REPOS: ${{ secrets.NEXT_PUBLIC_LIVE_REPOS }}
+          NEXT_PUBLIC_LIVE_DEPLOYMENTS: ${{ secrets.NEXT_PUBLIC_LIVE_DEPLOYMENTS }}
+          NEXT_PUBLIC_ENABLE_AI_BRIEFINGS: ${{ secrets.NEXT_PUBLIC_ENABLE_AI_BRIEFINGS }}
+          FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_SITES: ${{ secrets.FIREBASE_SITES }}
+          GITHUB_TOKEN: ${{ secrets.PORTFOLIO_GITHUB_TOKEN }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL: ${{ secrets.OPENROUTER_MODEL }}
+          REPORT_OWNER_ID: ${{ secrets.REPORT_OWNER_ID }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: bash scripts/deploy-portfolio-app.sh
+
+      # GitHub-side provenance: a Deployment on this commit with the live URL,
+      # visible on the commit page and via the Deployments API. Bookkeeping
+      # only — continue-on-error so a GitHub API hiccup can never fail the
+      # job and trigger a false "deploy failed" alert (the Firebase rollout
+      # has already SUCCEEDED by this point).
+      - name: Record GitHub Deployment for this commit
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BACKEND_URL: https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app
+        run: |
+          set -euo pipefail
+          # auto_merge is a boolean and required_contexts an array; build the
+          # body with jq because -f sends plain strings (HTTP 422 otherwise).
+          BODY="$(jq -n \
+            --arg ref "$GITHUB_SHA" \
+            --arg log_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            '{ref: $ref, environment: "portfolio-app-production", auto_merge: false, required_contexts: [], description: "Firebase App Hosting rollout", log_url: $log_url}')"
+          DEPLOYMENT_ID="$(printf '%s' "$BODY" | gh api "repos/$GITHUB_REPOSITORY/deployments" --input - --jq '.id')"
+          gh api -X POST "repos/$GITHUB_REPOSITORY/deployments/$DEPLOYMENT_ID/statuses" \
+            -f state=success \
+            -f environment_url="$BACKEND_URL"
+
+      - name: Write deploy summary
+        run: |
+          {
+            echo "## Portfolio-app deploy ✓"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Commit | \`${GITHUB_SHA::7}\` |"
+            echo "| Firebase rollout | \`${ROLLOUT_NAME##*/}\` (created $ROLLOUT_CREATE) |"
+            echo "| Live URL | https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove key file
+        if: always()
+        run: rm -f /tmp/fb-key.json
+
+  notify-failure:
+    name: Alert on failed deployment
+    needs: deploy
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    env:
+      ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+
+    steps:
+      - name: Create or update the deploy-failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+        run: |
+          set -euo pipefail
+          if [ "$DEPLOY_RESULT" != "failure" ]; then
+            echo "deploy result: $DEPLOY_RESULT — not alerting"
+            exit 0
+          fi
+          SHORT_SHA="${GITHUB_SHA::7}"
+          RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          COMMIT_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA"
+          BODY="The portfolio-app deploy to Firebase App Hosting FAILED.
+
+          - Run: $RUN_URL
+          - Commit: $COMMIT_URL ($SHORT_SHA)
+          - Triggered by: $GITHUB_ACTOR
+
+          The previous build is still serving. Fix, push, and this issue will
+          close automatically when the next deploy succeeds."
+
+          # One open failure issue at a time: comment on it if it exists.
+          EXISTING="$(gh issue list --repo "$GITHUB_REPOSITORY" --label deploy-failure --state open --limit 1 --json number --jq '.[0].number' 2>/dev/null || true)"
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body "Still failing — $BODY"
+          else
+            gh label create deploy-failure --repo "$GITHUB_REPOSITORY" --color D93F0B --description "portfolio-app Firebase deploy failed" 2>/dev/null || true
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "🚨 Portfolio-app deploy failed on main ($SHORT_SHA)" \
+              --body "$BODY" \
+              --label deploy-failure \
+              --assignee "${GITHUB_REPOSITORY_OWNER}"
+          fi
+
+      - name: Send webhook alert (optional, Slack/Discord compatible)
+        if: env.ALERT_WEBHOOK_URL != ''
+        run: |
+          set -euo pipefail
+          TEXT="🚨 portfolio-app deploy FAILED on main (${GITHUB_SHA::7}) — $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          # Slack reads "text", Discord reads "content"; each ignores the other.
+          jq -n --arg text "$TEXT" '{text: $text, content: $text}' \
+            | curl -sfS -X POST -H 'Content-Type: application/json' -d @- "$ALERT_WEBHOOK_URL"
+
+  notify-success:
+    name: Close deploy-failure issue on recovery
+    needs: deploy
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Close any open deploy-failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+        run: |
+          set -euo pipefail
+          if [ "$DEPLOY_RESULT" != "success" ]; then
+            echo "deploy result: $DEPLOY_RESULT — nothing to close"
+            exit 0
+          fi
+          EXISTING="$(gh issue list --repo "$GITHUB_REPOSITORY" --label deploy-failure --state open --limit 1 --json number --jq '.[0].number' 2>/dev/null || true)"
+          if [ -n "$EXISTING" ]; then
+            gh issue close "$EXISTING" --repo "$GITHUB_REPOSITORY" \
+              --comment "✅ Resolved: deploy of ${GITHUB_SHA::7} succeeded — $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          else
+            echo "No open deploy-failure issue — nothing to close."
+          fi

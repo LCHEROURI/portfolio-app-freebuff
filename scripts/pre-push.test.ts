@@ -111,11 +111,11 @@ describe('.githooks/pre-push · deployed-hash stale-guard gate (gate 0)', () => 
   });
 
   it('routes the driver exit codes: 0 = pass, 2 = warn + continue, else = BLOCKED abort', () => {
-    // Exit routing is the hook's ONLY remaining job besides scoping. 2
-    // (invalid/revoked token) must NOT abort — waiting cannot revive a
-    // revoked token, and CI verifies with its own token — while a stale head
+    // Exit routing is the hook's ONLY remaining job besides scoping. 2 is a
+    // reserved defensive branch (the App Hosting driver authenticates via
+    // gcloud ADC and never exits 2) and must NOT abort — while a stale head
     // (exit 1) must abort with the BLOCKED message.
-    expect(hook).toContain('continuing WITHOUT the live-vs-HEAD comparison');
+    expect(hook).toContain('could not authenticate to read the App Hosting rollouts');
     expect(hook).toContain('✗ BLOCKED — live is not an ancestor of your local HEAD');
     expect(hook).toContain('SKIP_VERIFY_DEPLOYED_HASH=1');
     // The BLOCKED branch must actually abort (exit 1), and the exit-2 branch
@@ -134,11 +134,17 @@ describe('.githooks/pre-push · deployed-hash stale-guard gate (gate 0)', () => 
     expect(hook).toContain('first push to main (no previous remote commit)');
   });
 
-  it('sits before the token-health gate (0.5) in the run order', () => {
+  it('sits before the import-surface lint gate (0.6) in the run order', () => {
     const gate0 = hook.indexOf('# ── 0. Deployed-hash stale-guard gate');
-    const gate05 = hook.indexOf('# ── 0.5 Token-health gate');
+    const gate06 = hook.indexOf('# ── 0.6 Import-surface lint gate');
     expect(gate0).toBeGreaterThan(-1);
-    expect(gate05).toBeGreaterThan(gate0);
+    expect(gate06).toBeGreaterThan(gate0);
+  });
+
+  it('never references the removed Vercel gates (token-health 0.5, vercel-env 0.7)', () => {
+    expect(hook).not.toContain('token-health');
+    expect(hook).not.toContain('vercel-env');
+    expect(hook).not.toContain('VERCEL_TOKEN');
   });
 });
 
@@ -304,13 +310,13 @@ describe('.githooks/pre-push · onboarding-docs render diff gate (gate 0.6c)', (
     expect(hook).toContain('Chrome not found — skipping onboarding-docs render diff');
   });
 
-  it('sits after the dead-word lint gate (0.6b) and before the vercel-env gate (0.7)', () => {
+  it('sits after the dead-word lint gate (0.6b) and before the authorized-domains gate (1)', () => {
     const gate06c = hook.indexOf('# ── 0.6c Onboarding-docs render diff gate');
     const gate06b = hook.indexOf('# ── 0.6b Dead-feature lint gate');
-    const gate07 = hook.indexOf('# ── 0.7 Vercel-env drift gate');
+    const gate1 = hook.indexOf('# ── 1. Authorized-domains gate');
     expect(gate06c).toBeGreaterThan(gate06b);
     expect(gate06c).toBeGreaterThan(-1);
-    expect(gate07).toBeGreaterThan(gate06c);
+    expect(gate1).toBeGreaterThan(gate06c);
   });
 });
 
@@ -344,13 +350,13 @@ describe('.githooks/pre-push · review-sheet byte gate (gate 0.6d)', () => {
     expect(hook).toContain('"re-capture and commit the PNGs"');
   });
 
-  it('sits after the docs-render gate (0.6c) and before the vercel-env gate (0.7)', () => {
+  it('sits after the docs-render gate (0.6c) and before the authorized-domains gate (1)', () => {
     const gate06d = hook.indexOf('# ── 0.6d Review-sheet byte gate');
     const gate06c = hook.indexOf('# ── 0.6c Onboarding-docs render diff gate');
-    const gate07 = hook.indexOf('# ── 0.7 Vercel-env drift gate');
+    const gate1 = hook.indexOf('# ── 1. Authorized-domains gate');
     expect(gate06d).toBeGreaterThan(gate06c);
     expect(gate06d).toBeGreaterThan(-1);
-    expect(gate07).toBeGreaterThan(gate06d);
+    expect(gate1).toBeGreaterThan(gate06d);
   });
 });
 

@@ -32,31 +32,25 @@
 //     declares a secret no ci.yml step of that gate gates on fails too — so
 //     the doc, the runner, and CI can never disagree about what a gate needs.
 //   crossCheckDeploymentStatusGates — the same credential contract for the
-//     deployment_status workflows (gallery / preview-gate / deployed-hash):
-//     each workflow is mapped to the gate whose credentials it consumes, and
-//     every secret its steps gate on must be declared by that gate (with
-//     workflow-plumbing secrets like VERCEL_ORG_ID / VERCEL_PROTECTION_BYPASS
-//     exempt), and every secret the mapped gate declares must actually be
-//     gated somewhere in the workflow. crossCheckCiGates runs this when its
-//     optional deploymentStatusWorkflows argument is supplied.
+//     non-ci workflows (the list is currently EMPTY — the gallery workflow
+//     captures from a local demo-mode server and the Vercel deployment_status
+//     gates were removed with the hosting migration): each workflow is mapped
+//     to the gate whose credentials it consumes, and every secret its steps
+//     gate on must be declared by that gate (with workflow-plumbing secrets
+//     like FIREBASE_SERVICE_ACCOUNT exempt), and every secret the mapped gate
+//     declares must actually be gated somewhere in the workflow.
+//     crossCheckCiGates runs this when its optional
+//     deploymentStatusWorkflows argument is supplied.
 //   crossCheckPipelineDiagrams  — asserts BOTH onboarding docs (README.md's
 //     handoff section and docs/launch.md §4) still carry the "When each gate
 //     runs:" pipeline-diagram section — the marker line AND a non-empty
 //     fenced diagram body after it that names every PIPELINE_DIAGRAM_KEY_NAMES
 //     entry — so the picture itself is contract-locked in CI, not just in the
 //     vitest suite that asserts its content.
-//   crossCheckSystemInjectedVars — asserts verify-vercel-env.mjs's
-//     SYSTEM_INJECTED_VARS exemption matches the canonical Vercel
-//     system-injected build-var set EXACTLY (a var dropped, added, or typo'd
-//     fails), never exempts a real project var (VERCEL_TOKEN, VERCEL_TEAM_ID
-//     share the prefix but must stay value-compared), and that the §4
-//     vercel-env row documents the exemption — so the gate's
-//     secrets/expectations contract covers the pull-format handling, not just
-//     the credentials.
 //
 // The gate checks share one GATES parser and one command→gate resolver, so
 // the name, doc-secrets, CI-gating, and deployment-status checks can never
-// disagree about what a gate is. The diagram-presence and system-injected
+// disagree about what a gate is. The diagram-presence
 // checks are independent of both (they parse no gate source at all).
 //
 // Resolution rules (mirror the runner's own gate table):
@@ -382,17 +376,13 @@ export function parseCiGateSteps(ciSrc) {
     }));
 }
 
-// Secrets that are workflow PLUMBING, not gate requirements: the Vercel
-// org/project scoping, the deployment protection-bypass header, and the
-// Firebase service-account admin credential exist so a workflow can reach
-// its platform at all. They are not per-gate credentials verify-all.mjs
-// declares, so the deployment-status check exempts them from the
-// declared-secret rule.
+// Secrets that are workflow PLUMBING, not gate requirements: the Firebase
+// service-account admin credential exists so a workflow can reach its
+// platform at all. It is not a per-gate credential verify-all.mjs declares,
+// so the deployment-status check exempts it from the declared-secret rule.
+// (The Vercel org/project/protection-bypass trio was removed with the
+// hosting migration.)
 const INFRA_SECRETS = new Set([
-  'VERCEL_ORG_ID',
-  'VERCEL_PROJECT_ID',
-  'VERCEL_PROTECTION_BYPASS',
-  'VERCEL_TEAM_ID',
   'FIREBASE_SERVICE_ACCOUNT',
 ]);
 
@@ -615,51 +605,6 @@ function normalizeWhitespace(s) {
   return String(s ?? '').replace(/\s+/g, ' ').trim();
 }
 
-// The canonical Vercel system-injected build-var set — the source of truth
-// for verify-vercel-env.mjs's SYSTEM_INJECTED_VARS exemption. `vercel env
-// pull` writes these alongside the project env (OIDC token, deploy URL, git
-// metadata, env labels) with values that ROTATE every build/deploy/commit, so
-// the gate exempts exactly this set from the drift diff and surfaces it
-// informationally. Real project vars that merely share the prefix
-// (VERCEL_TOKEN, VERCEL_TEAM_ID) are deliberately NOT exempt and must never
-// appear here. Kept in lockstep with the Set literal in verify-vercel-env.mjs
-// by crossCheckSystemInjectedVars below — a one-sided change fails the drift
-// guard, not just the unit suite.
-export const CANONICAL_SYSTEM_INJECTED_VARS = new Set([
-  'VERCEL',
-  'VERCEL_ENV',
-  'VERCEL_GIT_COMMIT_AUTHOR_LOGIN',
-  'VERCEL_GIT_COMMIT_AUTHOR_NAME',
-  'VERCEL_GIT_COMMIT_MESSAGE',
-  'VERCEL_GIT_COMMIT_REF',
-  'VERCEL_GIT_COMMIT_SHA',
-  'VERCEL_GIT_PREVIOUS_SHA',
-  'VERCEL_GIT_PROVIDER',
-  'VERCEL_GIT_PULL_REQUEST_ID',
-  'VERCEL_GIT_REPO_ID',
-  'VERCEL_GIT_REPO_OWNER',
-  'VERCEL_GIT_REPO_SLUG',
-  'VERCEL_OIDC_TOKEN',
-  'VERCEL_TARGET_ENV',
-  'VERCEL_URL',
-]);
-
-// The SYSTEM_INJECTED_VARS literal: `const SYSTEM_INJECTED_VARS = new Set([...]);`
-const SYSTEM_INJECTED_VARS_RE = /const SYSTEM_INJECTED_VARS = new Set\(\[([^\]]*)\]\);/;
-// Real project vars that share the VERCEL_ prefix and must never be exempted.
-const REAL_VERCEL_PROJECT_VARS = ['VERCEL_TOKEN', 'VERCEL_TEAM_ID'];
-// The vercel-env rows in BOTH onboarding docs must tell the same exemption
-// story in plain words: every phrase below must appear in each row, so a doc
-// that keeps the /system-injected/i marker while softening the rest of the
-// contract fails. Exported as the source of truth — the wording-parity unit
-// test iterates this same list, so guard and test can never drift.
-export const SYSTEM_INJECTED_WORDING_PHRASES = [
-  'system-injected',
-  'VERCEL_OIDC_TOKEN',
-  'real project vars',
-  'stay value-compared',
-];
-
 /**
  * Find a §4 gate-table row by its backticked command, bounded to the
  * verification-gates section (a matching table added later in the doc can
@@ -687,93 +632,6 @@ function findLaunchRow(doc, command) {
  *     suite applies to the exported set, enforced here from source);
  *   - no real project var (VERCEL_TOKEN, VERCEL_TEAM_ID) is exempted — they
  *     share the prefix but must stay value-compared;
- *   - docs/launch.md §4's vercel-env row AND the README handoff gate-table
- *     row both carry every SYSTEM_INJECTED_WORDING_PHRASES phrase, so neither
- *     onboarding surface can silently lose the note or soften the contract.
- * Pure: reads nothing itself.
- *
- * @param {{ vercelEnvSrc: string, launchDoc: string, readmeDoc: string }} args
- */
-export function crossCheckSystemInjectedVars({ vercelEnvSrc, launchDoc, readmeDoc }) {
-  const failures = [];
-  const match = String(vercelEnvSrc ?? '').match(SYSTEM_INJECTED_VARS_RE);
-  if (!match) {
-    failures.push('verify-vercel-env.mjs has no SYSTEM_INJECTED_VARS Set literal — a rename or restructure broke the exemption.');
-    return failures;
-  }
-  const declared = [...match[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
-  const canonical = [...CANONICAL_SYSTEM_INJECTED_VARS];
-
-  const missing = canonical.filter((k) => !declared.includes(k));
-  const extra = declared.filter((k) => !canonical.includes(k));
-  if (missing.length > 0) {
-    failures.push(`verify-vercel-env.mjs SYSTEM_INJECTED_VARS omits canonical system-injected var(s): ${missing.join(', ')}`);
-  }
-  if (extra.length > 0) {
-    failures.push(`verify-vercel-env.mjs SYSTEM_INJECTED_VARS declares non-canonical var(s): ${extra.join(', ')}`);
-  }
-
-  for (const real of REAL_VERCEL_PROJECT_VARS) {
-    if (declared.includes(real)) {
-      failures.push(
-        `verify-vercel-env.mjs SYSTEM_INJECTED_VARS exempts ${real} — a real project var that must stay value-compared. Remove it from the set.`,
-      );
-    }
-  }
-
-  const row = findLaunchRow(launchDoc, 'npm run verify:vercel-env');
-  if (!row) {
-    failures.push('docs/launch.md §4 has no vercel-env gate row — the system-injected exemption cannot be documented.');
-  } else {
-    checkExemptionWording('docs/launch.md §4', row, failures);
-  }
-
-  // The README handoff gate table must document the same exemption, so both
-  // onboarding surfaces stay in lockstep — a note added to one doc alone is
-  // not enough.
-  const readmeRow = findReadmeGateRow(readmeDoc, 'vercel-env');
-  if (!readmeRow) {
-    failures.push('README handoff gate table has no vercel-env row — the system-injected exemption cannot be documented.');
-  } else {
-    checkExemptionWording('README handoff', readmeRow, failures);
-  }
-
-  return failures;
-}
-
-/**
- * Assert a vercel-env row carries every SYSTEM_INJECTED_WORDING_PHRASES
- * phrase, pushing one failure per missing phrase (naming the doc and the
- * exact phrase, so the fix is self-explanatory). Pure: reads nothing itself.
- */
-function checkExemptionWording(docLabel, row, failures) {
-  for (const phrase of SYSTEM_INJECTED_WORDING_PHRASES) {
-    if (!row.includes(phrase)) {
-      failures.push(
-        `${docLabel} vercel-env row omits the exemption phrase "${phrase}" — add the note so the doc and the gate agree.`,
-      );
-    }
-  }
-}
-
-/**
- * Find a README handoff gate-table row by its leading gate name (the README
- * table keys rows by bare gate name, unlike launch.md's backticked commands),
- * bounded to the verification-gates section (a matching row in a later
- * section can never be misread as the gate row). Returns the full row text
- * or null. Pure: reads nothing itself.
- */
-function findReadmeGateRow(readmeDoc, gateName) {
-  const lines = String(readmeDoc ?? '').split('\n');
-  const startIdx = lines.findIndex((l) => /^### The \d+ verification gates/.test(l.trim()));
-  if (startIdx < 0) return null;
-  const nextSection = lines.slice(startIdx + 1).findIndex((l) => /^#{1,6} /.test(l));
-  const sectionLines = nextSection >= 0
-    ? lines.slice(startIdx + 1, startIdx + 1 + nextSection)
-    : lines.slice(startIdx + 1);
-  return sectionLines.find((l) => l.startsWith(`| ${gateName} |`)) ?? null;
-}
-
 /**
  * Cross-check ci.yml's gated verify steps AND the deployment_status
  * workflows against verify-all.mjs's `secrets` arrays. Returns an array of

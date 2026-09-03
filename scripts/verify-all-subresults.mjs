@@ -46,7 +46,7 @@ export const SUBRESULT_LABELS = {
   'review-sheet-entries': 'Both numbered recommendations listed',
   'review-sheet-model-label': 'Friendly model label rendered',
   'firebase-row': 'Firebase Hosting row present + HEALTHY',
-  'vercel-row': 'Vercel deployment row present + HEALTHY',
+  'apphosting-row': 'App Hosting rollout row present + HEALTHY',
   'pdf-render': 'Authenticated POST returns a real %PDF- document',
   'pdf-filename': 'Content-Disposition attachment filename present',
   'reports-pdf-session': 'Owner session mints + auth gate releases',
@@ -59,8 +59,7 @@ export const SUBRESULT_LABELS = {
   'mc-pdf-page': 'Review sheet button renders (winner recommendation ready)',
   'mc-pdf-click': 'Review-sheet click accepted with no error toast',
   'mc-pdf-download': 'Review-sheet download lands as a real %PDF- file',
-  'token-active': 'Vercel token resolves + valid',
-  'expiry-verdict': 'Token expiry verdict',
+
   'alias-drift': 'Alias-routing drift watch',
   // Emitted by scripts/verify-gallery-stability.mjs, the scheduled
   // double-capture byte-stability gate (not a verify:all row; labels exist so

@@ -6,32 +6,16 @@ import { mintServiceAccountToken } from './sa-token.mjs';
 // Live deployment feed (server-only).
 // Shared by /api/deployments (client refresh) and the automation engine cron.
 //
-// 1. Vercel API (when VERCEL_TOKEN is set): latest deployment per project.
+// 1. Firebase App Hosting rollouts (when the service account +
+//    FIREBASE_PROJECT_ID are set): the newest SUCCEEDED rollout per known
+//    backend in this project. The apps previously hosted on Vercel now serve
+//    from App Hosting, so the feed reads rollouts instead of Vercel
+//    deployments (the Vercel half was retired with the hosting migration).
 // 2. Firebase Hosting releases (when the service account or FIREBASE_TOKEN
 //    + FIREBASE_PROJECT_ID are set).
 // 3. Live health checks: every deployment URL is fetched and scored
 //    (200/503/…, response time), which feeds the health status.
-//
-// Projects are derived from GITHUB_REPOS by default so the same repo list
-// drives both the GitHub feed and the deployment feed.
 // ============================================================================
-
-const DEFAULT_OWNER = 'LCHEROURI';
-const DEFAULT_REPOS = [
-  'portfolio-app-freebuff',
-  'freebuff-meal',
-  'newark-websites25',
-  'prompt-vault-pro',
-  'tip-compass',
-  'reviewmaestro-production',
-  'mortgage-zip-lead-engine',
-];
-
-const repoNames = () =>
-  (process.env.GITHUB_REPOS ?? DEFAULT_REPOS.join(','))
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
 
 const now = () => new Date().toISOString();
 
@@ -68,80 +52,54 @@ const checkUrl = async (url: string): Promise<{ code: number | null; ms: number 
   }
 };
 
-interface VercelDeploymentShape {
-  uid?: string;
-  state?: string;
-  readyState?: string;
-  target?: string;
-  url?: string;
-  alias?: string[];
-  created?: number;
-  meta?: { githubCommitSha?: string; githubCommitRef?: string };
-  error?: { message?: string };
-}
+// The App Hosting backends deployed from this repo/project. Each backend
+// serves exactly one default hosted.app URL and its newest SUCCEEDED rollout
+// is the live deployment.
+const APPHOSTING_BACKENDS = [
+  { id: 'portfolio-app-freebuff', repo: 'portfolio-app-freebuff' },
+  { id: 'freebuff-car-app', repo: 'freebuff-car-app' },
+  { id: 'cook-with-freebuff', repo: 'cook-with-freebuff' },
+];
 
-const vercelStatus = (state: string | undefined): Deployment['status'] => {
-  switch (state) {
-    case 'READY': return 'READY';
-    case 'ERROR': case 'ERRORED': return 'ERROR';
-    case 'CANCELED': case 'CANCELLED': return 'CANCELED';
-    case 'QUEUED': case 'BUILDING': case 'INITIALIZING': case 'DEPLOYING': return 'BUILDING';
-    default: return 'READY';
-  }
-};
-
-const ownerFallback = () => process.env.GITHUB_OWNER ?? DEFAULT_OWNER;
+const appHostingUrl = (backendId: string, project: string) =>
+  `https://${backendId}--${project}.us-central1.hosted.app`;
 
 export const fetchLiveDeployments = async (userId: string): Promise<Deployment[]> => {
-  const vercelToken = process.env.VERCEL_TOKEN;
-  const teamId = process.env.VERCEL_TEAM_ID;
+  const firebaseProject = process.env.FIREBASE_PROJECT_ID;
   const deployments: Deployment[] = [];
 
-  // ── 1. Vercel latest deployments ──────────────────────────────────────────
-  if (vercelToken) {
-    const projectNames = process.env.VERCEL_PROJECTS
-      ? process.env.VERCEL_PROJECTS.split(',').map((s) => s.trim()).filter(Boolean)
-      : repoNames();
+  // ── 1. Firebase App Hosting rollouts (SA-minted token) ───────────────────
+  if (process.env.FIREBASE_SERVICE_ACCOUNT && firebaseProject) {
+    const token = await mintServiceAccountToken();
     const results = await Promise.allSettled(
-      projectNames.map(async (project) => {
-        // /v6/deployments filters by project ID only — the name param is
-        // silently ignored (every row would return the same deployment). So
-        // resolve name → id first; the /v9/projects/{name}/deployments path
-        // 404s, which is why the old call never returned rows.
-        const projRes = await fetch(
-          `https://api.vercel.com/v9/projects/${encodeURIComponent(project)}${teamId ? `?teamId=${encodeURIComponent(teamId)}` : ''}`,
-          { headers: { Authorization: `Bearer ${vercelToken}` }, cache: 'no-store' },
-        );
-        const projBody = (await projRes.json().catch(() => null)) as { id?: string } | null;
-        if (!projRes.ok || !projBody?.id) return null;
-        const qs = new URLSearchParams({ projectId: projBody.id, target: 'production', state: 'READY', limit: '1' });
-        if (teamId) qs.set('teamId', teamId);
+      APPHOSTING_BACKENDS.map(async ({ id, repo }) => {
+        // The rollouts list is not newest-first, so sort by createTime and
+        // take the newest SUCCEEDED rollout (that is the one currently
+        // serving).
         const res = await fetch(
-          `https://api.vercel.com/v6/deployments?${qs}`,
-          { headers: { Authorization: `Bearer ${vercelToken}` }, cache: 'no-store' },
+          `https://firebaseapphosting.googleapis.com/v1beta/projects/${encodeURIComponent(firebaseProject)}/locations/us-central1/backends/${encodeURIComponent(id)}/rollouts?pageSize=50`,
+          { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' },
         );
         if (!res.ok) return null;
-        const body = (await res.json()) as { deployments?: VercelDeploymentShape[] };
-        const d = body.deployments?.[0];
-        if (!d) return null;
-        const environment: Deployment['environment'] =
-          d.target === 'production' ? 'production'
-          : d.target === 'staging' ? 'staging'
-          : 'preview';
+        const body = (await res.json()) as { rollouts?: Array<{ name?: string; state?: string; createTime?: string; labels?: Record<string, string> }> };
+        const rollouts = (body.rollouts ?? [])
+          .filter((r) => r.state === 'SUCCEEDED')
+          .sort((a, b) => (b.createTime ?? '').localeCompare(a.createTime ?? ''));
+        const rollout = rollouts[0];
+        if (!rollout) return null;
+        const buildId = rollout.name?.split('/').pop() ?? 'latest';
         return {
-          id: `vc-${project}-${d.uid ?? 'latest'}`,
+          id: `ah-${id}-${buildId}`,
           userId,
-          provider: 'vercel' as const,
-          projectName: project,
-          environment,
-          deploymentUrl: `https://${d.url ?? `${project}.vercel.app`}`,
-          dashboardUrl: `https://vercel.com/${ownerFallback()}/${project}`,
-          status: vercelStatus(d.readyState ?? d.state),
+          provider: 'apphosting' as const,
+          projectName: repo,
+          environment: 'production' as const,
+          deploymentUrl: appHostingUrl(id, firebaseProject),
+          dashboardUrl: `https://console.firebase.google.com/project/${firebaseProject}/apphosting`,
+          status: 'READY' as const,
           healthStatus: 'NOT_CHECKED' as HealthStatus,
-          lastDeploymentAt: d.created ? new Date(d.created).toISOString() : undefined,
-          lastFailureMessage: d.error?.message,
-          branch: d.meta?.githubCommitRef,
-          commitSha: d.meta?.githubCommitSha,
+          lastDeploymentAt: rollout.createTime ?? undefined,
+          commitSha: rollout.labels?.['commit-sha'],
           createdAt: now(),
           updatedAt: now(),
         };
@@ -154,7 +112,6 @@ export const fetchLiveDeployments = async (userId: string): Promise<Deployment[]
 
   // ── 1b. Firebase Hosting releases (SA-minted token or FIREBASE_TOKEN) ──
   const firebaseToken = process.env.FIREBASE_TOKEN;
-  const firebaseProject = process.env.FIREBASE_PROJECT_ID;
   const firebaseSites = process.env.FIREBASE_SITES
     ? process.env.FIREBASE_SITES.split(',').map((s) => s.trim()).filter(Boolean)
     : (firebaseProject ? [firebaseProject] : []);

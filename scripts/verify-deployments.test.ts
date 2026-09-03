@@ -6,19 +6,19 @@ const row = (provider, healthStatus) => ({ provider, healthStatus, deploymentUrl
 
 // ── classifyFeed (the pure provider/health bucketing) ────────────────────────
 describe('classifyFeed', () => {
-  it('buckets firebase and vercel rows with HEALTHY counts', () => {
+  it('buckets firebase and apphosting rows with HEALTHY counts', () => {
     const rows = [
       row('firebase', 'HEALTHY'),
       row('firebase', 'FAILED'),
-      row('vercel', 'HEALTHY'),
-      row('vercel', 'HEALTHY'),
-      row('vercel', 'DEGRADED'),
+      row('apphosting', 'HEALTHY'),
+      row('apphosting', 'HEALTHY'),
+      row('apphosting', 'DEGRADED'),
     ];
     const c = classifyFeed(rows);
     expect(c.firebase).toHaveLength(2);
     expect(c.firebaseHealthy).toHaveLength(1);
-    expect(c.vercel).toHaveLength(3);
-    expect(c.vercelHealthy).toHaveLength(2);
+    expect(c.apphosting).toHaveLength(3);
+    expect(c.apphostingHealthy).toHaveLength(2);
   });
 
   it('treats only HEALTHY as healthy — FAILED / DEGRADED / UNKNOWN do not count', () => {
@@ -26,18 +26,18 @@ describe('classifyFeed', () => {
       row('firebase', 'FAILED'),
       row('firebase', 'DEGRADED'),
       row('firebase', 'UNKNOWN'),
-      row('vercel', 'UNKNOWN'),
+      row('apphosting', 'UNKNOWN'),
     ];
     const c = classifyFeed(rows);
     expect(c.firebase).toHaveLength(3);
     expect(c.firebaseHealthy).toHaveLength(0);
-    expect(c.vercelHealthy).toHaveLength(0);
+    expect(c.apphostingHealthy).toHaveLength(0);
   });
 
   it('returns empty buckets for an empty or null feed', () => {
-    expect(classifyFeed([])).toEqual({ firebase: [], firebaseHealthy: [], vercel: [], vercelHealthy: [] });
-    expect(classifyFeed(null)).toEqual({ firebase: [], firebaseHealthy: [], vercel: [], vercelHealthy: [] });
-    expect(classifyFeed(undefined)).toEqual({ firebase: [], firebaseHealthy: [], vercel: [], vercelHealthy: [] });
+    expect(classifyFeed([])).toEqual({ firebase: [], firebaseHealthy: [], apphosting: [], apphostingHealthy: [] });
+    expect(classifyFeed(null)).toEqual({ firebase: [], firebaseHealthy: [], apphosting: [], apphostingHealthy: [] });
+    expect(classifyFeed(undefined)).toEqual({ firebase: [], firebaseHealthy: [], apphosting: [], apphostingHealthy: [] });
   });
 
   it('ignores unknown providers and null entries', () => {
@@ -45,7 +45,7 @@ describe('classifyFeed', () => {
     const c = classifyFeed(rows);
     expect(c.firebase).toHaveLength(1);
     expect(c.firebaseHealthy).toHaveLength(1);
-    expect(c.vercel).toHaveLength(0);
+    expect(c.apphosting).toHaveLength(0);
   });
 
   it('keeps the original row shape so the caller can read URLs / status', () => {

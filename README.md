@@ -95,9 +95,9 @@ Data flow at a glance:
 └──────────────────────────────────────────────────────┘
 ```
 
-### The 18 verification gates
+### The 16 verification gates
 
-`npm run verify:all` runs all eighteen against the production URL (or
+`npm run verify:all` runs all sixteen against the production URL (or
 `--app <url>` for a preview) and exits nonzero on any failure. Each gate
 reads its secrets from env, then `.env.local`:
 
@@ -105,19 +105,17 @@ reads its secrets from env, then `.env.local`:
 | --- | --- | --- |
 | disk-headroom | — | Local Data-volume headroom: the machine's Data volume stays under `DISK_LIMIT_PCT` (default 90) via `df`, with a non-blocking warning once it crosses `DISK_WARN_PCT` (default 85) — a full disk caused the SQLite "disk I/O error" on button clicks. Skip-not-fail when `df` is unavailable. Also pre-push gate 0.05 |
 | conv-db | — | Local WAL maintenance on the machine's conversation DB: TRUNCATE checkpoint when the `-wal` sidecar exceeds 2 MiB (busy-retry), idles at/below the threshold, skips-not-fail when sqlite3/DB absent. Emits `wal-idle`/`wal-truncated`/`wal-busy`/`wal-error` sub-rows (local suffix). Local-only like disk-headroom, never in CI |
-| token-health | `VERCEL_TOKEN` | the stored Vercel token is alive (name + expiry) |
-| vercel-env | `VERCEL_TOKEN` (+ Vercel CLI) | Vercel prod env matches `.env.local` (Vercel's system-injected build vars like `VERCEL_OIDC_TOKEN` rotate every deploy and are exempted as informational; real project vars like `VERCEL_TOKEN`/`VERCEL_TEAM_ID` stay value-compared) |
 | cron-reports | `CRON_SECRET` | deployed cron 401s without auth; daily/weekly/monthly report bodies carry the friendly model heading + raw-id footer (monthly also proves the velocity/backlog-drift sections + the AI monthly briefing); no report send envelope |
 | firestore-rules | `VERIFY_FIREBASE_PROJECT_ID`, `VERIFY_FIREBASE_WEB_API_KEY` | rules isolation probed in the verification sandbox (a second Spark project, zero production reads) + a sandbox↔production rules-parity sub-check so the result transfers; loud SKIP (exit 0, `sandbox-auth` sub-row, SKIPPED parent row) while the sandbox Auth is unprovisioned, so the batch can ship before the one-time console click |
 | auth-domains | `FIREBASE_WEB_API_KEY` | shipping domain is in the Firebase authorized list |
 | prod-signin | `FIREBASE_WEB_API_KEY`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` (+ Chrome) | real sign-in releases into the app and Firestore syncs |
 | google-idp | `FIREBASE_WEB_API_KEY`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | Google IdP record enabled with a classic web client |
 | review-sheet | `FIREBASE_WEB_API_KEY`, `FIREBASE_SERVICE_ACCOUNT`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` (+ Chrome) | deployed Model Comparison prints one review sheet listing every project's AI winner recommendation (both numbered entries + friendly model label) |
-| deployments | `FIREBASE_WEB_API_KEY` | deployed /api/deployments feed: 401 without auth; at least one Firebase Hosting row (SA-minted token, correct host) + one Vercel row (name→id resolution) with HEALTHY health checks |
-| deployed-pdf | `FIREBASE_WEB_API_KEY`, `FIREBASE_SERVICE_ACCOUNT`, `REPORT_OWNER_ID` | deployed /api/print/pdf renders a real PDF as the real owner: SA-minted custom token → owner idToken → POST returns 200 + `application/pdf` + a `%PDF-` body + an attachment filename, rendered server-side by the bundled serverless Chromium on Vercel (no local Chrome needed on the runtime) |
+| deployments | `FIREBASE_WEB_API_KEY` | deployed /api/deployments feed: 401 without auth; at least one Firebase Hosting row (SA-minted token, correct host) + one Firebase App Hosting row (newest SUCCEEDED rollout at the hosted.app URL) with HEALTHY health checks |
+| deployed-pdf | `FIREBASE_WEB_API_KEY`, `FIREBASE_SERVICE_ACCOUNT`, `REPORT_OWNER_ID` | deployed /api/print/pdf renders a real PDF as the real owner: SA-minted custom token → owner idToken → POST returns 200 + `application/pdf` + a `%PDF-` body + an attachment filename, rendered server-side by the bundled serverless Chromium on Firebase App Hosting (no local Chrome needed on the runtime) |
 | reports-pdf-flow | `FIREBASE_WEB_API_KEY`, `FIREBASE_SERVICE_ACCOUNT`, `REPORT_OWNER_ID` (+ Chrome) | deployed Reports page driven in headless Chrome as the real owner: the actual Download PDF button is clicked and the browser download is captured via CDP, proving the full UI path (button → auth facade → route → blob → file) lands a real `%PDF-` file with the slug filename |
 | auth-domains-direct | `FIREBASE_WEB_API_KEY` | same as auth-domains via the direct script (reported as covered) |
-| deployed-hash | `VERCEL_TOKEN` | production actually serves the expected commit |
+| deployed-hash | — | production (Firebase App Hosting) actually serves the expected commit, read from the newest SUCCEEDED rollout's `commit-sha` label via gcloud |
 | import-surface | — | no unused or re-exported imports across scripts/ + lib/ + app/ |
 | dead-words | — | removed-feature phrasing never returns to code or docs |
 | read-limits | — | `lib/firestore.ts` still reads activity newest-first with `limit(200)` and reports with `limit(60)` — the bounded-read guard that keeps verify suites + CI under the Firestore daily read budget (an unbounded activity read charged ~5× the rows the UI shows) |
@@ -180,7 +178,7 @@ When each gate runs:
 ```text
    ┌───────────────────────────────────────────────────────────────┐
    │  LOCAL — every git push (.githooks/pre-push)                  │
-   │  runs the 18 verify:all gates + drift guards (timeboxed); a  │
+   │  runs the 16 verify:all gates + drift guards (timeboxed); a  │
    │  hook gates 0.6/0.6b/0.6c/0.6d (lints + render byte gates);   │
    │  dirty tree or any failure ABORTS the push                    │
    └──────────────────────────────┬────────────────────────────────┘
@@ -188,7 +186,7 @@ When each gate runs:
                                   ▼
    ┌───────────────────────────────────────────────────────────────┐
    │  npm run ship:go — the one-command path                       │
-   │  commit → push → wait for the Vercel deploy → re-run          │
+   │  commit → push → wait for the Firebase deploy → re-run        │
    │  ship:ready against the LIVE build                            │
    └──────────────────────────────┬────────────────────────────────┘
                                   │  the push fires, in parallel
@@ -214,19 +212,18 @@ The same secrets live in **three places** and must stay in sync — a value
 rotated in only one store breaks a push or a CI gate with a confusing
 failure:
 
-1. **`.env.local`** — local dev, the verify scripts, and the pre-push hook.
-2. **Vercel Production env** — what the deployed app actually runs with.
-3. **GitHub repo secrets** (Settings → Secrets → Actions) — what CI runs with.
+1. **`.env.local`** — local dev and the verify scripts.
+2. **The deployed build's env** — `scripts/deploy-portfolio-app.sh` bakes the
+   `NEXT_PUBLIC_*` + server env keys into `.env.production` before the App
+   Hosting cloud build, so the deployed app runs with the same values.
+3. **GitHub repo secrets** (Settings → Secrets → Actions) — what CI runs with;
+   the deploy workflow re-exports them for the bake.
 
-The verify scripts read shared values (`CRON_SECRET`, `VERCEL_TOKEN`,
-`FIREBASE_WEB_API_KEY`, …) in that precedence; the `vercel-env` gate exists
-specifically to prove store 2 matches store 1. Rotation is documented for the
-two that rot (`CRON_SECRET` and `VERCEL_TOKEN`, see the rotation sections
-above) — update every store together, and refresh the Vercel CLI token store
-for `VERCEL_TOKEN`. GitHub-only secrets (`VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`,
-`VERCEL_PROTECTION_BYPASS`) are classified by `vercel-env` as CI-only, not
-drift. The Firebase project id is pinned to `portfolio-app-freebuff2` by a CI
-guard that fails on any bare `portfolio-app-freebuff` used as a project id —
+The verify scripts read shared values (`CRON_SECRET`, `FIREBASE_WEB_API_KEY`,
+…) from env, then `.env.local`. Rotation is documented for the one value that
+rots (`CRON_SECRET`, see the rotation section above) — update every store
+together. The Firebase project id is pinned to `portfolio-app-freebuff2` by a
+CI guard that fails on any bare `portfolio-app-freebuff` used as a project id —
 keep the **2**.
 
 ### Onboarding visuals
@@ -719,14 +716,12 @@ local `.env.local` and the Vercel/GitHub values in lockstep):
 #    sed (not perl) so the shell expands the value before it touches the file:
 NEW_SECRET="$(openssl rand -hex 32)"
 sed -i.bak "s|^CRON_SECRET=.*|CRON_SECRET=${NEW_SECRET}|" .env.local && rm .env.local.bak
-printf '%s' "$NEW_SECRET" | vercel env rm CRON_SECRET production -y >/dev/null 2>&1 || true
-printf '%s' "$NEW_SECRET" | vercel env add CRON_SECRET production
 
 # 2. GitHub Actions: update the CRON_SECRET secret (Settings → Secrets → Actions)
-#    so the verify-deployed-cron job keeps running.
+#    so the deploy workflow bakes the new value on the next deploy.
 
-# 3. Redeploy — Vercel Cron reads the new value from the fresh deployment.
-vercel --prod
+# 3. Redeploy — push to main (or run bash scripts/deploy-portfolio-app.sh);
+#    the App Hosting cloud build bakes the fresh value into .env.production.
 ```
 
 **Keep the two in sync:** the cron only authenticates when the header matches
@@ -734,30 +729,13 @@ the `CRON_SECRET` in the deployed environment, and the smoke test only passes
 when that value matches the one in `.env.local`. If a `401` shows up in the
 cron logs or the CI job, re-run the rotation steps above in both places.
 
-**Rotating `VERCEL_TOKEN`** (do this whenever it expires, is revoked, or the
-pre-push hook / CI reports `VERCEL_TOKEN is invalid or revoked`):
-
-```bash
-# 1. Generate a fresh token at https://vercel.com/account/tokens, then update
-#    it in BOTH places at once — the two must never drift:
-NEW_TOKEN="vca_..."   # paste the fresh value
-sed -i.bak "s|^VERCEL_TOKEN=.*|VERCEL_TOKEN=${NEW_TOKEN}|" .env.local && rm .env.local.bak
-printf '%s' "$NEW_TOKEN" | gh secret set VERCEL_TOKEN --repo LCHEROURI/portfolio-app-freebuff
-
-# 2. Optional but recommended: refresh the Vercel CLI store too, so local
-#    `vercel` deploys don't keep using a revoked credential. The CLI keeps its
-#    config at ~/Library/Application Support/com.vercel.cli/auth.json (not
-#    ~/.vercel/):
-printf '{"token":"%s"}\n' "$NEW_TOKEN" > "$HOME/Library/Application Support/com.vercel.cli/auth.json"
-chmod 600 "$HOME/Library/Application Support/com.vercel.cli/auth.json"
-```
-
-**Keep the two in sync:** the pre-push hook and the deployed-hash/`gallery.yml`
-CI jobs read `VERCEL_TOKEN` from `.env.local` and the GitHub repo secret
-respectively — if only one is rotated, the local push gate passes while the CI
-gate fails (or vice versa) with the `invalid or revoked` message. Rotate both
-together and verify with `node scripts/verify-deployed-hash.mjs --url
-https://portfolio-app-freebuff.vercel.app`.
+**`VERCEL_TOKEN` is retired.** The hosting migration moved the app from
+Vercel to Firebase App Hosting, so nothing reads `VERCEL_TOKEN` anymore — the
+deployed-hash gate now resolves the live commit from the backend's newest
+SUCCEEDED rollout (labels, via the ambient gcloud credentials), and the
+token-health / vercel-env gates were removed. `VERCEL_TOKEN` may be deleted
+from the GitHub repo secrets; the `VERCEL_ORG_ID` / `VERCEL_PROJECT_ID` /
+`VERCEL_PROTECTION_BYPASS` secrets are unused as well.
 
 **Gate 0 is the unified `--stale-guard` (identical to the cook repo).** The
 pre-push hook delegates its entire deployed-hash verdict to
@@ -766,26 +744,18 @@ implementation the CI validate job runs both at push time (against the pushed
 HEAD) and on PRs (`--head` pinned to the PR head). The driver resolves the live
 commit via the shared `verify-deployed-hash.mjs` and decides: live an ancestor
 of the expected head → forward deploy → pass (proven after deploy by the
-deployment_status gates); live NOT an ancestor → STALE-HEAD BLOCK; an
-invalid/revoked token → exit 2, warn and continue (CI verifies with its own
-token); an undeterminable live commit → fail loudly. The hook carries zero
+post-deploy verification); live NOT an ancestor → STALE-HEAD BLOCK; an
+undeterminable live commit → fail loudly. The hook carries zero
 verdict logic — a future edit that reintroduces bash ancestry code fails the
 contract test. `SKIP_VERIFY_DEPLOYED_HASH=1` bypasses the gate.
 
-**Even a no-expiration token can die.** Vercel revokes tokens when you create a
-new one with the "invalidate existing" option, or when account security
-settings change — so treat every token as rotatable, and set a **~90-day
-calendar reminder** to re-run `npm run verify:token-health` (see below). That
-packaged check reads the stored `VERCEL_TOKEN`, calls `GET /v2/user/tokens`,
-and reports the active token's **name + expiry** (or "no expiration") — and
-when Vercel flags the credential as revoked (`invalidToken: true`) it exits 2
-with the same paste-a-fresh-token message as the deployed-hash gate. It's wired
-into the pre-push hook as its own gate, so a revoked or expiring token is
-caught before it silently breaks a deploy or CI run:
-
-```bash
-npm run verify:token-health          # reports the active token's name + expiry
-```
+**The deployed-hash gate authenticates via gcloud, not a token.** It reads the
+live commit from the Firebase App Hosting rollouts API using the ambient
+gcloud credentials — locally the developer's `gcloud auth login` session, in
+automation the service account activated from `FIREBASE_SERVICE_ACCOUNT`. If
+`gcloud` is not logged in, the gate fails with a clear message; run `gcloud
+auth login` to restore it. The old `verify:token-health` gate (Vercel token
+liveness) was removed with the hosting migration.
 
 ### Re-proving the gate's teeth in seconds
 

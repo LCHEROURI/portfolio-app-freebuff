@@ -13,11 +13,10 @@
 #       instant; FAILS the push when the Data volume is over 90% full, and
 #       WARNS non-blocking over 85% — a full disk breaks SQLite writes and
 #       the Chrome/npm verifiers, so it is checked FIRST)
-#   0. scripts/verify-deployed-hash-gate.mjs --stale-guard (needs VERCEL_TOKEN
-#      — the direction-aware rollback guard, the SAME implementation the CI
-#      validate job runs: live an ancestor of HEAD → forward deploy → pass;
-#      live NOT an ancestor → BLOCK; invalid token → warn + continue)
-#   0.5 scripts/verify-token-health.mjs  (needs VERCEL_TOKEN — cheap, no Chrome)
+#   0. scripts/verify-deployed-hash-gate.mjs --stale-guard (needs gcloud ADC
+#      — the direction-aware rollback guard: live an ancestor of HEAD →
+#      forward deploy → pass; live NOT an ancestor → BLOCK; gcloud missing →
+#      skip with a notice)
 #   0.6 scripts/lint-import-surface.mjs  (no secrets, pure static, near-instant)
 #   0.6b scripts/lint-dead-words.mjs      (dead-feature phrasing — no secrets, pure static)
 #   0.6c scripts/capture-docs.mjs --check (needs Chrome — renders README Handoff +
@@ -25,8 +24,6 @@
 #   0.6d scripts/verify-review-sheet.mjs --check (needs KEY + Chrome — re-runs the
 #      review-sheet capture deterministically and FAILS if the committed pair
 #      would change)
-#   0.7 scripts/verify-vercel-env.mjs    (needs VERCEL_TOKEN + vercel CLI — pulls prod
-#                                          env and asserts it matches .env.local)
 #   1. scripts/verify-auth-domains.mjs   (needs FIREBASE_WEB_API_KEY)
 #   2. scripts/verify-cron-reports.mjs  (needs CRON_SECRET)
 #   3. scripts/verify-prod-signin.mjs    (needs FIREBASE_WEB_API_KEY + Chrome)
@@ -229,10 +226,9 @@ if [ -z "$KEY" ]; then
   KEY="$(read_env NEXT_PUBLIC_FIREBASE_API_KEY)"
 fi
 CRON="$(read_env CRON_SECRET)"
-VERCEL="$(read_env VERCEL_TOKEN)"
-# The canonical production URL — the alias whose routing the drift watch
-# asserts matches the deployment-specific URL verified by the hash gate.
-PRODUCTION_URL="https://portfolio-app-freebuff.vercel.app"
+# The deployed-hash gate resolves the live commit from the Firebase App
+# Hosting rollouts via the ambient gcloud credentials (gcloud auth login
+# locally, FIREBASE_SERVICE_ACCOUNT in automation).
 
 # ── 0.05 Disk headroom gate (no secrets, pure local, instant) ──────────────
 # Fails the push when the Data volume is over 90% full. A full disk is what
@@ -254,25 +250,22 @@ else
   echo "pre-push: verify suite not present — skipping disk headroom check"
 fi
 
-# ── 0. Deployed-hash stale-guard gate (needs VERCEL_TOKEN; direction-aware ──
+# ── 0. Deployed-hash stale-guard gate (needs gcloud ADC; direction-aware ──
 #    rollback protection before every main push). Delegates its ENTIRE verdict
-#    to scripts/verify-deployed-hash-gate.mjs --stale-guard — the SAME
-#    direction-aware implementation the CI validate job runs (push-time and
-#    PR-time variants), so the local hook and CI can never disagree about what
-#    is safe to push. The driver resolves the live commit via the shared
-#    verify-deployed-hash.mjs (v13 by-host lookup, bare fallback) and decides:
-#    live an ancestor of HEAD → forward deploy → PASS (the post-deploy gate
-#    proves the new build after Vercel finishes); live NOT an ancestor
-#    (rollback/diverged) → STALE-HEAD BLOCK, exit 1; invalid/revoked token →
-#    exit 2 (warn + continue — CI has its own token and verifies there). An
-#    undeterminable live commit fails loudly (exit 1) — a push that cannot be
-#    verified must not go out silently.
-# Skips (with a notice) when: the token is unavailable, the remote tip is all
-# zeros (first push to an empty main — nothing to have deployed yet), the
-# gate script file is missing, or SKIP_VERIFY_DEPLOYED_HASH=1.
+#    to scripts/verify-deployed-hash-gate.mjs --stale-guard, which resolves
+#    the live commit from the newest SUCCEEDED Firebase App Hosting rollout
+#    (commit-sha label) via the ambient gcloud credentials and decides: live
+#    an ancestor of HEAD → forward deploy → PASS; live NOT an ancestor
+#    (rollback/diverged) → STALE-HEAD BLOCK, exit 1. An undeterminable live
+#    commit fails loudly (exit 1) — a push that cannot be verified must not
+#    go out silently.
+# Skips (with a notice) when: gcloud is unavailable/unauthenticated, the
+# remote tip is all zeros (first push to an empty main — nothing to have
+# deployed yet), the gate script file is missing, or
+# SKIP_VERIFY_DEPLOYED_HASH=1.
 if [ -f scripts/verify-deployed-hash-gate.mjs ]; then
-  if [ -z "$VERCEL" ]; then
-    echo "pre-push: VERCEL_TOKEN not set — skipping deployed-hash stale-guard"
+  if ! command -v gcloud >/dev/null 2>&1; then
+    echo "pre-push: gcloud CLI not found — skipping deployed-hash stale-guard"
   elif [ "${REMOTE_MAIN_SHA//0/}" = "" ]; then
     echo "pre-push: first push to main (no previous remote commit) — skipping deployed-hash stale-guard"
   elif [ "${SKIP_VERIFY_DEPLOYED_HASH:-0}" = "1" ]; then
@@ -281,10 +274,7 @@ if [ -f scripts/verify-deployed-hash-gate.mjs ]; then
     # Deliberately NOT run_with_retry: the gate's verdicts are directional
     # (forward deploy = pass, stale head = block) and an undeterminable live
     # commit must fail loudly — a retry wrapper would collapse every failure
-    # to a bare 1 and hide the reason. Exit routing mirrors the driver: 0 →
-    # safe to push; 1 → BLOCKED (abort); 2 → invalid/revoked token (warn +
-    # continue — waiting cannot revive a revoked token, and CI's own token
-    # verifies the push after deploy).
+    # to a bare 1 and hide the reason.
     echo "pre-push: verifying production deployed-hash stale-guard…"
     if timebox 90 node scripts/verify-deployed-hash-gate.mjs --stale-guard; then
       echo "pre-push: deployed-hash stale-guard passed ✓"
@@ -294,7 +284,10 @@ if [ -f scripts/verify-deployed-hash-gate.mjs ]; then
         echo "pre-push: deployed-hash stale-guard exceeded 90s — too slow, run CI instead (SKIP_VERIFY_SIGNIN=1 to override)" >&2
         exit 1
       elif [ "$hash_rc" -eq 2 ]; then
-        echo "pre-push: VERCEL_TOKEN is invalid or revoked — continuing WITHOUT the live-vs-HEAD comparison (paste a fresh token into .env.local; CI verifies with its own token)" >&2
+        # Reserved defensive branch: the App Hosting driver authenticates via
+        # gcloud ADC and never exits 2. Kept so a future driver change cannot
+        # silently flatten the code path.
+        echo "pre-push: could not authenticate to read the App Hosting rollouts — run `gcloud auth login` and re-push" >&2
       else
         echo "pre-push: ✗ BLOCKED — live is not an ancestor of your local HEAD; pushing would roll the site back or clobber history. Pull/rebase first, or re-run with SKIP_VERIFY_DEPLOYED_HASH=1" >&2
         exit 1
@@ -303,18 +296,6 @@ if [ -f scripts/verify-deployed-hash-gate.mjs ]; then
   fi
 else
   echo "pre-push: verify-deployed-hash-gate.mjs not present — skipping deployed-hash stale-guard"
-fi
-
-# ── 0.5 Token-health gate (needs VERCEL_TOKEN; cheap, no Chrome) ───────────
-# Proves the stored VERCEL_TOKEN is still alive and reports its name + expiry,
-# so a revoked or expiring credential is caught before the deployed-hash gate
-# (or a deploy) fails on it. Same rc=2 contract as the hash gate: an invalid
-# token aborts the push with the paste-a-fresh-token guidance.
-if [ -n "$VERCEL" ] && [ -f scripts/verify-token-health.mjs ]; then
-  run_verify "Vercel token health" scripts/verify-token-health.mjs
-else
-  [ -f scripts/verify-token-health.mjs ] || echo "pre-push: verify suite not present — skipping token-health proof"
-  [ -n "$VERCEL" ] || echo "pre-push: VERCEL_TOKEN not set — skipping token-health proof"
 fi
 
 # ── 0.6 Import-surface lint gate (no secrets, pure static, near-instant) ────
@@ -398,25 +379,6 @@ if [ -n "$KEY" ] && [ -f scripts/verify-review-sheet.mjs ]; then
 else
   [ -f scripts/verify-review-sheet.mjs ] || echo "pre-push: verify suite not present — skipping review-sheet byte gate"
   [ -n "$KEY" ] || echo "pre-push: FIREBASE_WEB_API_KEY not set — skipping review-sheet byte gate"
-fi
-
-# ── 0.7 Vercel-env drift gate (needs VERCEL_TOKEN + vercel CLI) ───────────
-# Pulls Vercel's production env and asserts every .env.local key exists there
-# with an identical value (report shows names + value lengths only — never the
-# secrets), so the .env.local ↔ Vercel secret stores can never silently drift
-# again (they did: REPORT_OWNER_ID held 'demo-user' in prod while .env.local
-# carried the real uid). Also classifies GitHub CI-only secrets as expected,
-# not drift. Same rc=2 contract as the other Vercel gates: an invalid token
-# aborts the push with the paste-a-fresh-token guidance.
-if [ -n "$VERCEL" ] && [ -f scripts/verify-vercel-env.mjs ]; then
-  if command -v vercel >/dev/null 2>&1 || command -v npx >/dev/null 2>&1; then
-    run_verify "Vercel prod env vs .env.local" scripts/verify-vercel-env.mjs
-  else
-    echo "pre-push: vercel CLI not found — skipping vercel-env proof"
-  fi
-else
-  [ -f scripts/verify-vercel-env.mjs ] || echo "pre-push: verify suite not present — skipping vercel-env proof"
-  [ -n "$VERCEL" ] || echo "pre-push: VERCEL_TOKEN not set — skipping vercel-env proof"
 fi
 
 # ── 1. Authorized-domains gate (fast, no Chrome) ───────────────────────────

@@ -1,29 +1,23 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  PRODUCTION_URL,
+  canonicalHost,
   compareDrift,
   extractSha,
-  INVALID_TOKEN_MESSAGE,
-  InvalidTokenError,
-  isInvalidToken,
   parseArgs,
-  resolveByHost,
+  pickNewestSucceeded,
+  resolveLive,
 } from './verify-deployed-hash.mjs';
-
-const TOKEN = 'test-token';
-const TEAM = 'team_test';
 
 // ── extractSha ────────────────────────────────────────────────────────────────
 describe('extractSha', () => {
-  it('prefers meta.githubCommitSha', () => {
-    expect(extractSha({ meta: { githubCommitSha: 'abc123' }, gitSource: { sha: 'def456' } })).toBe('abc123');
+  it('reads the commit-sha label stamped by the deploy script', () => {
+    expect(extractSha({ labels: { 'commit-sha': 'abc123' } })).toBe('abc123');
   });
 
-  it('falls back to gitSource.sha when meta is missing', () => {
-    expect(extractSha({ gitSource: { sha: 'def456' } })).toBe('def456');
-  });
-
-  it('returns empty when neither records a commit', () => {
+  it('returns empty when the rollout carries no label', () => {
+    expect(extractSha({ labels: {} })).toBe('');
     expect(extractSha({})).toBe('');
     expect(extractSha(null)).toBe('');
     expect(extractSha(undefined)).toBe('');
@@ -47,231 +41,138 @@ describe('compareDrift', () => {
   });
 });
 
-// ── isInvalidToken (the dead-token detector) ──────────────────────────────────
-describe('isInvalidToken', () => {
-  it('detects a top-level invalidToken:true flag', () => {
-    expect(isInvalidToken({ invalidToken: true })).toBe(true);
+// ── pickNewestSucceeded (rollout list is NOT newest-first) ────────────────────
+describe('pickNewestSucceeded', () => {
+  const r = (name, state, createTime, sha) => ({
+    name,
+    state,
+    createTime,
+    labels: sha ? { 'commit-sha': sha } : {},
   });
 
-  it('detects the Vercel error-shape body (error.invalidToken)', () => {
-    expect(
-      isInvalidToken({ error: { code: 'forbidden', message: 'Not authorized.', invalidToken: true } }),
-    ).toBe(true);
-    expect(
-      isInvalidToken({ error: { code: 'unauthorized', message: 'Not authenticated.', invalidToken: true } }),
-    ).toBe(true);
+  it('ignores non-SUCCEEDED rollouts entirely', () => {
+    const picked = pickNewestSucceeded([
+      r('build-001', 'FAILED', '2026-09-01T10:00:00Z'),
+      r('build-002', 'SUCCEEDED', '2026-09-01T11:00:00Z'),
+      r('build-003', 'SUCCEEDED', '2026-09-01T12:00:00Z'),
+    ]);
+    expect(picked.name).toBe('build-003');
   });
 
-  it('returns false for missing, empty, or non-token error bodies', () => {
-    expect(isInvalidToken(null)).toBe(false);
-    expect(isInvalidToken(undefined)).toBe(false);
-    expect(isInvalidToken({})).toBe(false);
-    expect(isInvalidToken({ error: { code: 'forbidden' } })).toBe(false);
-    expect(isInvalidToken({ error: { code: 'unauthorized' } })).toBe(false);
-    expect(isInvalidToken({ invalidToken: false })).toBe(false);
+  it('picks by createTime, not list order (the top-entry heuristic is wrong)', () => {
+    // Deliberately out of order — a newer rollout appearing EARLIER in the
+    // list must still win on time.
+    const picked = pickNewestSucceeded([
+      r('build-005', 'SUCCEEDED', '2026-09-02T09:00:00Z'),
+      r('build-006', 'SUCCEEDED', '2026-09-02T12:00:00Z'),
+      r('build-004', 'SUCCEEDED', '2026-09-02T08:00:00Z'),
+    ]);
+    expect(picked.name).toBe('build-006');
+  });
+
+  it('returns null when nothing has succeeded', () => {
+    expect(pickNewestSucceeded([])).toBeNull();
+    expect(pickNewestSucceeded([r('build-001', 'FAILED', '2026-09-01T10:00:00Z')])).toBeNull();
+  });
+});
+
+// ── canonicalHost / PRODUCTION_URL (one source of truth for the live URL) ─────
+describe('canonical URL', () => {
+  it('points at the Firebase App Hosting hosted.app URL, not Vercel', () => {
+    expect(PRODUCTION_URL).toBe('https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app');
+    expect(canonicalHost()).toBe('portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app');
+  });
+
+  it('the gate targets the canonical URL via the shared driver', () => {
+    const gateSrc = readFileSync('scripts/verify-deployed-hash-gate.mjs', 'utf8');
+    expect(gateSrc).toContain("import { PRODUCTION_URL as CANONICAL_URL } from './verify-deployed-hash.mjs';");
+    expect(gateSrc).toContain("'--url', CANONICAL_URL");
+  });
+});
+
+// ── resolveLive (host validation happens BEFORE any network call) ─────────────
+describe('resolveLive', () => {
+  it('rejects a stale Vercel alias with a targeted message', async () => {
+    await expect(resolveLive('portfolio-app-freebuff.vercel.app', 'fake-token')).rejects.toThrow(
+      /not this backend's URL/,
+    );
+  });
+
+  it('accepts the canonical host (network call mocked)', async () => {
+    const mock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({
+        rollouts: [
+          { name: 'projects/x/locations/us-central1/backends/b/rollouts/build-001', state: 'SUCCEEDED', createTime: '2026-09-02T12:00:00Z', labels: { 'commit-sha': 'abc123' } },
+        ],
+      }), { status: 200 }),
+    );
+    try {
+      const live = await resolveLive(canonicalHost(), 'fake-token');
+      expect(live.sha).toBe('abc123');
+      expect(live.url).toBe(PRODUCTION_URL);
+      expect(live.created).toBe('2026-09-02T12:00:00Z');
+    } finally {
+      mock.mockRestore();
+    }
+  });
+
+  it('throws when no rollout has succeeded', async () => {
+    const mock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ rollouts: [{ name: 'r1', state: 'FAILED' }] }), { status: 200 }),
+    );
+    try {
+      await expect(resolveLive(canonicalHost(), 'fake-token')).rejects.toThrow(/no SUCCEEDED rollout/);
+    } finally {
+      mock.mockRestore();
+    }
   });
 });
 
 // ── parseArgs (the GitHub Actions plain-scalar folding guard) ──────────────────
 describe('parseArgs', () => {
   it('parses a normal --url/--expect invocation', () => {
-    const parsed = parseArgs(['--url', 'https://x.vercel.app', '--expect', 'abc123']);
-    expect(parsed.url).toBe('https://x.vercel.app');
+    const parsed = parseArgs(['--url', 'https://x.hosted.app', '--expect', 'abc123']);
+    expect(parsed.url).toBe('https://x.hosted.app');
     expect(parsed.expect).toBe('abc123');
+    expect(parsed.checkLocal).toBe(false);
+    expect(parsed.compareUrl).toBeNull();
+  });
+
+  it('recovers flags folded by the GitHub Actions plain-scalar backslash', () => {
+    const parsed = parseArgs([' --url', 'https://x.hosted.app', '--expect', 'abc123']);
+    expect(parsed.url).toBe('https://x.hosted.app');
+    expect(parsed.expect).toBe('abc123');
+  });
+
+  it('a flag whose following word is another flag consumes it (kept for CLI parity)', () => {
+    // Historical parity: the flag() helper returns the next word whenever one
+    // exists, so `--url --expect` reads url='--expect' and expect stays unset.
+    const parsed = parseArgs(['--url', '--expect']);
+    expect(parsed.url).toBe('--expect');
+    expect(parsed.expect).toBeNull();
+  });
+
+  it('returns null values for absent flags', () => {
+    const parsed = parseArgs([]);
+    expect(parsed.url).toBeNull();
+    expect(parsed.expect).toBeNull();
     expect(parsed.compareUrl).toBeNull();
     expect(parsed.checkLocal).toBe(false);
   });
-
-  it('recovers flags whose leading space survived a YAML-folded run block', () => {
-    // GitHub Actions folds `run: cmd \` newline into a literal backslash-space,
-    // so bash hands the script ` --url` (leading space) as ONE word. The trim
-    // inside parseArgs must recover the flag so the gate never silently falls
-    // back to the v6 list branch — the exact 403 bug this guards against.
-    const folded = [' --url', 'https://x.vercel.app', ' --expect', 'abc123', ' --compare-url', 'https://y.vercel.app'];
-    const parsed = parseArgs(folded);
-    expect(parsed.url).toBe('https://x.vercel.app');
-    expect(parsed.expect).toBe('abc123');
-    expect(parsed.compareUrl).toBe('https://y.vercel.app');
-  });
-
-  it('handles --check-local as a bare boolean flag', () => {
-    expect(parseArgs(['--check-local']).checkLocal).toBe(true);
-    expect(parseArgs([' --check-local']).checkLocal).toBe(true);
-    expect(parseArgs([]).checkLocal).toBe(false);
-  });
-
-  it('returns null for a flag missing its value', () => {
-    expect(parseArgs(['--url']).url).toBeNull();
-    expect(parseArgs(['--expect']).expect).toBeNull();
-    expect(parseArgs([]).url).toBeNull();
-  });
 });
 
-// ── resolveByHost (Vercel API mocked) ─────────────────────────────────────────
-describe('resolveByHost', () => {
-  it('resolves sha/url/created from the v13 deployment record', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        meta: { githubCommitSha: '76e08c209d0e' },
-        url: 'portfolio-app-freebuff-abc.vercel.app',
-        createdAt: '2026-08-06T01:09:10.973Z',
-      }),
-    });
-    vi.stubGlobal('fetch', fetchMock);
-
-    const dep = await resolveByHost('portfolio-app-freebuff.vercel.app', 'compare URL', TOKEN, TEAM);
-
-    expect(dep.sha).toBe('76e08c209d0e');
-    expect(dep.url).toBe('portfolio-app-freebuff-abc.vercel.app');
-    expect(dep.created).toBe('2026-08-06T01:09:10.973Z');
-
-    // v13 lookup by host, with the team scope, bearer token present.
-    const [url, opts] = fetchMock.mock.calls[0];
-    expect(String(url)).toContain('/v13/deployments/portfolio-app-freebuff.vercel.app');
-    expect(String(url)).toContain('teamId=team_test');
-    expect(opts.headers.authorization).toBe('Bearer test-token');
+// ── Source-level pins ─────────────────────────────────────────────────────────
+describe('verify-deployed-hash.mjs · no Vercel left in the driver', () => {
+  it('never references VERCEL_TOKEN or the Vercel API', () => {
+    const src = readFileSync('scripts/verify-deployed-hash.mjs', 'utf8');
+    expect(src).not.toContain('VERCEL_TOKEN');
+    expect(src).not.toContain('api.vercel.com');
+    expect(src).not.toContain('.vercel.app');
   });
 
-  it('falls back to gitSource.sha and the v6 created field', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        gitSource: { sha: 'b8d78ce1b0a1af9' },
-        url: 'portfolio-app-freebuff-old.vercel.app',
-        created: '2026-08-06T01:01:16.996Z',
-      }),
-    });
-    vi.stubGlobal('fetch', fetchMock);
-
-    const dep = await resolveByHost('portfolio-app-freebuff-old.vercel.app', 'deployment URL', TOKEN, TEAM);
-
-    expect(dep.sha).toBe('b8d78ce1b0a1af9');
-    expect(dep.created).toBe('2026-08-06T01:01:16.996Z');
-  });
-
-  it('throws on a non-OK response so the CLI can exit 1', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404 }));
-    await expect(resolveByHost('missing.vercel.app', 'compare URL', TOKEN, TEAM)).rejects.toThrow(/HTTP 404/);
-  });
-
-  it('falls back to a bare (unscoped) lookup when the team-scoped lookup 403s', async () => {
-    // First call (teamId hint) → 403 forbidden; second call (bare) → deployment.
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({ ok: false, status: 403 })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          meta: { githubCommitSha: 'ea3e4b11f2d49c17' },
-          url: 'portfolio-app-freebuff-6koxcb97q-laredj-chehrouris-projects.vercel.app',
-          createdAt: '2026-08-06T01:46:00.000Z',
-        }),
-      });
-    vi.stubGlobal('fetch', fetchMock);
-
-    const dep = await resolveByHost('portfolio-app-freebuff-6koxcb97q-laredj-chehrouris-projects.vercel.app', 'deployment URL', TOKEN, TEAM);
-
-    expect(dep.sha).toBe('ea3e4b11f2d49c17');
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    // The fallback URL carries no teamId — the bare lookup wins.
-    const [fallbackUrl] = fetchMock.mock.calls[1];
-    expect(String(fallbackUrl)).not.toContain('teamId');
-  });
-
-  it('still resolves via the bare lookup when no team id is known', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        meta: { githubCommitSha: 'b8d78ce1b0a1af9' },
-        url: 'portfolio-app-freebuff.vercel.app',
-        createdAt: '2026-08-06T01:01:16.996Z',
-      }),
-    });
-    vi.stubGlobal('fetch', fetchMock);
-
-    const dep = await resolveByHost('portfolio-app-freebuff.vercel.app', 'deployment URL', TOKEN, undefined);
-
-    expect(dep.sha).toBe('b8d78ce1b0a1af9');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url] = fetchMock.mock.calls[0];
-    expect(String(url)).not.toContain('teamId');
-  });
-
-  it('throws when BOTH the team-scoped and bare lookups are rejected', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 403 }));
-    await expect(resolveByHost('denied.vercel.app', 'deployment URL', TOKEN, TEAM)).rejects.toThrow(/HTTP 403/);
-  });
-
-  it('throws InvalidTokenError when the 403 body carries invalidToken:true', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 403,
-      json: async () => ({ error: { code: 'forbidden', message: 'Not authorized.', invalidToken: true } }),
-    });
-    vi.stubGlobal('fetch', fetchMock);
-
-    await expect(resolveByHost('dead.vercel.app', 'deployment URL', TOKEN, TEAM)).rejects.toThrow(InvalidTokenError);
-    await expect(resolveByHost('dead.vercel.app', 'deployment URL', TOKEN, TEAM)).rejects.toThrow(
-      INVALID_TOKEN_MESSAGE,
-    );
-    await expect(resolveByHost('dead.vercel.app', 'deployment URL', TOKEN, TEAM)).rejects.toThrow(/paste a fresh token/);
-  });
-
-  it('throws InvalidTokenError for the 401 error shape even with no team scope', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 401,
-      json: async () => ({ error: { code: 'unauthorized', message: 'Not authenticated.', invalidToken: true } }),
-    });
-    vi.stubGlobal('fetch', fetchMock);
-
-    await expect(resolveByHost('dead.vercel.app', 'deployment URL', TOKEN, undefined)).rejects.toThrow(
-      INVALID_TOKEN_MESSAGE,
-    );
-    // The bare (single-attempt) path must not call fetch twice for a 401.
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('falls back to the bare lookup when the team-scoped 403 carries no invalidToken', async () => {
-    // First call (teamId hint) → 403 without invalidToken; second (bare) → OK.
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({ ok: false, status: 403, json: async () => ({ error: { code: 'forbidden' } }) })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          meta: { githubCommitSha: 'ea3e4b11f2d49c17' },
-          url: 'portfolio-app-freebuff-ok.vercel.app',
-          createdAt: '2026-08-06T01:46:00.000Z',
-        }),
-      });
-    vi.stubGlobal('fetch', fetchMock);
-
-    const dep = await resolveByHost('portfolio-app-freebuff-ok.vercel.app', 'deployment URL', TOKEN, TEAM);
-    expect(dep.sha).toBe('ea3e4b11f2d49c17');
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-  });
-});
-
-// ── plain-mode project filter (projectId, not name) ──────────────────────────
-// The v6 deployments LIST endpoint filters by PROJECT ID, not name — passing
-// `project=<name>` is silently ignored and the report returns the team's
-// latest deployment regardless of project (which could be the OTHER app's
-// commit). CI never uses this list branch (the post-deploy gates always pass
-// --url), so these locks protect the local report's trustworthiness.
-const SCRIPT_SRC = readFileSync('scripts/verify-deployed-hash.mjs', 'utf8');
-
-describe('plain-mode project filter', () => {
-  it('filters the v6 list query by projectId from the vercel link file, not the project name', () => {
-    expect(SCRIPT_SRC).toContain("projectId = JSON.parse(readFileSync(resolve(process.cwd(), '.vercel/project.json'), 'utf8'))?.projectId ?? null;");
-    expect(SCRIPT_SRC).toContain('projectId ? `projectId=${encodeURIComponent(projectId)}` : `project=${PROJECT}`');
-  });
-
-  it('keeps the name fallback only for pre-link repos, and documents why the id is required', () => {
-    expect(SCRIPT_SRC).toContain('SILENTLY IGNORED');
-    expect(SCRIPT_SRC).toContain('name fallback only applies before the repo is linked');
-    expect(SCRIPT_SRC).toContain('CI never uses');
-    expect(SCRIPT_SRC).toContain('this list branch');
+  it('still emits the gate-parsed commit line format', () => {
+    const src = readFileSync('scripts/verify-deployed-hash.mjs', 'utf8');
+    // The stale-guard gate parses `  commit  <40-hex>` from the child report.
+    expect(src).toContain("`  commit  ${deployedSha || '(unknown)'}`");
   });
 });

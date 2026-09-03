@@ -11,8 +11,8 @@ next launch (or a new maintainer) doesn't re-derive any of it.
 > checklist is the operational go-live companion to that overview.
 
 > This is the checklist companion to the README's *Production environment on
-> Vercel* section. When the two disagree, the README's deeper setup prose wins;
-> this doc is the short version.
+> Firebase App Hosting* section. When the two disagree, the README's deeper
+> setup prose wins; this doc is the short version.
 
 ---
 
@@ -21,11 +21,15 @@ next launch (or a new maintainer) doesn't re-derive any of it.
 | What | Value | Notes |
 | --- | --- | --- |
 | **Firebase project** | `portfolio-app-freebuff2` | The **2 matters**. The old CLI-created project `portfolio-app-freebuff` is deleted; `meal-planner-lcherouri` belongs to the meal-planner app and must not be reused. A CI guard greps for a bare `portfolio-app-freebuff` used as a Firebase project id and fails the run. |
-| **Vercel project / GitHub repo** | `portfolio-app-freebuff` (no 2) | The deployment surface — deliberately *not* `-freebuff2`. |
-| **Production URL** | `https://portfolio-app-freebuff.vercel.app` | Live. Vercel auto-deploys on push to `main`. The exact deployed commit is reported by `node scripts/verify-deployed-hash.mjs` (reads `VERCEL_TOKEN` from env → `.env.local` → the Vercel CLI auth store; `--expect <sha>` asserts it for CI / pre-push, `--check-local` compares against local HEAD). |
-| **Auth domains** | the `portfolio-app-freebuff2.firebaseapp.com` / `.web.app` defaults + `portfolio-app-freebuff.vercel.app` + the exact preview URLs | Wildcards (`portfolio-app-freebuff-*.vercel.app`) are **rejected** by Firebase; each preview URL must be listed individually (`.freebuff/add-auth-domains.py` manages the list, `--prune` drops old preview URLs). |
+| **App Hosting backend / GitHub repo** | `portfolio-app-freebuff` backend in project `portfolio-app-freebuff2` | The deployment surface. |
+| **Production URL** | `https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app` | Live. `.github/workflows/deploy-portfolio-app.yml` deploys on push to `main` (via `scripts/deploy-portfolio-app.sh`). The exact deployed commit is reported by `node scripts/verify-deployed-hash.mjs` (newest SUCCEEDED rollout's `commit-sha` label, via the ambient gcloud credentials; `--expect <sha>` asserts it for pre-push / `ship:go`, `--check-local` compares against local HEAD). |
+| **Auth domains** | the `portfolio-app-freebuff2.firebaseapp.com` / `.web.app` defaults + `portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app` | Each host must be listed individually (`.freebuff/add-auth-domains.py` manages the list, `--prune` drops old URLs). |
 
-## 2. Vercel Production env vars (names only — values live in Vercel)
+## 2. Deployed build env vars (names only — values baked by the deploy script)
+
+`scripts/deploy-portfolio-app.sh` bakes these into `.env.production` before the
+App Hosting cloud build (values from the GitHub repo secrets in CI, from
+`.env.local` locally):
 
 ```bash
 # Firebase identity + data — the on/off switch for the live-data layer.
@@ -42,7 +46,7 @@ OPENROUTER_API_KEY
 OPENROUTER_MODEL            # optional; per-user Settings picker overrides
 
 # Automation cron (report generation)
-CRON_SECRET                 # Vercel Cron auth header; keep in sync with .env.local
+CRON_SECRET                 # cron auth header; keep in sync with .env.local
 REPORT_OWNER_ID             # real Firebase uid so cron reports reach your Activity feed
 REPORT_WEEKLY_DAY           # optional (1 = Mon)
 REPORT_MONTHLY_DAY          # optional (1 = 1st of month)
@@ -50,11 +54,11 @@ REPORT_STALE_DAYS           # optional (7)
 
 # Server-side data (cron reads the same Firestore the client writes)
 FIREBASE_SERVICE_ACCOUNT    # service-account JSON for portfolio-app-freebuff2
+FIREBASE_PROJECT_ID
+FIREBASE_SITES
 
-# Live integrations (both need the matching NEXT_PUBLIC_LIVE_* flag = 1)
+# Live integrations (need the matching NEXT_PUBLIC_LIVE_* flag = 1)
 GITHUB_TOKEN
-VERCEL_TOKEN
-VERCEL_TEAM_ID
 ```
 
 Deliberately **not** set in Production: `NEXT_PUBLIC_DEMO_OVERRIDE` — it was
@@ -76,24 +80,22 @@ Each exits nonzero on failure. Read secrets from env, then `.env.local`.
 | --- | --- | --- |
 | `npm run verify:disk-headroom` | — | Local Data-volume headroom: the machine's Data volume must stay under `DISK_LIMIT_PCT` (default 90) — a full disk is what caused the SQLite "disk I/O error" on button clicks and it silently breaks the Chrome/npm verifiers. Reads `df` (root-mount fallback on non-macOS), exits 1 over the limit, exits 0 on pass **and** when `df` is unavailable (skip-not-fail); `DISK_LIMIT_PCT` and the non-blocking warning tier `DISK_WARN_PCT` (default 85 — warns but still passes, so a creeping disk is surfaced before the hard limit) are env-overridable with a numeric guard. No secrets, no network, instant — runs **first** in `verify:all` and as pre-push gate 0.05. Deliberately local-only (a CI runner's disk is not the developer's) |
 | `node scripts/maintain-conv-db.mjs` | — | Conv DB WAL maintenance on the LOCAL machine's conversation DB (`.freebuff/desktop-v2.db`): when the `-wal` sidecar exceeds the 2 MiB threshold (default, `CONV_DB_MAINTAIN_THRESHOLD` overrides) it runs a TRUNCATE checkpoint with busy-retry; idles at/below the threshold and skips-not-fails when sqlite3 or the DB is absent. Emits `wal-idle` / `wal-truncated` / `wal-busy` / `wal-error` sub-rows (the `(local)` suffix — this is a local-machine probe, not a deployed-app gate). Deliberately local-only like disk-headroom — a CI runner's DB is not the developer's, so no ci.yml step runs it |
-| `npm run verify:token-health` | `VERCEL_TOKEN` | Stored `VERCEL_TOKEN` is alive: reads it (env → `.env.local` → CLI store), calls `GET /v2/user/tokens`, and reports the active token's name + expiry (or "no expiration"); a revoked token exits 2 with the paste-a-fresh-token guidance. Runs **first** in `verify:all` so a dead credential is caught in ~1s before any gate that depends on it |
-| `npm run verify:vercel-env` | `VERCEL_TOKEN` (+ Vercel CLI) | Vercel production env **matches** `.env.local`: pulls the decrypted values via `vercel env pull`, asserts every local key exists in Vercel prod with an identical value (report shows names + value lengths only, never the secrets), reports Vercel-only vars as informational, and classifies GitHub secrets — CI-only ones (e.g. `VERCEL_ORG_ID`) are expected, not drift, while a GitHub secret that `.env.local` has but Vercel prod lacks fails the gate. Vercel's system-injected build vars (`VERCEL_OIDC_TOKEN`, `VERCEL_URL`, the `VERCEL_GIT_*` metadata) rotate every build/deploy and are exempted from comparison (reported as informational, lengths only), so an untrimmed `vercel env pull` file passes; real project vars sharing the prefix (`VERCEL_TOKEN`, `VERCEL_TEAM_ID`) stay value-compared. Exits 1 on drift, 2 on an invalid token. Requires `VERCEL_TOKEN` + the Vercel CLI; `gh` degrades to skip-not-fail |
 | `npm run verify:cron-reports` | `CRON_SECRET` | Deployed `/api/cron/reports` 401s without auth; daily + weekly + monthly report bodies carry the friendly `(DeepSeek Chat)` heading and raw-id `Model:` footer; weekly winner-recommendation section present; monthly body carries the velocity / backlog-drift sections (and the `📈 AI monthly briefing` when live facts produced one); **no report carries an `email` envelope** (the sweep shows as its own row in `verify:all`'s summary). Reports are composed in-app only — this proves the composed bodies still ship for the in-app Reports page |
 | `npm run verify:firestore-rules` | `VERIFY_FIREBASE_PROJECT_ID`, `VERIFY_FIREBASE_WEB_API_KEY` | Rules isolation probed in the **verification sandbox** (`portfolio-app-freebuff-verify2` — the second Spark project that absorbs probe/CI reads, so verification never touches the production read quota): portfolio write/read under the user's uid, cross-user denied. Ends with a `rules-parity` sub-check — the sandbox must run the SAME deployed rules as production (admin rules-API read, zero document reads; needs `FIREBASE_SERVICE_ACCOUNT`) — so the sandbox result transfers. Falls back to probing production when the sandbox vars are absent. **Sandbox-skip (loud, not a fail):** provisioning Auth in a new Firebase project is a console-only one-time click, so until the sandbox's Auth is enabled the signUp probe returns `CONFIGURATION_NOT_FOUND` and the gate reports a loud SKIP — exit 0, a `sandbox-auth` SKIP sub-row, and a SKIPPED parent row in `verify:all` (never a silent green) — unblocking pushes while the click is pending; the same error in production fallback mode is a real anomaly and still hard-fails. Keep both projects' rules in sync from the repo file with `npm run deploy:rules` |
 | `npm run verify:auth-domains` | `FIREBASE_WEB_API_KEY` | `/api/status?project=<domain>` reports `authDomains.ok` for the shipping domain |
 | `node scripts/verify-prod-signin.mjs` | `FIREBASE_WEB_API_KEY`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` (+ Chrome) | AuthGate renders, email/password + Google buttons present, both IdPs enabled (admin API), sign-in releases into the Command Center, Firestore write/read sync proven; `[3b]` asserts the classic OAuth client |
 | `node scripts/verify-google-idp.mjs` | `FIREBASE_WEB_API_KEY`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` | `createAuthUri` resolves `google.com` with a classic web client id; admin API confirms the IdP record is enabled |
 | `npm run verify:review-sheet` | `FIREBASE_WEB_API_KEY`, `FIREBASE_SERVICE_ACCOUNT`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID` (+ Chrome) | Drives the deployed Model Comparison page end to end: seeds a live fixture under a throwaway user, generates two AI winner recommendations, opens the Print-all review sheet in the preview window, and asserts BOTH numbered entries render with the friendly model label (DeepSeek Chat). Same credential family as prod-signin plus the service account for seeding. Emits sub-rows in `verify:all`'s summary (preview / entries / model label); run-to-run AI note drift is accepted (structure-only assertions) — the committed PNG pair is byte-stable via deterministic capture (gate 0.6d, see the sub-rows note below) |
-| `npm run verify:deployments` | `FIREBASE_WEB_API_KEY` | Deployed `/api/deployments` feed end to end with a throwaway Identity Toolkit user (minted from the web API key, deleted after): unauthenticated calls get 401; an authenticated call returns 200 + `ok:true`; at least one Firebase Hosting row (from the `firebasehosting.googleapis.com` feed via the SA-minted token) and one Vercel row (name→id resolution) are present with HEALTHY health checks. Guards the wrong-host 404 and the name-ignored-filter regressions the feed hit before. Emits `auth-gate` / `firebase-row` / `vercel-row` sub-rows in `verify:all`'s summary |
-| `npm run verify:deployed-pdf` | `FIREBASE_WEB_API_KEY`, `FIREBASE_SERVICE_ACCOUNT`, `REPORT_OWNER_ID` | Deployed `/api/print/pdf` renders a REAL PDF as the real owner (SA-minted custom token → owner idToken): 200 + `application/pdf` + `%PDF-` body + attachment filename; unauthenticated POSTs get 401. Rendered server-side by the bundled serverless Chromium on Vercel — no local Chrome needed on the runtime |
+| `npm run verify:deployments` | `FIREBASE_WEB_API_KEY` | Deployed `/api/deployments` feed end to end with a throwaway Identity Toolkit user (minted from the web API key, deleted after): unauthenticated calls get 401; an authenticated call returns 200 + `ok:true`; at least one Firebase Hosting row (from the `firebasehosting.googleapis.com` feed via the SA-minted token) and one Firebase App Hosting row (newest SUCCEEDED rollout at the hosted.app URL, via the SA-minted token) are present with HEALTHY health checks. Guards the wrong-host 404 and the name-ignored-filter regressions the feed hit before. Emits `auth-gate` / `firebase-row` / `apphosting-row` sub-rows in `verify:all`'s summary |
+| `npm run verify:deployed-pdf` | `FIREBASE_WEB_API_KEY`, `FIREBASE_SERVICE_ACCOUNT`, `REPORT_OWNER_ID` | Deployed `/api/print/pdf` renders a REAL PDF as the real owner (SA-minted custom token → owner idToken): 200 + `application/pdf` + `%PDF-` body + attachment filename; unauthenticated POSTs get 401. Rendered server-side by the bundled serverless Chromium on Firebase App Hosting — no local Chrome needed on the runtime |
 | `npm run verify:reports-pdf-flow` | `FIREBASE_WEB_API_KEY`, `FIREBASE_SERVICE_ACCOUNT`, `REPORT_OWNER_ID` (+ Chrome) | Drives the DEPLOYED Reports page in headless Chrome as the real owner and CLICKS the actual "Download PDF" button on a saved report row, capturing the browser download via CDP — proving the full UI path (button → auth facade → route → blob → file), not just the API. Asserts a real `%PDF-` file lands with the slug filename and no error toast surfaces. Emits `reports-pdf-session` / `reports-pdf-page` / `reports-pdf-click` / `reports-pdf-download` sub-rows in `verify:all`'s summary |
 | `node scripts/verify-auth-domains.mjs` | `FIREBASE_WEB_API_KEY` | same as `verify:auth-domains` with throwaway-user token |
-| `npm run verify:deployed-hash -- --expect <sha>` | `VERCEL_TOKEN` | Production is actually serving the expected commit — the exact gate the `deployed-hash` CI workflow and pre-push hook run. Pass the commit you expect to be live (`git rev-parse origin/main` for the last pushed commit; `--check-local` compares against local HEAD instead) |
+| `npm run verify:deployed-hash -- --expect <sha>` | — (gcloud ADC) | Production (Firebase App Hosting) is actually serving the expected commit — the exact gate the pre-push hook and `ship:go` run. Resolves the newest SUCCEEDED rollout's `commit-sha` label via the ambient gcloud credentials. Pass the commit you expect to be live (`git rev-parse origin/main` for the last pushed commit; `--check-local` compares against local HEAD instead) |
 | `npm run verify:import-surface` | — | Static import-surface lint over `scripts/` + `lib/` + `app/` (TS-compiler-AST scan): no re-exported imports and no unused imports. No secrets, no network — also wired into `npm run lint`, the pre-push hook (gate 0.6), and CI's lint step |
 | `npm run verify:dead-words` | — | Repo-wide sweep for dead-feature phrasing in code comments and docs: the removed report-email wording plus the removed integrations (the old data store, the delivery sender) can never silently return. The env-identifier phrases are **derived from `REMOVED_ENV_VARS` in `lib/integrationVarLinks.ts`** — the same source of truth the Integrations lock test loops over — so the banned list and the lock can never drift: add a removed identifier to the array and both extend automatically. Fails loudly if the array is missing or empty. Skips `docs/reviews/` (historical records), the linter's own files (which must quote the phrases), the source-of-truth array lines, and the removed-var lock lines in `lib/integrationVarLinks.test.ts` (which must quote the dead names to prove they resolve to null). No secrets, no network — also wired into `npm run lint`, the pre-push hook (gate 0.6b), and CI's lint step |
 | `npm run verify:read-limits` | — | Static guard that the Firestore read-budget fix stays in place: `lib/firestore.ts` must still read the activity feed newest-first with `limit(200)` (matching the store's 200-entry cap) and the reports feed with `limit(60)` — the bounds that keep a full pre-push suite + CI verify-deployed day under the Spark 50k-read daily budget (the owner's activity collection alone held ~1.1k docs, so an unbounded read charged ~5× the rows the UI can show). A future edit that unbounds either feed (drops the `orderBy('__name__','desc')` or the limit, or routes the collection through the unbounded `listAll` helper) fails the run. No secrets, no network — also wired into `npm run lint` and CI's lint step |
 
-Run **all eighteen in one command** with `npm run verify:all` — it preflights the
+Run **all sixteen in one command** with `npm run verify:all` — it preflights the
 drift guard above, runs every gate sequentially against the production URL
 (or `--app <url>` to target a preview/local server), dedupes the two
 auth-domains rows (they share one script), and prints a summary table,
@@ -127,16 +129,17 @@ commit/push/wait plan without touching anything. `--branch <name>` pushes a
 non-main branch; the wait poll still targets the canonical production URL,
 which only tracks main — a non-main push has no production deployment to
 prove, so the poll times out (exit 1) rather than claiming success. Exit
-codes: 0 ready · 1 a step failed (push or deploy timeout) · 2
-`VERCEL_TOKEN` invalid/revoked · 3 git unusable — and the final
-`ship:ready` step passes its own exit code through unchanged.
+codes: 0 ready · 1 a step failed (push or deploy timeout) · 2 (reserved — the
+deployed-hash driver no longer exits 2; it authenticates via gcloud ADC) · 3
+git unusable — and the final `ship:ready` step passes its own exit code
+through unchanged.
 
 When each gate runs (same picture as the README handoff section):
 
 ```text
    ┌───────────────────────────────────────────────────────────────┐
    │  LOCAL — every git push (.githooks/pre-push)                  │
-   │  runs the 18 verify:all gates + drift guards (timeboxed); a  │
+   │  runs the 16 verify:all gates + drift guards (timeboxed); a  │
    │  hook gates 0.6/0.6b/0.6c/0.6d (lints + render byte gates);   │
    │  dirty tree or any failure ABORTS the push                    │
    └──────────────────────────────┬────────────────────────────────┘
@@ -144,7 +147,7 @@ When each gate runs (same picture as the README handoff section):
                                   ▼
    ┌───────────────────────────────────────────────────────────────┐
    │  npm run ship:go — the one-command path                       │
-   │  commit → push → wait for the Vercel deploy → re-run          │
+   │  commit → push → wait for the Firebase deploy → re-run        │
    │  ship:ready against the LIVE build                            │
    └──────────────────────────────┬────────────────────────────────┘
                                   │  the push fires, in parallel
@@ -204,22 +207,18 @@ on a machine without the service account (or without `--expect`): it means the
 sub-check was skipped, not that it failed — and never that it passed.
 
 CI runs the cron-reports + firestore-rules + auth-domains gates after every push
-(`ci.yml`), a sign-in gate, and `preview-gate.yml` validates every Vercel
-preview URL via `deployment_status`. A separate `verify-deployed-hash.yml`
-workflow (also `deployment_status`-triggered) closes the GitHub↔Vercel drift
-gap in CI: it resolves the freshly deployed `target_url` via the Vercel API
-(`verify-deployed-hash.mjs --url <target_url> --expect <deployment.sha>`) and
-fails if the commit Vercel is serving doesn't match the pushed head — gated on
-`VERCEL_TOKEN`. For **production** deployments it also runs the alias-routing
-drift watch (`--compare-url https://portfolio-app-freebuff.vercel.app`): the
-canonical alias must serve the same commit as the deployment-specific
-`target_url`; previews skip it because their URL legitimately differs. The local `.githooks/pre-push` hook runs
-the same verifiers (timeboxed 90s each) before any push, and now also runs the
-deployed-hash gate first: it resolves the CANONICAL production URL via the v13
-by-host lookup (`verify-deployed-hash.mjs --url
-https://portfolio-app-freebuff.vercel.app --expect <origin/main tip>`) and
-asserts it serves the last pushed commit, so a deploy that silently failed is
-caught before the next push piles on top. Targeting the canonical URL directly
+(`ci.yml`) plus a sign-in gate. The Vercel `deployment_status` gates
+(`preview-gate.yml`, `verify-deployed-hash.yml`) were removed with the hosting
+migration — the app deploys via the `Deploy portfolio app` workflow (Firebase
+App Hosting), and the deployed commit is proven by the labeled rollout plus
+the local gates. The local `.githooks/pre-push` hook runs the same verifiers
+(timeboxed 90s each) before any push, and now also runs the deployed-hash gate
+first: it resolves the live commit from the newest SUCCEEDED App Hosting
+rollout (`verify-deployed-hash.mjs --url
+https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app
+--expect <origin/main tip>`) and asserts it serves the last pushed commit, so
+a deploy that silently failed is caught before the next push piles on top.
+Targeting the canonical URL directly
 subsumes the old alias-routing drift watch locally (if the alias pointed at an
 older/newer build, `--expect` fails right there) and — critically — needs NO
 team-scope resolution, so a team-scoped token or a missing `defaultTeamId` can

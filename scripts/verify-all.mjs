@@ -21,10 +21,10 @@
 //   - Reports the onboarding-doc pipeline-diagram presence as its own static
 //     summary row: an inline run of the SAME pure check the drift guard runs
 //     as [3e/4] (no child process, no secrets, no network — it reads
-//     README.md + docs/launch.md from the tree), surfaced beside the 18 gates
+//     README.md + docs/launch.md from the tree), surfaced beside the 16 gates
 //     so the one-command checklist shows the picture's presence at a glance.
 //     It is deliberately NOT a GATES/GATE_NAMES entry — adding it there would
-//     break the 18-gate §4 contract the drift guard enforces.
+//     break the 16-gate §4 contract the drift guard enforces.
 //   - Dedupes the §4 table's double auth-domains entry: the table lists both
 //     `npm run verify:auth-domains` and `node scripts/verify-auth-domains.mjs`,
 //     which resolve to the SAME file — only the canonical npm script runs, and
@@ -56,11 +56,11 @@ const EXPECT_SHA = flag('--expect', '');
 // The canonical production URL the deployed-hash gate's drift watch compares
 // against (the alias must serve the same commit as the deployment-specific
 // URL). Matches scripts/verify-deployed-hash.mjs's PRODUCTION_URL.
-const PRODUCTION_URL = 'https://portfolio-app-freebuff.vercel.app';
+const PRODUCTION_URL = 'https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app';
 const ONLY = onlyArg ? onlyArg.split(',').map((s) => s.trim()).filter(Boolean) : [];
 const SKIP = skipArg ? skipArg.split(',').map((s) => s.trim()).filter(Boolean) : [];
 
-const GATE_NAMES = ['disk-headroom', 'conv-db', 'token-health', 'vercel-env', 'cron-reports', 'firestore-rules', 'auth-domains', 'prod-signin', 'google-idp', 'review-sheet', 'deployments', 'deployed-pdf', 'reports-pdf-flow', 'auth-domains-direct', 'deployed-hash', 'import-surface', 'dead-words', 'read-limits'];
+const GATE_NAMES = ['disk-headroom', 'conv-db', 'cron-reports', 'firestore-rules', 'auth-domains', 'prod-signin', 'google-idp', 'review-sheet', 'deployments', 'deployed-pdf', 'reports-pdf-flow', 'auth-domains-direct', 'deployed-hash', 'import-surface', 'dead-words', 'read-limits'];
 const unknownOnly = ONLY.filter((n) => !GATE_NAMES.includes(n));
 const unknownSkip = SKIP.filter((n) => !GATE_NAMES.includes(n));
 if (unknownOnly.length > 0 || unknownSkip.length > 0) {
@@ -99,7 +99,7 @@ const requiresOf = (gate) => {
 };
 
 const GATES = [
-  // The disk-headroom gate runs FIRST (before even token-health): it checks
+  // The disk-headroom gate runs FIRST (before every other gate): it checks
   // the LOCAL machine's Data volume use% from df and fails when it exceeds
   // DISK_LIMIT_PCT (default 90) — the disk at 90% is what caused the Freebuff
   // app's SQLite "disk I/O error" on button clicks, and a full disk silently
@@ -118,28 +118,15 @@ const GATES = [
   // deployed-app gate. Like disk-headroom, it is deliberately LOCAL-only — a
   // CI runner's DB is not the developer's — so no ci.yml step runs it.
   { name: 'conv-db', label: 'Conv DB WAL maintenance (local)', file: 'scripts/maintain-conv-db.mjs', capture: true, subSuffix: '(local)' },
-  // The token-health gate proves the VERCEL_TOKEN is alive
-  // before any gate that depends on a deployment or CI credential runs — a
-  // revoked token is caught in ~1s instead of surfacing as a confusing 403
-  // inside a later gate. Same rc=2 contract as the deployed-hash gate.
-  { name: 'token-health', label: 'Vercel token health', script: 'verify:token-health', secrets: ['VERCEL_TOKEN'], capture: true },
-  // The vercel-env gate proves Vercel production env MATCHES .env.local
-  // (names + values, lengths only in the report) and classifies GitHub
-  // CI-only secrets as expected rather than drift. Runs right after token-
-  // health: both depend on VERCEL_TOKEN, and a dead credential is caught
-  // first. Requires the Vercel CLI (falls back to npx) + gh for the GitHub
-  // classification (which degrades to skip-not-fail when gh is absent).
-  { name: 'vercel-env', label: 'Vercel prod env matches .env.local', script: 'verify:vercel-env', secrets: ['VERCEL_TOKEN'], note: 'vercel CLI' },
   // capture: the gate emits VERIFY-SUBRESULT markers for its internal
   // sub-checks — the auth/secret/body/envelope steps in verify-cron-reports,
   // the write/read + cross-user checks in verify-firestore-rules, the
   // authgate/provider-ui/IdP/release/sync steps in verify-prod-signin, the
   // SDK surface + admin config in verify-google-idp, the token-active +
-  // expiry-verdict rows in verify-token-health, and the expect/alias-drift
-  // rows in verify-deployed-hash. The runner parses them off the piped
-  // stdout and renders each as its own indented row in the summary table, so
-  // a sub-contract is visible at a glance instead of being buried in the
-  // gate's full output.
+  // and the expect/alias-drift rows in verify-deployed-hash. The runner
+  // parses them off the piped stdout and renders each as its own indented
+  // row in the summary table, so a sub-contract is visible at a glance
+  // instead of being buried in the gate's full output.
   { name: 'cron-reports', label: 'Cron report bodies', script: 'verify:cron-reports', baseFlag: '--base', secrets: ['CRON_SECRET'], capture: true },
   { name: 'firestore-rules', label: 'Firestore rules isolation', script: 'verify:firestore-rules', secrets: ['VERIFY_FIREBASE_PROJECT_ID', 'VERIFY_FIREBASE_WEB_API_KEY'], capture: true },
   { name: 'auth-domains', label: 'Authorized domains', script: 'verify:auth-domains', appFlag: '--app', secrets: ['FIREBASE_WEB_API_KEY'] },
@@ -155,11 +142,11 @@ const GATES = [
   // The deployments gate proves the DEPLOYED /api/deployments feed end to
   // end with a throwaway Identity Toolkit user (minted from the web API key,
   // deleted after): unauthenticated calls get 401, and at least one Firebase
-  // Hosting row AND one Vercel row are present with HEALTHY health checks.
-  // It guards the firebasehosting.googleapis.com host fix + SA-minted token
-  // and the name→id Vercel resolution — a silent regression in either half of
-  // the feed fails CI. Same credential family as prod-signin (web API key).
-  { name: 'deployments', label: 'Deployments feed (Vercel + Firebase)', script: 'verify:deployments', appFlag: '--app', secrets: ['FIREBASE_WEB_API_KEY'], capture: true },
+  // Hosting row AND one Firebase App Hosting row are present with HEALTHY
+  // health checks — the app now serves from App Hosting, so the feed must
+  // surface its rollouts. Same credential family as prod-signin (web API
+  // key).
+  { name: 'deployments', label: 'Deployments feed (Firebase Hosting + App Hosting)', script: 'verify:deployments', appFlag: '--app', secrets: ['FIREBASE_WEB_API_KEY'], capture: true },
   // The deployed-pdf gate proves the DEPLOYED /api/print/pdf renders a real
   // PDF AS THE REAL OWNER: a service-account-minted custom token for
   // REPORT_OWNER_ID is exchanged for an idToken, and the authenticated POST
@@ -178,7 +165,7 @@ const GATES = [
   // installs it) + the same owner-session trio as deployed-pdf.
   { name: 'reports-pdf-flow', label: 'Reports Download PDF (full UI click-through)', script: 'verify:reports-pdf-flow', appFlag: '--app', secrets: ['FIREBASE_WEB_API_KEY', 'FIREBASE_SERVICE_ACCOUNT', 'REPORT_OWNER_ID'], capture: true },
   { name: 'auth-domains-direct', label: 'Authorized domains (direct script)', file: 'scripts/verify-auth-domains.mjs', appFlag: '--app', duplicateOf: 'auth-domains', secrets: ['FIREBASE_WEB_API_KEY'] },
-  { name: 'deployed-hash', label: 'Deployed commit matches expected', script: 'verify:deployed-hash', expectFlag: '--expect', url: PRODUCTION_URL, secrets: ['VERCEL_TOKEN'], capture: true },
+  { name: 'deployed-hash', label: 'Deployed commit matches expected', script: 'verify:deployed-hash', expectFlag: '--expect', url: PRODUCTION_URL, capture: true },
   // Pure static lint over scripts/ + lib/ + app/: re-exported or unused
   // imports fail the run. No secrets, no network, near-instant — it always
   // runs (the REQUIRES column shows —). Also wired into the pre-push hook
@@ -202,7 +189,7 @@ const GATES = [
   { name: 'read-limits', label: 'Firestore bounded-read limits (static)', script: 'verify:read-limits' },
 ];
 
-// ── Self-check: the 18-gate contract must hold before anything runs ─────────
+// ── Self-check: the 16-gate contract must hold before anything runs ─────────
 // The launch-checklist contract promises EXACTLY eighteen gates — the same
 // EXPECTED_GATE_COUNT verify-launch-checklist.mjs hardcodes. If a future gate
 // is added to GATE_NAMES (or a GATES entry to the table) without the full
@@ -213,7 +200,7 @@ const GATES = [
 // off a contract that no longer holds. The preflight drift guard would also
 // catch the mismatch, but only after spawning a child process; this is
 // instant and names the exact source of truth.
-const EXPECTED_GATE_COUNT = 18;
+const EXPECTED_GATE_COUNT = 16;
 if (GATE_NAMES.length !== EXPECTED_GATE_COUNT || GATES.length !== GATE_NAMES.length) {
   console.error(`✗ FAIL: gate contract — GATE_NAMES has ${GATE_NAMES.length}, GATES has ${GATES.length}, but the launch-checklist contract promises ${EXPECTED_GATE_COUNT}.`);    console.error('  A gate was added without the full contract update:');
     console.error('    - scripts/verify-launch-checklist.mjs  EXPECTED_GATE_COUNT');
@@ -373,7 +360,7 @@ if (preflightCode !== 0) {
 // The drift guard's [3e/4] step already fails the preflight when either
 // onboarding doc loses the "When each gate runs:" picture. This inline run of
 // the SAME pure check — no child process, no secrets, no network — surfaces
-// the picture's presence as its own summary row beside the 18 gates, so the
+// the picture's presence as its own summary row beside the 16 gates, so the
 // one-command checklist reports it at a glance instead of only in the
 // preflight's scrollback. Failures flow through the shared failures array, so
 // a missing picture fails the whole run even if [3e/4] were ever weakened.
