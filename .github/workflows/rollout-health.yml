@@ -20,7 +20,13 @@ name: Rollout health watch
 on:
   schedule:
     - cron: '*/30 * * * *'
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      test_webhook:
+        description: 'Force an unhealthy result to prove webhook delivery end to end (does not touch the deploy-failure issue)'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -56,8 +62,21 @@ jobs:
         id: classify
         env:
           GH_TOKEN: ${{ github.token }}
+          TEST_MODE: ${{ inputs.test_webhook == true }}
         run: |
           set -euo pipefail
+          if [ "$TEST_MODE" = "true" ]; then
+            # Forced-unhealthy test mode: exercise the alert path without
+            # consulting Firebase or touching the deploy-failure issue.
+            {
+              echo "test_mode=true"
+              echo "outcome=failed"
+              echo "detail<<EOF"
+              echo "FORCED TEST ALERT — webhook delivery test, no action needed"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           OUT="$(bash scripts/check-rollout-health.sh)"
           printf '%s\n' "$OUT"
           OUTCOME="$(printf '%s\n' "$OUT" | sed -n 's/^outcome=//p')"
@@ -70,7 +89,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: File or update the deploy-failure issue
-        if: steps.classify.outputs.outcome != 'healthy'
+        if: steps.classify.outputs.outcome != 'healthy' && steps.classify.outputs.test_mode != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           OUTCOME: ${{ steps.classify.outputs.outcome }}
@@ -92,17 +111,27 @@ jobs:
           fi
 
       - name: Send webhook alert (optional, Slack/Discord compatible)
-        if: steps.classify.outputs.outcome != 'healthy' && env.ALERT_WEBHOOK_URL != ''
+        if: steps.classify.outputs.outcome != 'healthy'
         env:
           OUTCOME: ${{ steps.classify.outputs.outcome }}
           DETAIL: ${{ steps.classify.outputs.detail }}
+          TEST_MODE: ${{ steps.classify.outputs.test_mode == 'true' }}
         run: |
           set -euo pipefail
+          if [ -z "${ALERT_WEBHOOK_URL:-}" ]; then
+            if [ "$TEST_MODE" = "true" ]; then
+              echo "::error::Webhook test FAILED — ALERT_WEBHOOK_URL is not set in this repo's Actions secrets. Set it with: gh secret set ALERT_WEBHOOK_URL --repo $GITHUB_REPOSITORY"
+              exit 1
+            fi
+            echo "ALERT_WEBHOOK_URL is not set — skipping webhook delivery (the issue filing still covers this failure)."
+            exit 0
+          fi
           TEXT="🚨 Portfolio rollout unhealthy: $OUTCOME — $DETAIL
           $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           # Slack reads "text", Discord reads "content"; each ignores the other.
           jq -n --arg text "$TEXT" '{text: $text, content: $text}' \
             | curl -sfS -X POST -H 'Content-Type: application/json' -d @- "$ALERT_WEBHOOK_URL"
+          echo "webhook_delivery=success"
 
       - name: Close the deploy-failure issue on recovery
         if: steps.classify.outputs.outcome == 'healthy'
