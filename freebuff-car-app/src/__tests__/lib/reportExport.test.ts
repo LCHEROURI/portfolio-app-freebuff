@@ -1,4 +1,4 @@
-import { buildReportMarkdown, buildReportPlainText, buildReportData, reportFileName } from '@/lib/reportExport';
+import { buildReportMarkdown, buildReportPlainText, reportFileName } from '@/lib/reportExport';
 import type { AdvisorState } from '@/hooks/useAdvisorState';
 
 const RICH: AdvisorState = {
@@ -26,6 +26,79 @@ describe('reportFileName extensions', () => {
   it('uses .txt when requested', () => {
     expect(reportFileName('2026-09-03T12:00:00Z', 'txt')).toBe('car-purchase-intelligence-report-2026-09-03.txt');
     expect(reportFileName('2026-09-03T12:00:00Z', 'md')).toBe('car-purchase-intelligence-report-2026-09-03.md');
+  });
+});
+
+describe('reportFileName vehicle names', () => {
+  it('appends slugs of the compared vehicles when names are saved', () => {
+    const advisor: AdvisorState = {
+      step: 2,
+      vehicles: {
+        needs: {},
+        comparing: ['camry', 'outback'],
+        names: { camry: 'Toyota Camry', outback: 'Subaru Outback' },
+      },
+    };
+    expect(reportFileName('2026-09-03T12:00:00Z', 'md', advisor)).toBe(
+      'car-purchase-intelligence-report-2026-09-03-toyota-camry-subaru-outback.md',
+    );
+  });
+
+  it('falls back to the raw id when no name is saved', () => {
+    const advisor: AdvisorState = {
+      step: 2,
+      vehicles: { needs: {}, comparing: ['mc-12345'] },
+    };
+    // Pure-numeric live-feed ids are skipped; alphanumeric ids pass through.
+    expect(reportFileName('2026-09-03T12:00:00Z', 'md', advisor)).toBe(
+      'car-purchase-intelligence-report-2026-09-03-mc-12345.md',
+    );
+  });
+
+  it('omits pure-numeric live-feed ids that carry no name', () => {
+    const advisor: AdvisorState = {
+      step: 2,
+      vehicles: { needs: {}, comparing: ['12345'] },
+    };
+    expect(reportFileName('2026-09-03T12:00:00Z', 'md', advisor)).toBe(
+      'car-purchase-intelligence-report-2026-09-03.md',
+    );
+  });
+
+  it('falls back to the dated filename with an empty comparison set', () => {
+    const advisor: AdvisorState = { step: 2, vehicles: { needs: {}, comparing: [] } };
+    expect(reportFileName('2026-09-03T12:00:00Z', 'md', advisor)).toBe(
+      'car-purchase-intelligence-report-2026-09-03.md',
+    );
+  });
+
+  it('tolerates a missing advisor payload entirely', () => {
+    expect(reportFileName('2026-09-03T12:00:00Z', 'md', null)).toBe(
+      'car-purchase-intelligence-report-2026-09-03.md',
+    );
+  });
+
+  it('sanitizes names with spaces and symbols into a filesafe slug', () => {
+    const advisor: AdvisorState = {
+      step: 2,
+      vehicles: { needs: {}, comparing: ['rav4'], names: { rav4: 'Toyota RAV4 XLE / Hybrid!!' } },
+    };
+    expect(reportFileName('2026-09-03T12:00:00Z', 'txt', advisor)).toBe(
+      'car-purchase-intelligence-report-2026-09-03-toyota-rav4-xle-hybrid.txt',
+    );
+  });
+
+  it('caps the slug list at the three-vehicle compare limit', () => {
+    const advisor: AdvisorState = {
+      step: 2,
+      vehicles: {
+        needs: {},
+        comparing: ['a', 'b', 'c', 'd'],
+        names: { a: 'Alpha', b: 'Bravo', c: 'Charlie', d: 'Delta' },
+      },
+    };
+    const name = reportFileName('2026-09-03T12:00:00Z', 'md', advisor);
+    expect(name).toBe('car-purchase-intelligence-report-2026-09-03-alpha-bravo-charlie.md');
   });
 });
 

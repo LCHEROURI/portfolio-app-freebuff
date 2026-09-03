@@ -59,9 +59,38 @@ interface ReportData {
   rules: string[];
 }
 
-export function reportFileName(savedAt: string | null | undefined, ext: 'md' | 'txt' = 'md'): string {
+function sanitizeSlug(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/** Filesafe slugs for the compared vehicles (max = the compare cap of 3). */
+function comparedVehicleSlugs(advisor: AdvisorState | null | undefined): string[] {
+  const vehicles = rec((advisor as { vehicles?: unknown } | null | undefined)?.vehicles);
+  const comparing = Array.isArray(vehicles?.comparing) ? (vehicles?.comparing as string[]) : [];
+  if (comparing.length === 0) return [];
+  const names = rec(vehicles?.names);
+  const slugs: string[] = [];
+  for (const id of comparing.slice(0, 3)) {
+    const label = typeof names?.[id] === 'string' && names[id].trim() !== '' ? names[id] : id;
+    const slug = sanitizeSlug(label);
+    // Skip ids that sanitize to pure numbers (live-feed ids carry no name).
+    if (slug.length > 0 && !/^\d+$/.test(slug)) slugs.push(slug.slice(0, 24));
+  }
+  return slugs;
+}
+
+export function reportFileName(
+  savedAt: string | null | undefined,
+  ext: 'md' | 'txt' = 'md',
+  advisor?: AdvisorState | null,
+): string {
   const day = (savedAt ?? new Date().toISOString()).slice(0, 10);
-  return `car-purchase-intelligence-report-${day}.${ext}`;
+  const base = `car-purchase-intelligence-report-${day}`;
+  const slugs = comparedVehicleSlugs(advisor);
+  return slugs.length > 0 ? `${base}-${slugs.join('-')}.${ext}` : `${base}.${ext}`;
 }
 
 /** Extract every section's content from the store — no format syntax here. */

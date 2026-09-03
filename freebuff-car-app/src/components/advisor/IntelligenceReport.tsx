@@ -187,7 +187,7 @@ export default function IntelligenceReport({ onComplete, advisor, onReset }: Pro
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = reportFileName(savedAt, ext);
+    anchor.download = reportFileName(savedAt, ext, advisor);
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
