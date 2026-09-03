@@ -154,7 +154,7 @@ describe('extractSection', () => {
     const readme = readFileSync('README.md', 'utf8');
     const section = extractSection(readme, '## Handoff', '## Screenshots');
     expect(section).toContain('## Handoff — read this first');
-    expect(section).toContain('### The 18 verification gates');
+    expect(section).toContain('### The 16 verification gates');
     expect(section).toContain('When each gate runs:');
     // Both docs-PNG embeds must stay inside the Handoff section (before the
     // Screenshots section) — a future edit dropping either embed fails here.
@@ -167,7 +167,7 @@ describe('extractSection', () => {
     const launch = readFileSync('docs/launch.md', 'utf8');
     const section = extractSection(launch, '## 4. The verification gates', '## 5.');
     expect(section).toContain('## 4. The verification gates');
-    expect(section).toContain('npm run verify:token-health');
+    expect(section).toContain('npm run verify:deployed-hash');
     expect(section).toContain('When each gate runs');
     expect(section).not.toContain('## 5. Go-live checklist');
   });

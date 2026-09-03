@@ -35,13 +35,13 @@
 //
 // Every proof copies the CURRENT gate driver (and the base driver it
 // composes) into the worktree, so the proofs are independent of the worktree
-// commit's age — no minimum-commit requirement to track. The gate needs
-// VERCEL_TOKEN (from the environment, the repo's .env.local, or the Vercel
-// CLI auth store — the script copies .env.local into the worktree when
-// present so a token stored there resolves exactly like a real push).
+// commit's age — no minimum-commit requirement to track. The gate resolves
+// the live commit via the ambient gcloud credentials (the same ADC the real
+// push uses).
 //
-// Read-only against git and Vercel — only temporary worktrees are created
-// and removed; nothing is pushed or deployed by the proof itself.
+// Read-only against git and the Firebase App Hosting API — only temporary
+// worktrees are created and removed; nothing is pushed or deployed by the
+// proof itself.
 // ============================================================================
 
 import { spawnSync } from 'node:child_process';

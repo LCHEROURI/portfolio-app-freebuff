@@ -12,9 +12,9 @@
 //      correct host) returns a real release whose web.app URL health-checks
 //      clean. This is the contract that caught the wrong-host 404 and the
 //      name-ignored /v6 filter — a silent regression fails CI here.
-//   4. At least one Vercel deployment row is present AND HEALTHY — guards the
-//      name→id resolution that makes the Vercel half of the feed return real
-//      per-project rows.
+//   4. At least one Firebase App Hosting row is present AND HEALTHY — the
+//      portfolio app now serves from App Hosting, so the feed must surface
+//      its newest SUCCEEDED rollout at the hosted.app URL.
 //
 // Usage:
 //   node scripts/verify-deployments.mjs [--app https://...] [--api-key <key>]
@@ -23,7 +23,7 @@
 // NEXT_PUBLIC_FIREBASE_API_KEY, then .env.local (the same precedence the
 // other deployed gates use). Exits nonzero on any failed assertion so CI can
 // gate on it. Emits VERIFY-SUBRESULT markers for verify-all.mjs's summary
-// table (auth-gate / firebase-row / vercel-row).
+// table (auth-gate / firebase-row / apphosting-row).
 // ============================================================================
 
 import { readLocalEnv } from './local-env.mjs';
@@ -36,12 +36,12 @@ import { fileURLToPath } from 'node:url';
 export const classifyFeed = (rows) => {
   const all = rows ?? [];
   const firebase = all.filter((r) => r && r.provider === 'firebase');
-  const vercel = all.filter((r) => r && r.provider === 'vercel');
+  const apphosting = all.filter((r) => r && r.provider === 'apphosting');
   return {
     firebase,
     firebaseHealthy: firebase.filter((r) => r.healthStatus === 'HEALTHY'),
-    vercel,
-    vercelHealthy: vercel.filter((r) => r.healthStatus === 'HEALTHY'),
+    apphosting,
+    apphostingHealthy: apphosting.filter((r) => r.healthStatus === 'HEALTHY'),
   };
 };
 
@@ -55,7 +55,7 @@ if (isMain) {
     return i >= 0 && args[i + 1] ? args[i + 1] : fallback;
   };
 
-  const BASE = (flag('--app', process.env.VERIFY_BASE_URL) ?? 'https://portfolio-app-freebuff.vercel.app').replace(/\/$/, '');
+  const BASE = (flag('--app', process.env.VERIFY_BASE_URL) ?? 'https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app').replace(/\/$/, '');
   const API_KEY =
     flag('--api-key') ??
     process.env.FIREBASE_WEB_API_KEY ??
@@ -144,7 +144,7 @@ if (isMain) {
     ok('authenticated request accepted (200 + ok:true)');
   }
 
-  const { firebase, firebaseHealthy, vercel, vercelHealthy } = classifyFeed(authed.json?.deployments ?? []);
+  const { firebase, firebaseHealthy, apphosting, apphostingHealthy } = classifyFeed(authed.json?.deployments ?? []);
   if (firebase.length === 0) {
     fail('no firebase provider rows in the feed (the Hosting feed is off or empty)', 'firebase-row');
   } else {
@@ -156,21 +156,21 @@ if (isMain) {
     ok('at least one Firebase Hosting row is HEALTHY');
   }
 
-  if (vercel.length === 0) {
-    fail('no vercel provider rows in the feed (VERCEL_TOKEN off or the API query 404s)', 'vercel-row');
+  if (apphosting.length === 0) {
+    fail('no apphosting provider rows in the feed (the App Hosting feed is off or empty)', 'apphosting-row');
   } else {
-    ok(`vercel rows: ${vercel.length} (${vercelHealthy.length} HEALTHY)`);
+    ok(`apphosting rows: ${apphosting.length} (${apphostingHealthy.length} HEALTHY)`);
   }
-  if (vercelHealthy.length === 0) {
-    fail('no Vercel deployment row is HEALTHY', 'vercel-row');
+  if (apphostingHealthy.length === 0) {
+    fail('no App Hosting row is HEALTHY (the hosted.app URL must health-check clean)', 'apphosting-row');
   } else {
-    ok('at least one Vercel deployment row is HEALTHY');
+    ok('at least one App Hosting row is HEALTHY');
   }
 
   // 4. Sub-result markers for the verify:all summary table.
   console.log(`\nVERIFY-SUBRESULT|auth-gate|${(sectionFails['auth-gate'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
   console.log(`VERIFY-SUBRESULT|firebase-row|${(sectionFails['firebase-row'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
-  console.log(`VERIFY-SUBRESULT|vercel-row|${(sectionFails['vercel-row'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
+  console.log(`VERIFY-SUBRESULT|apphosting-row|${(sectionFails['apphosting-row'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
 
   console.error(`\nRESULT: ${failures === 0 ? 'PASS' : `FAIL (${failures})`}`);
   process.exit(failures === 0 ? 0 : 1);

@@ -1,0 +1,17 @@
+# Everything except what the Dockerfile needs. The deploy script bakes
+# .env.production into the context before the build, so it is NOT ignored.
+.git
+.gitignore
+.gcloudignore
+.freebuff
+.githooks
+.github
+.next
+node_modules
+screenshots
+docs/reviews
+freebuff-car-app
+.env*
+!.env.production
+*.log
+.DS_Store

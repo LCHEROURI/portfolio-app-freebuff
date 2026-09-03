@@ -24,6 +24,7 @@ export type HealthStatus = 'HEALTHY' | 'DEGRADED' | 'FAILED' | 'UNKNOWN' | 'NOT_
 export type TaskType = 'FEATURE' | 'BUG' | 'DEPLOYMENT' | 'EVALUATION' | 'REFACTOR' | 'OTHER';
 export type RepoProvider = 'github' | 'bitbucket' | 'gitlab' | 'other';
 export type DeploymentProvider =
+  | 'apphosting'
   | 'vercel'
   | 'firebase'
   | 'cloud_run'
@@ -49,7 +50,7 @@ export const TASK_TYPES: TaskType[] = [
   'FEATURE', 'BUG', 'DEPLOYMENT', 'EVALUATION', 'REFACTOR', 'OTHER',
 ];
 export const DEPLOYMENT_PROVIDERS: DeploymentProvider[] = [
-  'vercel', 'firebase', 'cloud_run', 'replit', 'netlify', 'railway', 'render',
+  'apphosting', 'vercel', 'firebase', 'cloud_run', 'replit', 'netlify', 'railway', 'render',
   'lovable', 'ai_studio', 'other',
 ];
 

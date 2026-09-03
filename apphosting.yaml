@@ -1,0 +1,8 @@
+# Firebase App Hosting configuration for the portfolio app (parent repo root).
+# Framework is auto-detected as Next.js; no custom runtime settings needed.
+# Public build config (NEXT_PUBLIC_FIREBASE_*) is baked into the source by
+# scripts/deploy-portfolio-app.sh before the cloud build, mirroring how
+# freebuff-car-app is deployed.
+runConfig:
+  minInstances: 0
+  maxInstances: 4

@@ -268,7 +268,7 @@ describe('crossCheckDeploymentStatusGates (fixture)', () => {
 const GATE_NAMES = ['deployed-hash', 'auth-domains'];
 
 const GATES = [
-  { name: 'deployed-hash', label: 'Deployed hash', script: 'verify:deployed-hash', secrets: ['VERCEL_TOKEN'] },
+  { name: 'deployed-hash', label: 'Deployed hash', script: 'verify:deployed-hash', secrets: ['FIREBASE_SERVICE_ACCOUNT'] },
   { name: 'auth-domains', label: 'Auth domains', script: 'verify:auth-domains', secrets: ['FIREBASE_WEB_API_KEY'] },
 ];
 `;
@@ -282,12 +282,11 @@ const GATES = [
 jobs:
   capture:
     env:
-      VERCEL_TOKEN: \${{ secrets.VERCEL_TOKEN }}
-      VERCEL_ORG_ID: \${{ secrets.VERCEL_ORG_ID }}
+      FIREBASE_SERVICE_ACCOUNT: \${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
     steps:
-      - name: Deploy preview
-        if: \${{ env.VERCEL_TOKEN != '' && env.VERCEL_ORG_ID != '' }}
-        run: npx --yes vercel deploy
+      - name: Verify deployed commit
+        if: \${{ env.FIREBASE_SERVICE_ACCOUNT != '' }}
+        run: node scripts/verify-deployed-hash.mjs --expect abc
 `;
   const FIXTURE_PREVIEW = `
 jobs:
@@ -306,7 +305,7 @@ jobs:
           fi
 `;
 
-  it('passes on a consistent gallery (declared token + exempt infra secrets)', () => {
+  it('passes on a consistent gallery (declared secret + exempt infra secrets)', () => {
     const failures = crossCheckDeploymentStatusGates({
       workflows: [{ name: 'gallery', gate: 'deployed-hash', src: FIXTURE_GALLERY }],
       verifyAllSrc: FIXTURE_SRC,
@@ -325,7 +324,7 @@ jobs:
   });
 
   it('flags a workflow that gates on a secret its mapped gate never declared', () => {
-    const broken = FIXTURE_GALLERY.replace("env.VERCEL_ORG_ID != ''", "env.VERCEL_ORG_ID != '' && env.CRON_SECRET != ''");
+    const broken = FIXTURE_GALLERY.replace("env.FIREBASE_SERVICE_ACCOUNT != ''", "env.FIREBASE_SERVICE_ACCOUNT != '' && env.CRON_SECRET != ''");
     const failures = crossCheckDeploymentStatusGates({
       workflows: [{ name: 'gallery', gate: 'deployed-hash', src: broken }],
       verifyAllSrc: FIXTURE_SRC,
@@ -336,15 +335,16 @@ jobs:
   });
 
   it('flags a workflow that never gates its mapped gate declared secret', () => {
-    // Drop VERCEL_TOKEN from the gating entirely — the deployed-hash gate
-    // declares it, so the workflow must gate on it somewhere.
-    const broken = FIXTURE_GALLERY.replace("env.VERCEL_TOKEN != '' && ", '');
+    // Drop FIREBASE_SERVICE_ACCOUNT from the gating entirely — the
+    // deployed-hash gate declares it, so the workflow must gate on it
+    // somewhere.
+    const broken = FIXTURE_GALLERY.replace("env.FIREBASE_SERVICE_ACCOUNT != ''", 'env.CRON_SECRET != ""');
     const failures = crossCheckDeploymentStatusGates({
       workflows: [{ name: 'gallery', gate: 'deployed-hash', src: broken }],
       verifyAllSrc: FIXTURE_SRC,
       npmScripts: SCRIPTS,
     });
-    expect(failures.join('\n')).toContain('never gates on VERCEL_TOKEN');
+    expect(failures.join('\n')).toContain('never gates on FIREBASE_SERVICE_ACCOUNT');
     expect(failures.join('\n')).toContain('deployed-hash');
   });
 
@@ -361,15 +361,16 @@ jobs:
   it('accepts a listed CI-enforcement wrapper (gate-stale teeth) via the mapped-gate secret fallback', () => {
     // verify-gate-stale-ci.mjs is a CI-ONLY enforcement wrapper — it exists
     // to machine-prove the teeth proofs on the runner and has no
-    // launch-checklist row. Its VERCEL_TOKEN gating resolves through the
-    // workflow's mapped gate (deployed-hash declares VERCEL_TOKEN), exactly
-    // like a step that runs no gate script.
+    // launch-checklist row. Its FIREBASE_SERVICE_ACCOUNT gating resolves
+    // through the workflow's mapped gate (deployed-hash declares
+    // FIREBASE_SERVICE_ACCOUNT), exactly like a step that runs no gate
+    // script.
     const FIXTURE_TEETH = `
 jobs:
   verify-deployed-hash:
     steps:
       - name: Verify gate-stale proof after deploy (teeth)
-        if: \${{ env.VERCEL_TOKEN != '' }}
+        if: \${{ env.FIREBASE_SERVICE_ACCOUNT != '' }}
         run: node scripts/verify-gate-stale-ci.mjs
 `;
     const failures = crossCheckDeploymentStatusGates({

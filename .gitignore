@@ -36,3 +36,8 @@ functions/node_modules
 # local scan artifacts (parent app only — the car app has its own src/data)
 data/
 !freebuff-car-app/src/data/
+
+# Freebuff session artifacts (agent scratch space, not project files)
+.agents/
+.claude/
+skills-lock.json
