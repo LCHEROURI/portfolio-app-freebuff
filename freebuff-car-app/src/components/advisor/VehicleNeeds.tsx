@@ -48,12 +48,20 @@ interface InventoryResponse {
   vehicles: Vehicle[];
   numFound?: number;
   demoReason?: string;
+  /** Echoed price ceiling when a budget filter was applied (marketcheck only). */
+  priceMax?: number;
 }
 
 type FetchState =
   | { phase: 'loading' }
   | { phase: 'error' }
-  | { phase: 'ready'; source: InventoryResponse['source']; vehicles: Vehicle[] };
+  | {
+      phase: 'ready';
+      source: InventoryResponse['source'];
+      vehicles: Vehicle[];
+      /** Present when the search was budget-capped; drives the empty state. */
+      priceMax?: number;
+    };
 
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat('en-US', {
@@ -106,6 +114,8 @@ export default function VehicleNeeds({ onContinue, intake, onSaveData }: Props =
   const query = (() => {
     const p = new URLSearchParams();
     if (intake?.monthlyBudget) p.set('budget', intake.monthlyBudget);
+    if (intake?.downPayment) p.set('down', intake.downPayment);
+    if (intake?.creditRange) p.set('credit', intake.creditRange);
     if (intake?.zip) p.set('zip', intake.zip);
     if (intake?.bodyStyle) p.set('bodyType', intake.bodyStyle);
     return p.toString();
@@ -128,7 +138,12 @@ export default function VehicleNeeds({ onContinue, intake, onSaveData }: Props =
       if (!res.ok) throw new Error(`inventory request failed: ${res.status}`);
       const body = (await res.json()) as InventoryResponse;
       if (!Array.isArray(body.vehicles)) throw new Error('inventory payload malformed');
-      setFetchState({ phase: 'ready', source: body.source, vehicles: body.vehicles });
+      setFetchState({
+        phase: 'ready',
+        source: body.source,
+        vehicles: body.vehicles,
+        priceMax: body.source === 'marketcheck' ? body.priceMax : undefined,
+      });
     } catch (err) {
       console.error('[VehicleNeeds] inventory load failed:', err);
       setFetchState({ phase: 'error' });
@@ -274,7 +289,30 @@ export default function VehicleNeeds({ onContinue, intake, onSaveData }: Props =
         </div>
       )}
 
-      {fetchState.phase === 'ready' && (
+      {/* Honest empty state: a valid budget cap can genuinely match nothing.
+          This is a real answer, not an error — so it never falls back to demo. */}
+      {fetchState.phase === 'ready' && fetchState.vehicles.length === 0 && (
+        <div
+          data-testid="empty-results"
+          className="rounded-xl border border-ink-200 bg-white p-8 text-center shadow-sm"
+        >
+          <h3 className="text-base font-semibold text-navy-900">No vehicles under your budget yet</h3>
+          <p className="mx-auto mt-2 max-w-md text-sm text-ink-600">
+            {fetchState.priceMax
+              ? <>Your {formatCurrency(fetchState.priceMax)} price ceiling comes from your Step 1 monthly budget. New vehicles rarely start below this — try a higher budget, a larger down payment, or consider used.</>
+              : 'The live feed returned no matching vehicles. Try adjusting your filters or search again.'}
+          </p>
+          <button
+            type="button"
+            onClick={() => setNonce((n) => n + 1)}
+            className="mt-4 rounded-lg bg-navy-900 px-4 py-2 text-xs font-semibold text-white hover:opacity-90"
+          >
+            Search again
+          </button>
+        </div>
+      )}
+
+      {fetchState.phase === 'ready' && fetchState.vehicles.length > 0 && (
         <div className="space-y-4">
           {fetchState.vehicles.map((vehicle) => {
             const meets = vehicleMeetsNeeds(vehicle, needs);
@@ -373,15 +411,6 @@ export default function VehicleNeeds({ onContinue, intake, onSaveData }: Props =
               </div>
             );
           })}
-
-          {fetchState.vehicles.length === 0 && (
-            <div className="rounded-xl border border-ink-200 bg-white p-6 text-center">
-              <p className="text-sm font-semibold text-navy-900">No vehicles matched your search.</p>
-              <p className="mt-1 text-sm text-ink-600">
-                Try going back and widening the budget or clearing the body-style filter.
-              </p>
-            </div>
-          )}
         </div>
       )}
 

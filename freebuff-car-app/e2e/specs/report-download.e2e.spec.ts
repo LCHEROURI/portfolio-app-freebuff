@@ -206,3 +206,39 @@ test.describe('Intelligence Report generate + download', () => {
     expect(stored.step).toBe(4);
   });
 });
+
+test('Step 1 budget funnels into the Step 2 inventory request', async ({ page }) => {
+  // Capture the browser's own inventory request.
+  let inventoryUrl: string | null = null;
+  page.on('request', (req) => {
+    if (req.url().includes('/api/inventory')) inventoryUrl = req.url();
+  });
+
+  // A Step 1 session with a budget, down payment, and credit tier.
+  await page.addInitScript(
+    ({ key, state }) => window.localStorage.setItem(key, JSON.stringify(state)),
+    {
+      key: STORAGE_KEY,
+      state: {
+        step: 2,
+        maxStep: 2,
+        consent: true,
+        intake: { monthlyBudget: '4500', downPayment: '5000', creditRange: 'good', zip: '60601', bodyStyle: 'suv' },
+      },
+    },
+  );
+
+  await page.goto('/advisor');
+  // Keyless environment: the route always answers with demo inventory, whose
+  // banner is the deterministic ready-marker.
+  await expect(page.getByTestId('demo-banner')).toBeVisible({ timeout: 20_000 });
+
+  // The client must forward the full budget triple to the API, which the
+  // server converts into a MarketCheck price_max (key-gated upstream, so the
+  // response is demo in CI — the request contract is what's under test).
+  expect(inventoryUrl).toBeTruthy();
+  const url = new URL(inventoryUrl as string);
+  expect(url.searchParams.get('budget')).toBe('4500');
+  expect(url.searchParams.get('down')).toBe('5000');
+  expect(url.searchParams.get('credit')).toBe('good');
+});

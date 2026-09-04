@@ -2,6 +2,10 @@ import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import IntelligenceReport from '@/components/advisor/IntelligenceReport';
 import type { AdvisorState } from '@/hooks/useAdvisorState';
 
+// The download filename embeds generate-time date; tests that assert it pin
+// the clock so they are deterministic no matter which day CI runs on.
+const FIXED_NOW = new Date('2026-09-03T12:00:00Z');
+
 // A session store shaped like what the advisor flow saves across the steps.
 const RICH_STATE: AdvisorState = {
   step: 11,
@@ -263,6 +267,7 @@ describe('IntelligenceReport', () => {
   });
 
   it('names the download files after the compared vehicles', () => {
+    jest.useFakeTimers({ now: FIXED_NOW });
     // RICH_STATE has comparing: ['camry', 'outback'] without saved names —
     // the ids pass through as slugs when they are not pure-numeric.
     generateReport(RICH_STATE);
@@ -282,8 +287,11 @@ describe('IntelligenceReport', () => {
 
     expect(clickSpy).toHaveBeenCalledTimes(1);
     const anchor = clicked as unknown as HTMLAnchorElement;
+    jest.useRealTimers();
+
+    const expectedDate = FIXED_NOW.toISOString().slice(0, 10);
     expect(anchor.download).toBe(
-      'car-purchase-intelligence-report-2026-09-03-toyota-camry-subaru-outback.md',
+      `car-purchase-intelligence-report-${expectedDate}-toyota-camry-subaru-outback.md`,
     );
     expect(revokeSpy).toHaveBeenCalledWith('blob:mock-named');
 
