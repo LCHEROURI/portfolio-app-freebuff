@@ -45,6 +45,20 @@ self-describing without the Console GitHub App link.
   The script polls until the rollout reaches a terminal state and prints the
   rollout id (also exported as `ROLLOUT_NAME` in CI for the run summary).
 
+## 1b. One-time key flip: MarketCheck live inventory
+
+`scripts/watch-marketcheck-key.sh` (running copy: `/Users/Shared/freebuff/`,
+launchd label `com.freebuff.marketcheck-watcher`) polls for the
+`MARKETCHECK_API_KEY` GitHub secret every 30s for up to a week. The moment the
+key appears it dispatches `deploy-car-app.yml`, watches the rollout, then
+probes live `/api/inventory` (with and without budget params):
+`source=marketcheck` on both = success (exit 0, webhook posted if
+`ALERT_WEBHOOK_URL` is set in the launcher env); `demo/upstream-error` after a
+retry = key rejected upstream (exit 4). Log: `/tmp/marketcheck-watcher.log`,
+state: `/tmp/marketcheck-watcher.state`. Remove the job with
+`launchctl bootout gui/$(id -u)/com.freebuff.marketcheck-watcher` once the
+flip is confirmed.
+
 ## 2. Rollback
 
 Preferred, fully scriptable — redeploy the last known-good commit:
