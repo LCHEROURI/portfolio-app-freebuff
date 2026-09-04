@@ -105,6 +105,83 @@ describe('GET /api/inventory', () => {
     expect(url2.searchParams.get('zip')).toBeNull();
   });
 
+  it('forwards a budget-derived price_max to MarketCheck', async () => {
+    process.env.MARKETCHECK_API_KEY = 'test-key';
+    const fetchMock = jest.fn().mockResolvedValue(
+      upstreamOk({ num_found: 5, listings: [MC_LISTING] })
+    ) as unknown as jest.Mock;
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const res = await GET(request('?budget=500&down=5000&credit=good'));
+    await res.json();
+
+    const url = new URL(fetchMock.mock.calls[0][0] as string);
+    const priceMax = Number(url.searchParams.get('price_max'));
+    expect(priceMax).toBeGreaterThan(0);
+    // Ceiling must respect the documented formula at good credit (6.5%, 60mo):
+    // price = (maxPrincipal + down) / 1.094, floored to $100.
+    expect(priceMax % 100).toBe(0);
+    // Sanity: $500/mo + $5k down should land in the high-$20k range, not $5k.
+    expect(priceMax).toBeGreaterThan(20000);
+    expect(priceMax).toBeLessThan(35000);
+  });
+
+  it('omits price_max when no budget is provided', async () => {
+    process.env.MARKETCHECK_API_KEY = 'test-key';
+    const fetchMock = jest.fn().mockResolvedValue(
+      upstreamOk({ num_found: 5, listings: [MC_LISTING] })
+    ) as unknown as jest.Mock;
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const res = await GET(request('?zip=60601'));
+    await res.json();
+    const url = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(url.searchParams.get('price_max')).toBeNull();
+  });
+
+  it('short-circuits to an honest empty result when the budget ceiling is below any listing', async () => {
+    process.env.MARKETCHECK_API_KEY = 'test-key';
+    const fetchMock = jest.fn() as unknown as jest.Mock;
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    // ~$150/mo budget with $0 down ceilings below $10k for a new car.
+    const res = await GET(request('?budget=150&down=0&credit=fair'));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.source).toBe('marketcheck');
+    expect(body.vehicles).toEqual([]);
+    expect(body.numFound).toBe(0);
+    expect(body.priceMax).toBeGreaterThan(0);
+    // The short-circuit must not spend an upstream call.
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('returns the empty-ok result (not demo) when a budget filter matches nothing upstream', async () => {
+    process.env.MARKETCHECK_API_KEY = 'test-key';
+    global.fetch = jest.fn().mockResolvedValue(
+      upstreamOk({ num_found: 0, listings: [] })
+    ) as unknown as typeof fetch;
+
+    const res = await GET(request('?budget=150&down=5000&credit=good'));
+    const body = await res.json();
+    expect(body.source).toBe('marketcheck');
+    expect(body.vehicles).toEqual([]);
+    expect(body.priceMax).toBeGreaterThan(0);
+  });
+
+  it('ignores malformed budget/down values instead of failing', async () => {
+    process.env.MARKETCHECK_API_KEY = 'test-key';
+    const fetchMock = jest.fn().mockResolvedValue(
+      upstreamOk({ num_found: 5, listings: [MC_LISTING] })
+    ) as unknown as jest.Mock;
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const res = await GET(request('?budget=abc&down=xyz&credit='));
+    await res.json();
+    const url = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(url.searchParams.get('price_max')).toBeNull();
+  });
+
   it('never exposes the API key in the response body', async () => {
     process.env.MARKETCHECK_API_KEY = 'super-secret-key';
     global.fetch = jest.fn().mockResolvedValue(

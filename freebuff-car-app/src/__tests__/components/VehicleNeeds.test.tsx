@@ -52,6 +52,37 @@ afterEach(() => {
 });
 
 describe('VehicleNeeds', () => {
+  it('sends budget, down payment, and credit tier from intake to the inventory API', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ source: 'demo', vehicles: FLEET }),
+    }) as unknown as jest.Mock;
+    global.fetch = fetchMock as unknown as typeof fetch;
+    setup({
+      intake: { monthlyBudget: '500', downPayment: '5000', creditRange: 'good', zip: '60601', bodyStyle: 'suv' },
+    });
+    await screen.findByText('2025 Toyota Camry LE');
+    const url = new URL(fetchMock.mock.calls[0][0] as string, 'http://localhost');
+    expect(url.searchParams.get('budget')).toBe('500');
+    expect(url.searchParams.get('down')).toBe('5000');
+    expect(url.searchParams.get('credit')).toBe('good');
+    expect(url.searchParams.get('zip')).toBe('60601');
+    expect(url.searchParams.get('bodyType')).toBe('suv');
+  });
+
+  it('shows an honest empty state when the budget matches nothing (live feed)', async () => {
+    mockFetchOnce({ source: 'marketcheck', vehicles: [], numFound: 0, priceMax: 9800 });
+    setup({ intake: { monthlyBudget: '150' } });
+    expect(await screen.findByTestId('empty-results')).toBeInTheDocument();
+    expect(screen.getByText('No vehicles under your budget yet')).toBeInTheDocument();
+    // The explained ceiling uses the echoed priceMax.
+    expect(screen.getByText(/9,800/)).toBeInTheDocument();
+    expect(screen.queryAllByTestId('vehicle-card')).toHaveLength(0);
+    // An honest empty result is NOT a demo fallback — no banner.
+    expect(screen.queryByTestId('demo-banner')).not.toBeInTheDocument();
+  });
+
   it('renders vehicle cards from the live feed', async () => {
     mockFetchOnce({ source: 'marketcheck', vehicles: FLEET, numFound: 2 });
     setup();
@@ -221,7 +252,8 @@ describe('VehicleNeeds', () => {
   it('shows an explicit empty state when no vehicles match', async () => {
     mockFetchOnce({ source: 'marketcheck', vehicles: [] });
     setup();
-    expect(await screen.findByText(/no vehicles matched/i)).toBeInTheDocument();
+    expect(await screen.findByTestId('empty-results')).toBeInTheDocument();
+    expect(screen.getByText(/returned no matching vehicles/i)).toBeInTheDocument();
   });
 
   it('shows loading skeletons before data arrives', async () => {
