@@ -31,6 +31,20 @@ const SCORE_ROWS = [
   'Positive trade-in equity / no rollover: 15/15',
 ];
 
+// Case/whitespace/punctuation-insensitive canonical form for cross-format
+// comparison (the DOM, markdown, and plain text intentionally differ in
+// syntax but must carry the same numbers).
+const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+// Every figure the deal-score breakdown must agree on across ALL renderings:
+// the score out of 100, plus each row's label and its earned/max pair.
+const DEAL_SCORE_TOKENS = [
+  norm(`${EXPECTED_SCORE} / 100`),
+  ...SCORE_ROWS.flatMap((row) => {
+    const [label, earnedMax] = row.split(': ');
+    return [norm(label), norm(earnedMax)];
+  }),
+];
+
 test('the .md and .txt exports carry the same populated deal-score breakdown as the screen', async ({ page }) => {
   await walkAdvisorToGeneratedReport(page);
 
@@ -83,4 +97,26 @@ test('the .md and .txt exports carry the same populated deal-score breakdown as 
   expect(clipboard).toContain('## Deal score');
   expect(clipboard).toContain(`**${EXPECTED_SCORE} / 100**`);
   for (const row of SCORE_ROWS) expect(clipboard).toContain(`- ${row}`);
+
+  // ---- Four-way parity, one spec: screen, .md, .txt, clipboard. The
+  // clipboard and .md are both buildReportMarkdown output and were asserted
+  // byte-for-byte equal above. The remaining formats deliberately use a
+  // different syntax (DOM text, plain text), so their agreement with the
+  // others is asserted on the canonical figures — every score/earned/max
+  // token must appear in all four renderings of this single generation. ----
+  const screenText = await page.locator('main').innerText();
+  const renderings: Record<string, string> = {
+    'on-screen': norm(screenText),
+    '.md': norm(mdText),
+    '.txt': norm(txtText),
+    'clipboard': norm(clipboard),
+  };
+  for (const [format, text] of Object.entries(renderings)) {
+    for (const token of DEAL_SCORE_TOKENS) {
+      expect(
+        text,
+        `${format} rendering is missing deal-score figure "${token}"`,
+      ).toContain(token);
+    }
+  }
 });
