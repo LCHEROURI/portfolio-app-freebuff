@@ -249,6 +249,9 @@ test('Step 1 budget funnels into the Step 2 inventory request', async ({ page })
   await expect(payments).toHaveCount(3);
   await expect(payments.first()).toContainText('Est. $514/mo');
   await expect(payments.first()).toContainText('60 mo at 6.5% APR with $5,000 down');
+  // $4500/mo budget: every demo car fits -> green figures, no hints.
+  await expect(payments.first().locator('span').first()).toHaveClass(/text-good-700/);
+  await expect(page.getByTestId('down-hint')).toHaveCount(0);
 });
 
 test('Over-budget Step 2 cards show a down-payment hint that fits the budget', async ({ page }) => {
@@ -277,4 +280,6 @@ test('Over-budget Step 2 cards show a down-payment hint that fits the budget', a
   // to <= $500/mo at 6.5% over 60 months is $5,800.
   await expect(hints.first()).toContainText('About $5,800 down');
   await expect(hints.first()).toContainText('within your $500/mo budget');
+  // $500/mo budget: every demo car is over -> amber figures.
+  await expect(page.getByTestId('est-payment').first().locator('span').first()).toHaveClass(/text-amber-700/);
 });

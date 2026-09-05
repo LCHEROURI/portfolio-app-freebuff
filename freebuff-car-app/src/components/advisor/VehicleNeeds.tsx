@@ -337,6 +337,7 @@ export default function VehicleNeeds({ onContinue, intake, onSaveData }: Props =
             const requiredDown = budget !== null
               ? minDownPaymentForBudget({ price: vehicle.msrp, monthlyBudget: budget, creditRange: intakeCredit })
               : null;
+            const fits = budget !== null && estPayment !== null && estPayment <= budget;
 
             return (
               <div
@@ -362,7 +363,10 @@ export default function VehicleNeeds({ onContinue, intake, onSaveData }: Props =
                     </p>
                     {intake?.monthlyBudget && (estPayment !== null ? (
                       <p className="mt-1 text-sm font-medium text-navy-900" data-testid="est-payment">
-                        Est. {formatCurrency(estPayment)}/mo
+                        <span className={fits ? 'text-good-700' : 'text-amber-700'}>
+                          Est. {formatCurrency(estPayment)}/mo
+                        </span>
+                        <span className="sr-only">{fits ? 'Within your monthly budget.' : 'Above your monthly budget.'}</span>
                         <span className="font-normal text-ink-500">
                           {' '}· {term} mo at {apr}% APR with {formatCurrency(intakeDown)} down
                         </span>
