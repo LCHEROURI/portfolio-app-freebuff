@@ -6,7 +6,9 @@
 # past what the live rollout serves, e.g. a cancelled deploy), and
 # SERVING-level failures the rollout API cannot see: the live /api/version
 # endpoint unreachable or reporting a null commit while Firebase says
-# SUCCEEDED.
+# SUCCEEDED, the /status self-check failing, or the /advisor page served
+# without the 'freebuff-car-app deploy marker' footer (a pre-marker build
+# answering despite the rollout API reporting healthy).
 #
 # Runs every 30 minutes + manual dispatch. Files/updates the SAME single
 # open issue labeled deploy-failure that the deploy workflow uses (one

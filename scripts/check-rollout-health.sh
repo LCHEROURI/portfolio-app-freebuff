@@ -15,6 +15,11 @@
 #   - APP-LAYER degradation: /status must report "All checks passed" — its
 #     loopback self-check catches in-process failures (e.g. a route 500ing)
 #     that a 200 from /api/version alone cannot
+#   - STALE BUILD MARKER: the live /advisor page must carry the
+#     "freebuff-car-app deploy marker" footer that every deploy since PR #49
+#     ships. Its absence means traffic is being served by a pre-marker
+#     build (misrouted/wrong domain, a stale cache, or an old backend
+#     still answering) even when /api/version and /status look fine
 #
 # This script classifies the NEWEST rollout and prints the verdict:
 #
@@ -137,6 +142,24 @@ if ! printf '%s' "$STATUS_HTML" | grep -q 'All checks passed'; then
 fi
 echo "app-layer check: $STATUS_URL reports All checks passed"
 
+# ── Build-marker check: does the served /advisor carry the deploy marker? ──
+# Every build since PR #49 ships a small footer reading "freebuff-car-app
+# deploy marker". It is static JSX, so it appears in the SSR HTML shell of
+# /advisor — no hydration needed. If the live page lacks it, traffic is being
+# served by a pre-marker build (a misrouted host, stale cache, or old backend
+# still answering) even when /api/version and /status both pass — e.g. a
+# different deployment serving an older rollout. A 200 with the marker absent
+# is an app-content regression, not a healthy rollout.
+ADVISOR_URL="${ADVISOR_URL:-https://freebuff-car-app--portfolio-app-freebuff2.us-central1.hosted.app/advisor}"
+ADVISOR_HTML="$(curl -sS -m 30 "$ADVISOR_URL" 2>&1 || true)"
+if ! printf '%s' "$ADVISOR_HTML" | grep -q 'freebuff-car-app deploy marker'; then
+  echo "outcome=degraded"
+  echo "severity=page"
+  echo "detail=$ADVISOR_URL did not contain the 'freebuff-car-app deploy marker' footer — serving a pre-marker build while the rollout API reports healthy"
+  exit 0
+fi
+echo "build-marker check: $ADVISOR_URL carries the 'freebuff-car-app deploy marker' footer"
+
 # ── Staleness: does the live rollout serve main's latest car-app commit? ────
 # Only meaningful when the rollout carries a commit-sha label (all rollouts
 # created by scripts/deploy-car-app.sh do). Compare against the last commit
@@ -159,4 +182,4 @@ fi
 
 echo "outcome=healthy"
 echo "severity=page"
-echo "detail=rollout $ROLLOUT_ID SUCCEEDED, $VERSION_URL self-reports commit ${VERSION_COMMIT}, /status reports All checks passed, and it serves the latest car-app commit ${LIVE_SHA:+(${LIVE_SHA::7})}"
+echo "detail=rollout $ROLLOUT_ID SUCCEEDED, $VERSION_URL self-reports commit ${VERSION_COMMIT}, /status reports All checks passed, $ADVISOR_URL carries the deploy marker, and it serves the latest car-app commit ${LIVE_SHA:+(${LIVE_SHA::7})}"
