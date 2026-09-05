@@ -17,6 +17,71 @@ import type { AdvisorState } from '@/hooks/useAdvisorState';
 import { STEP_LABELS, type Step } from '@/lib/steps';
 import StepProgress from '@/components/StepProgress';
 
+interface VersionBody {
+  service?: string;
+  commit?: string | null;
+  rolloutId?: string | null;
+  deployedAt?: string | null;
+}
+
+function prettyDate(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' UTC';
+}
+
+function VersionMarker() {
+  const [version, setVersion] = useState<VersionBody | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/version', { cache: 'no-store' })
+      .then((r) => r.ok ? r.json() : Promise.reject(r.status))
+      .then(setVersion)
+      .catch((e) => setErr(String(e)));
+  }, []);
+
+  if (!version) return null;
+
+  const sha = version.commit;
+  return (
+    <div className="mt-4 rounded-xl border border-ink-200 bg-white/80 px-4 py-3 text-sm shadow-sm">
+      <p className="text-xs font-medium uppercase tracking-wide text-ink-500">Serving this build</p>
+      <div className="mt-1 flex flex-wrap gap-x-6 gap-y-1">
+        <span className="font-semibold text-navy-900">
+          {sha ? (
+            <a
+              href={`https://github.com/LCHEROURI/portfolio-app-freebuff/commit/${sha}`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-blue-700 underline decoration-blue-200 underline-offset-2 hover:text-blue-800"
+            >
+              {sha}
+            </a>
+          ) : (
+            <span className="text-amber-700">dev build</span>
+          )}
+          {version.service ? ` · ${version.service}` : ''}
+        </span>
+        {version.rolloutId ? (
+          <span className="text-ink-600">rollout {version.rolloutId}</span>
+        ) : (
+          <span className="text-ink-400">no rollout id</span>
+        )}
+        {version.deployedAt ? (
+          <span className="text-ink-600">deployed {prettyDate(version.deployedAt)}</span>
+        ) : (
+          <span className="text-ink-400">no deploy time</span>
+        )}
+        {err ? (
+          <span className="text-red-600">version check failed: {err}</span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 const BACK_LABELS: Partial<Record<Step, string>> = {
   2: 'intake',
   3: 'vehicles',
@@ -90,6 +155,7 @@ export default function AdvisorPage() {
             Step {step} of 11 — {stepLabel}
           </h1>
           <p className="mt-1 text-ink-600">{stepDescription}</p>
+          {step === 1 && <VersionMarker />}
         </div>
         <StepProgress advisor={advisorState} />
       </div>
