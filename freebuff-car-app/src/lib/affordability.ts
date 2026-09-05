@@ -85,6 +85,40 @@ export function estimateMonthlyPayment(input: PaymentEstimateInput): number | nu
   return Math.round(monthlyPayment(principal, apr, termMonths));
 }
 
+export interface MinDownPaymentInput {
+  /** Listed vehicle price (MSRP) in dollars. */
+  price: number;
+  /** Monthly payment budget in dollars (e.g. 500). */
+  monthlyBudget: number;
+  /** Credit tier from Step 1; '' when the user has not chosen yet. */
+  creditRange: string;
+  /** Loan term in months. Defaults to BUDGET_TERM_MONTHS. */
+  termMonths?: number;
+  /** Override APR (annual %) — used by tests to pin exact values. */
+  aprOverride?: number;
+}
+
+/**
+ * Smallest down payment (rounded UP to $100) that brings the listed price
+ * within the monthly budget under the SAME assumptions as the other helpers
+ * (tier APR, BUDGET_TERM_MONTHS, FEE_HEADROOM_FACTOR). Complement of
+ * estimateMonthlyPayment: the payment at this down payment is <= the budget.
+ * Returns null when the price already fits the budget or the inputs are not
+ * usable — null means "no hint needed", NOT zero.
+ */
+export function minDownPaymentForBudget(input: MinDownPaymentInput): number | null {
+  const { price, monthlyBudget, creditRange, termMonths = BUDGET_TERM_MONTHS } = input;
+  if (!Number.isFinite(price) || price <= 0) return null;
+  if (!Number.isFinite(monthlyBudget) || monthlyBudget <= 0) return null;
+
+  const apr = input.aprOverride ?? APR_BY_CREDIT[creditRange as keyof typeof APR_BY_CREDIT] ?? APR_BY_CREDIT.good;
+  const maxPrincipal = maxPrincipalForPayment(monthlyBudget, apr, termMonths);
+  const required = price * (1 + FEE_HEADROOM_FACTOR) - maxPrincipal;
+  if (!Number.isFinite(required) || required <= 0) return null;
+
+  return Math.max(0, Math.ceil(required / 100) * 100);
+}
+
 export interface BudgetInput {
   /** Monthly payment budget in dollars (e.g. 4500). */
   monthlyBudget: number;

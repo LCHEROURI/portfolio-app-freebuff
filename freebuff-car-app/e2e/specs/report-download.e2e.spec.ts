@@ -250,3 +250,31 @@ test('Step 1 budget funnels into the Step 2 inventory request', async ({ page })
   await expect(payments.first()).toContainText('Est. $514/mo');
   await expect(payments.first()).toContainText('60 mo at 6.5% APR with $5,000 down');
 });
+
+test('Over-budget Step 2 cards show a down-payment hint that fits the budget', async ({ page }) => {
+  // $500/mo + $5,000 down cannot afford any demo-fleet car at good credit,
+  // so every card derives an amber hint. Demo fleet is returned unfiltered,
+  // keeping the figures deterministic.
+  await page.addInitScript(
+    ({ key, state }) => window.localStorage.setItem(key, JSON.stringify(state)),
+    {
+      key: STORAGE_KEY,
+      state: {
+        step: 2,
+        maxStep: 2,
+        consent: true,
+        intake: { monthlyBudget: '500', downPayment: '5000', creditRange: 'good', zip: '60601' },
+      },
+    },
+  );
+
+  await page.goto('/advisor');
+  await expect(page.getByTestId('demo-banner')).toBeVisible({ timeout: 20_000 });
+
+  const hints = page.getByTestId('down-hint');
+  await expect(hints).toHaveCount(3);
+  // Camry ($28,595): the exact $100-rounded-up down payment that amortizes
+  // to <= $500/mo at 6.5% over 60 months is $5,800.
+  await expect(hints.first()).toContainText('About $5,800 down');
+  await expect(hints.first()).toContainText('within your $500/mo budget');
+});
