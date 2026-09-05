@@ -36,6 +36,8 @@ import { describe, expect, it } from 'vitest';
 const SCRIPT = readFileSync('scripts/check-rollout-health.sh', 'utf8');
 const WORKFLOW = readFileSync('.github/workflows/rollout-health.yml', 'utf8');
 const RUNBOOK = readFileSync('docs/car-app-runbook.md', 'utf8');
+const DEPLOY_CAR = readFileSync('.github/workflows/deploy-car-app.yml', 'utf8');
+const DEPLOY_PORTFOLIO = readFileSync('.github/workflows/deploy-portfolio-app.yml', 'utf8');
 
 // ── The classifier's verdict output: what the script can actually emit ──────
 type Outcome =
@@ -229,6 +231,33 @@ describe('.github/workflows/rollout-health.yml · workflow text matches the rout
   it('announces page-channel delivery explicitly for page-tier sends', () => {
     expect(WORKFLOW).toContain('echo "webhook_delivery=page-channel"');
     expect(WORKFLOW).toContain('echo "webhook_delivery=quiet-channel"');
+  });
+});
+
+describe('deploy workflows · webhook steps must be failure-gated', () => {
+  // Found live: the notify-failure webhook step in both deploy workflows was
+  // gated ONLY on ALERT_WEBHOOK_URL being set, so every successful deploy
+  // paged a false "deploy FAILED" alert (run 33990351688 sent "🚨
+  // freebuff-car-app deploy FAILED" from a SUCCEEDED run). The step runs
+  // inside an `if: always()` job, so it must ALSO require the deploy result
+  // to actually be 'failure' — mirroring the issue step right above it.
+  it('car-app deploy webhook fires only on an actual failure', () => {
+    expect(DEPLOY_CAR).toContain("if: ${{ needs.deploy.result == 'failure' && env.ALERT_WEBHOOK_URL != '' }}");
+  });
+
+  it('portfolio deploy webhook fires only on an actual failure', () => {
+    expect(DEPLOY_PORTFOLIO).toContain("if: ${{ needs.deploy.result == 'failure' && env.ALERT_WEBHOOK_URL != '' }}");
+  });
+
+  it('catches the webhook gate regressing to env-only (mutation)', () => {
+    const regressed = DEPLOY_CAR.replace(
+      "if: ${{ needs.deploy.result == 'failure' && env.ALERT_WEBHOOK_URL != '' }}",
+      "if: env.ALERT_WEBHOOK_URL != ''",
+    );
+    expect(regressed, 'the env-only regression must actually land').not.toBe(DEPLOY_CAR);
+    expect(() => {
+      expect(regressed).toContain("if: ${{ needs.deploy.result == 'failure' && env.ALERT_WEBHOOK_URL != '' }}");
+    }).toThrow();
   });
 });
 
