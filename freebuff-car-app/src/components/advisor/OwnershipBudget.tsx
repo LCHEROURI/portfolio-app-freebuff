@@ -191,14 +191,6 @@ export default function OwnershipBudget({ onComplete, onSaveData }: Props = {}) 
 
   return (
     <form onSubmit={handleSubmit} noValidate className="space-y-6">
-      <div>
-        <h2 className="text-xl font-bold text-navy-900">Step 5 of 10 — Cost of Ownership & Ownership Budget</h2>
-        <p className="mt-1 text-ink-600">
-          Build a realistic monthly ownership budget. Enter your estimated costs for each category — the calculator
-          adds them up and compares the total against your monthly payment.
-        </p>
-      </div>
-
       <div className="grid gap-4 sm:grid-cols-2">
         {lineItems.map(({ field, label, placeholder, help, min = 0, step = 5 }) => (
           <div key={field} className="space-y-1.5">

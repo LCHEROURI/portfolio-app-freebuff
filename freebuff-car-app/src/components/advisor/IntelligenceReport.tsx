@@ -214,14 +214,6 @@ export default function IntelligenceReport({ onComplete, advisor, onReset }: Pro
 
   return (
     <div className="space-y-6">
-      <div className="print:hidden">
-        <h2 className="text-xl font-bold text-navy-900">Step 11 of 11 — Intelligence Report</h2>
-        <p className="mt-1 text-ink-600">
-          Your complete car-buying briefing, assembled from the numbers you entered across the flow —
-          ready to print and take with you.
-        </p>
-      </div>
-
       {!generated ? (
         <div className="rounded-xl border border-ink-200 bg-white p-6 shadow-sm print:hidden">
           <p className="text-sm text-ink-700">

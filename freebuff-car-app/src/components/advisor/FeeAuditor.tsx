@@ -85,14 +85,6 @@ export default function FeeAuditor({ onComplete, onSaveData }: Props = {}) {
 
   return (
     <form onSubmit={handleSubmit} noValidate className="space-y-6">
-      <div>
-        <h2 className="text-xl font-bold text-navy-900">Step 8 of 10 — Dealer Quote & Fee Audit</h2>
-        <p className="mt-1 text-ink-600">
-          Enter the itemized fees from the dealer quote. The auditor flags documentation fees above
-          the {formatCurrency(DOC_FEE_THRESHOLD)} reference threshold and known high-margin add-ons.
-        </p>
-      </div>
-
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">
           <label htmlFor="docFee" className="block text-sm font-semibold text-navy-900">

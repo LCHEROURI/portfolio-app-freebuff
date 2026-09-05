@@ -31,7 +31,7 @@ describe('FeeAuditor', () => {
       fireEvent.click(screen.getByRole('button', { name: /audit quote/i }));
     });
     expect(screen.getByText(/1 red flag detected/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/above the \$150 reference threshold/i)).toHaveLength(2);
+    expect(screen.getAllByText(/above the \$150 reference threshold/i)).toHaveLength(1);
   });
 
   it('flags high-margin add-ons', () => {

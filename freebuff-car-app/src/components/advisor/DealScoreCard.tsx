@@ -70,18 +70,17 @@ export default function DealScoreCard({ onComplete, onSaveData }: Props = {}) {
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!validate()) return;
-    setResult(
-      computeDealScore({
-        monthlyPayment: parseNumber(state.monthlyPayment),
-        monthlyBudget: parseNumber(state.monthlyBudget),
-        docFee: parseNumber(state.docFee),
-        addOnCount: parseNumber(state.addOnCount),
-        prioritiesMetCount: parseNumber(state.prioritiesMet),
-        priorityCount: parseNumber(state.priorityCount),
-        tradeEquity: parseNumber(state.tradeEquity),
-      }),
-    );
-    onSaveData?.({ input: state, result });
+    const nextResult = computeDealScore({
+      monthlyPayment: parseNumber(state.monthlyPayment),
+      monthlyBudget: parseNumber(state.monthlyBudget),
+      docFee: parseNumber(state.docFee),
+      addOnCount: parseNumber(state.addOnCount),
+      prioritiesMetCount: parseNumber(state.prioritiesMet),
+      priorityCount: parseNumber(state.priorityCount),
+      tradeEquity: parseNumber(state.tradeEquity),
+    });
+    setResult(nextResult);
+    onSaveData?.({ input: state, result: nextResult });
     onComplete?.();
   }
 
@@ -100,14 +99,6 @@ export default function DealScoreCard({ onComplete, onSaveData }: Props = {}) {
 
   return (
     <form onSubmit={handleSubmit} noValidate className="space-y-6">
-      <div>
-        <h2 className="text-xl font-bold text-navy-900">Step 10 of 10 — Deal Score</h2>
-        <p className="mt-1 text-ink-600">
-          Enter the collected deal inputs. The score is computed with fixed weights: financing
-          affordability 25, add-ons 20, doc fee 20, priorities 20, trade equity 15.
-        </p>
-      </div>
-
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">
           <label htmlFor="monthlyPayment" className="block text-sm font-semibold text-navy-900">

@@ -74,4 +74,20 @@ describe('DealScoreCard', () => {
     expect(breakdown).toHaveTextContent('1 of 2 non-negotiable priorities are met.');
     expect(breakdown).toHaveTextContent('upside-down by $600');
   });
+
+  it('saves the freshly computed score, not a stale or null result', () => {
+    const onSaveData = jest.fn();
+    render(<DealScoreCard onSaveData={onSaveData} />);
+    fireEvent.change(field(/monthly payment/i), { target: { value: '400' } });
+    fireEvent.change(field(/monthly budget/i), { target: { value: '500' } });
+    fireEvent.change(field(/documentation fee/i), { target: { value: '100' } });
+    fireEvent.change(field(/flagged add-ons/i), { target: { value: '0' } });
+    fireEvent.change(field(/priorities met/i), { target: { value: '3' } });
+    fireEvent.change(field(/total priorities/i), { target: { value: '3' } });
+    fireEvent.change(field(/trade-in equity/i), { target: { value: '2000' } });
+    fireEvent.click(screen.getByRole('button', { name: /score this deal/i }));
+    expect(onSaveData).toHaveBeenCalledTimes(1);
+    const payload = onSaveData.mock.calls[0]?.[0] as { result?: { score?: number } | null };
+    expect(payload.result?.score).toBe(100);
+  });
 });

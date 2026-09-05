@@ -266,14 +266,6 @@ export default function VehicleNeeds({ onContinue, intake, onSaveData }: Props =
 
   return (
     <div className="space-y-8">
-      <div>
-        <h2 className="text-xl font-bold text-navy-900">Step 2 of 10 — Compare your vehicles</h2>
-        <p className="mt-1 text-ink-600">
-          Review the vehicles below and check the needs that matter to you. Vehicles that miss a checked need
-          are flagged.
-        </p>
-      </div>
-
       {/* Price-cap slider — override the Step 1 ceiling without leaving Step 2.
           Present only when the user arrived from Step 1 with a budget. */}
       {intake?.monthlyBudget && step1Ceiling !== null && (
