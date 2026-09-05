@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { maxPriceForBudget } from '@/lib/affordability';
+import { estimateMonthlyPayment, maxPriceForBudget } from '@/lib/affordability';
 import { useState, type FormEvent } from 'react';
 
 export type CreditRange = 'poor' | 'fair' | 'good' | 'excellent';
@@ -129,6 +129,18 @@ export default function IntakeForm({ onComplete, onSaveData }: Props = {}) {
     );
   }
 
+  const budgetNum = parsePositive(state.monthlyBudget);
+  const downNum = parsePositive(state.downPayment);
+  const ceiling =
+    budgetNum > 0
+      ? maxPriceForBudget({ monthlyBudget: budgetNum, downPayment: downNum, creditRange: state.creditRange })
+      : null;
+  const ceilingFits =
+    ceiling !== null &&
+    ((estimateMonthlyPayment({ price: ceiling, downPayment: downNum, creditRange: state.creditRange }) ?? Infinity) <=
+      budgetNum);
+  const sliderValue = budgetNum <= 0 ? 100 : Math.min(2000, Math.max(100, Math.round(budgetNum / 25) * 25));
+
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <div className="space-y-1.5">
@@ -253,34 +265,44 @@ export default function IntakeForm({ onComplete, onSaveData }: Props = {}) {
         )}
       </fieldset>
 
-      {(() => {
-        const budget = parsePositive(state.monthlyBudget);
-        const down = parsePositive(state.downPayment);
-        if (budget <= 0) return null;
-        const ceiling = maxPriceForBudget({
-          monthlyBudget: budget,
-          downPayment: down,
-          creditRange: state.creditRange,
-        });
-        return (
-          <div
-            data-testid="ceiling-panel"
-            aria-live="polite"
-            className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm"
-          >
-            <p className="font-semibold text-blue-900">
-              {ceiling !== null
-                ? <>Your budget supports roughly {formatCurrency(ceiling)} in vehicle price</>
-                : 'Your monthly budget is too small to estimate a price ceiling'}
-            </p>
-            <p className="mt-0.5 text-xs text-blue-800">
-              {state.creditRange
-                ? <>Assumes a 60-month loan at {state.creditRange} credit, plus an allowance for sales tax and fees.</>
-                : 'Assumes good credit for now — pick your credit range for a precise estimate.'}
-            </p>
-          </div>
-        );
-      })()}
+      {budgetNum > 0 && (
+        <div
+          data-testid="ceiling-panel"
+          aria-live="polite"
+          className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm"
+        >
+          <p className="font-semibold text-blue-900">
+            {ceiling !== null
+              ? <>Your budget supports roughly {formatCurrency(ceiling)} in vehicle price</>
+              : 'Your monthly budget is too small to estimate a price ceiling'}
+          </p>
+          <p className="mt-0.5 text-xs text-blue-800">
+            {state.creditRange
+              ? <>Assumes a 60-month loan at {state.creditRange} credit, plus an allowance for sales tax and fees.</>
+              : 'Assumes good credit for now — pick your credit range for a precise estimate.'}
+          </p>
+        </div>
+      )}
+
+      <div className="space-y-1.5">
+        <label htmlFor="budgetSlider" className="block text-xs font-semibold text-ink-700">
+          Budget explorer
+        </label>
+        <input
+          id="budgetSlider"
+          data-testid="budget-slider"
+          type="range"
+          min={100}
+          max={2000}
+          step={25}
+          value={sliderValue}
+          onChange={(e) => update('monthlyBudget', e.target.value)}
+          className={`w-full ${ceilingFits ? 'accent-good-600' : 'accent-amber-600'}`}
+        />
+        <p className="text-xs text-ink-500">
+          Drag to explore — the ceiling updates live and nothing is saved until you submit the form.
+        </p>
+      </div>
 
       <div className="flex justify-end">
         <button

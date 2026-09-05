@@ -313,3 +313,14 @@ test('Step 1 shows a live price ceiling that updates as inputs change', async ({
   await expect(panel).toContainText('roughly $28,700');
   await expect(panel).toContainText('60-month loan at excellent credit');
 });
+
+test('Budget slider drag updates the input and the ceiling live', async ({ page }) => {
+  await page.goto('/advisor');
+  const slider = page.getByLabel('Budget explorer');
+  await expect(slider).toBeVisible({ timeout: 20_000 });
+
+  // Drag to $600/mo: the input mirrors it and the ceiling re-prices.
+  await slider.fill('600');
+  await expect(page.getByLabel('Monthly budget')).toHaveValue('600');
+  await expect(page.getByTestId('ceiling-panel')).toContainText('roughly $28,000');
+});
