@@ -91,3 +91,32 @@
     @apply bg-ink-400;
   }
 }
+
+/* Clean paper output for the Intelligence Report (Prompt 11): plain white
+   page, ink text, no shadows or tinted backdrop. App navigation is kept off
+   the page via Tailwind `print:hidden` on the advisor shell chrome; these
+   rules make whatever remains (the report sections) print like a document. */
+@media print {
+  body {
+    background: #fff !important;
+  }
+
+  main {
+    padding: 0 !important;
+    max-width: 100% !important;
+  }
+
+  /* Report cards become flat bordered blocks — no shadows, no tint.
+     (Tailwind's print: variant supplies .print\:hidden rules.) */
+  * {
+    box-shadow: none !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Keep each section on one page when possible. */
+  .rounded-xl {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}
