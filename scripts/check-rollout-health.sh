@@ -23,16 +23,28 @@
 #
 # This script classifies the NEWEST rollout and prints the verdict:
 #
-#   healthy   — newest rollout SUCCEEDED, the live /api/version endpoint
-#               returns a real commit, and it serves the latest car-app commit
-#   failed    — newest rollout is FAILED (previous build still serving)
-#   stuck     — PROGRESSING for over STUCK_MINUTES (default 25)
-#   stale     — SUCCEEDED but an older car-app commit than main's latest
-#               (only when the rollout carries a commit-sha label)
+#   healthy       — newest rollout SUCCEEDED, the live /api/version endpoint
+#                   returns a real commit, and it serves the latest car-app
+#                   commit. (Also used for PROGRESSING/QUEUED rollouts still
+#                   younger than STUCK_MINUTES — a deploy in flight, not an
+#                   alert — with a "deploy is in flight" detail line.)
+#   failed        — newest rollout is FAILED (previous build still serving)
+#   stuck         — PROGRESSING/QUEUED for over STUCK_MINUTES (default 25)
+#   stale         — SUCCEEDED but an older car-app commit than main's latest
+#                   (only when the rollout carries a commit-sha label)
+#   unreachable   — rollout SUCCEEDED but the live /api/version endpoint did
+#                   not answer at all (serving down while Firebase reports
+#                   healthy)
+#   unprovenanced — /api/version answered non-200 or with a null commit (the
+#                   cloud build lacks provenance env, or serving is broken)
+#   degraded      — /status does not report "All checks passed" (in-process
+#                   app failure), or /advisor lacks the deploy-marker footer
+#                   (traffic served by a pre-marker build)
 #
 # Every verdict carries a SEVERITY used for alert routing:
 #   page      — deploy failures and serving outages: the pipeline is broken
-#               or traffic is broken. Wakes someone up.
+#               or traffic is broken (failed / stuck / unreachable /
+#               unprovenanced / degraded). Wakes someone up.
 #   warning   — rollout-stale (main advanced past what serves, e.g. a
 #               cancelled deploy): the app still works; record it quietly.
 #
