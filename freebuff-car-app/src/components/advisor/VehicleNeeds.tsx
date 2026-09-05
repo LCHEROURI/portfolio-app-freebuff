@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Vehicle } from '@/data/vehicles';
 import { MPG_UNKNOWN } from '@/lib/marketcheck';
-import { APR_BY_CREDIT, BUDGET_TERM_MONTHS, estimateMonthlyPayment } from '@/lib/affordability';
+import { APR_BY_CREDIT, BUDGET_TERM_MONTHS, estimateMonthlyPayment, minDownPaymentForBudget } from '@/lib/affordability';
 
 /** Persisted spec snapshot for one compared vehicle (Step 2 → report). */
 export interface VehicleSpecSnapshot {
@@ -332,6 +332,11 @@ export default function VehicleNeeds({ onContinue, intake, onSaveData }: Props =
               downPayment: intakeDown,
               creditRange: intakeCredit,
             });
+            const budgetNum = Number.parseFloat(intake?.monthlyBudget ?? '');
+            const budget = Number.isFinite(budgetNum) && budgetNum > 0 ? budgetNum : null;
+            const requiredDown = budget !== null
+              ? minDownPaymentForBudget({ price: vehicle.msrp, monthlyBudget: budget, creditRange: intakeCredit })
+              : null;
 
             return (
               <div
@@ -361,6 +366,11 @@ export default function VehicleNeeds({ onContinue, intake, onSaveData }: Props =
                         <span className="font-normal text-ink-500">
                           {' '}· {term} mo at {apr}% APR with {formatCurrency(intakeDown)} down
                         </span>
+                        {budget !== null && requiredDown !== null && (
+                          <span className="mt-0.5 block text-xs font-normal text-amber-700" data-testid="down-hint">
+                            About {formatCurrency(requiredDown)} down would bring this within your {formatCurrency(budget)}/mo budget.
+                          </span>
+                        )}
                       </p>
                     ) : (
                       <p className="mt-1 text-sm text-ink-500" data-testid="est-payment">

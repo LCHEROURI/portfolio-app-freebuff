@@ -313,3 +313,31 @@ describe('VehicleNeeds estimated monthly payments', () => {
     expect(screen.queryAllByTestId('est-payment')).toHaveLength(0);
   });
 });
+
+describe('VehicleNeeds over-budget down payment hints', () => {
+  it('hints the exact extra down payment on every over-budget card', async () => {
+    mockFetchOnce({ source: 'demo', vehicles: FLEET });
+    setup({ intake: { monthlyBudget: '500', downPayment: '5000', creditRange: 'good' } });
+    await screen.findByText('2025 Toyota Camry LE');
+    const hints = await screen.findAllByTestId('down-hint');
+    expect(hints).toHaveLength(2); // FLEET fixture: Camry + Outback, both over $500/mo
+    expect(hints[0].textContent).toContain('About $5,800 down');
+    expect(hints[0].textContent).toContain('within your $500/mo budget');
+    expect(hints[1].textContent).toContain('About $10,000 down');
+  });
+
+  it('shows no hint when every payment already fits the budget', async () => {
+    mockFetchOnce({ source: 'demo', vehicles: FLEET });
+    setup({ intake: { monthlyBudget: '1000', downPayment: '5000', creditRange: 'good' } });
+    await screen.findByText('2025 Toyota Camry LE');
+    await screen.findAllByTestId('est-payment');
+    expect(screen.queryAllByTestId('down-hint')).toHaveLength(0);
+  });
+
+  it('never hints when there is no Step 1 budget', async () => {
+    mockFetchOnce({ source: 'demo', vehicles: FLEET });
+    setup({ intake: null });
+    await screen.findByText('2025 Toyota Camry LE');
+    expect(screen.queryAllByTestId('down-hint')).toHaveLength(0);
+  });
+});

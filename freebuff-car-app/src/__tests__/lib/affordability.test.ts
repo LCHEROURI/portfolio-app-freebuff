@@ -1,5 +1,6 @@
 import {
   estimateMonthlyPayment,
+  minDownPaymentForBudget,
   maxPriceForBudget,
   maxPrincipalForPayment,
   monthlyPayment,
@@ -113,5 +114,46 @@ describe('estimateMonthlyPayment', () => {
     const withZero = estimateMonthlyPayment({ price: 28595, downPayment: 0, creditRange: 'good' });
     const withEmpty = estimateMonthlyPayment({ price: 28595, downPayment: -400, creditRange: 'good' });
     expect(withEmpty).toBe(withZero);
+  });
+});
+
+describe('minDownPaymentForBudget', () => {
+  it('pins the exact required down payments for the sample fleet ($500/mo, good credit)', () => {
+    expect(minDownPaymentForBudget({ price: 28595, monthlyBudget: 500, creditRange: 'good' })).toBe(5800);
+    expect(minDownPaymentForBudget({ price: 30475, monthlyBudget: 500, creditRange: 'good' })).toBe(7800);
+    expect(minDownPaymentForBudget({ price: 32495, monthlyBudget: 500, creditRange: 'good' })).toBe(10000);
+  });
+
+  it('moves with the credit tier (worse credit, more down needed)', () => {
+    expect(minDownPaymentForBudget({ price: 28595, monthlyBudget: 500, creditRange: 'poor' })).toBe(8300);
+    const poor = minDownPaymentForBudget({ price: 28595, monthlyBudget: 500, creditRange: 'poor' });
+    const good = minDownPaymentForBudget({ price: 28595, monthlyBudget: 500, creditRange: 'good' });
+    expect((poor as number)).toBeGreaterThan(good as number);
+  });
+
+  it('complements estimateMonthlyPayment: the payment at the suggested down fits the budget', () => {
+    for (const price of [28595, 30475, 32495]) {
+      for (const creditRange of ['poor', 'fair', 'good', 'excellent']) {
+        const down = minDownPaymentForBudget({ price, monthlyBudget: 500, creditRange });
+        expect(down).not.toBeNull();
+        const payment = estimateMonthlyPayment({ price, downPayment: down as number, creditRange });
+        expect(payment).not.toBeNull();
+        expect(payment as number).toBeLessThanOrEqual(500);
+      }
+    }
+  });
+
+  it('returns null when the price already fits the budget (no hint needed)', () => {
+    // $20,000 with tax/fees (~$21,880) is well under the $25,264 principal a
+    // $500/mo good-credit budget supports -> nothing to hint.
+    expect(minDownPaymentForBudget({ price: 20000, monthlyBudget: 500, creditRange: 'good' })).toBeNull();
+  });
+
+  it('returns null for unusable inputs', () => {
+    expect(minDownPaymentForBudget({ price: 0, monthlyBudget: 500, creditRange: 'good' })).toBeNull();
+    expect(minDownPaymentForBudget({ price: -1, monthlyBudget: 500, creditRange: 'good' })).toBeNull();
+    expect(minDownPaymentForBudget({ price: 28595, monthlyBudget: 0, creditRange: 'good' })).toBeNull();
+    expect(minDownPaymentForBudget({ price: 28595, monthlyBudget: -5, creditRange: 'good' })).toBeNull();
+    expect(minDownPaymentForBudget({ price: NaN, monthlyBudget: 500, creditRange: 'good' })).toBeNull();
   });
 });
