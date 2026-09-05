@@ -341,3 +341,51 @@ describe('VehicleNeeds over-budget down payment hints', () => {
     expect(screen.queryAllByTestId('down-hint')).toHaveLength(0);
   });
 });
+
+describe('VehicleNeeds payment affordability colors', () => {
+  const AFFORDABLE_FLEET = [
+    { ...FLEET[0], id: 'cheap-a', msrp: 20000 },
+    { ...FLEET[1], id: 'cheap-b', msrp: 22000 },
+  ];
+
+  it('renders fitting payments green with a within-budget status', async () => {
+    mockFetchOnce({ source: 'demo', vehicles: AFFORDABLE_FLEET });
+    setup({ intake: { monthlyBudget: '500', downPayment: '5000', creditRange: 'good' } });
+    await screen.findByText('2025 Toyota Camry LE');
+    const lines = await screen.findAllByTestId('est-payment');
+    expect(lines[0].querySelector('span')).toHaveClass('text-good-700');
+    expect(lines[1].querySelector('span')).toHaveClass('text-good-700');
+    expect(screen.getAllByText('Within your monthly budget.')).toHaveLength(2);
+    expect(screen.queryAllByTestId('down-hint')).toHaveLength(0);
+  });
+
+  it('renders over-budget payments amber with an above-budget status', async () => {
+    mockFetchOnce({ source: 'demo', vehicles: FLEET });
+    setup({ intake: { monthlyBudget: '500', downPayment: '5000', creditRange: 'good' } });
+    await screen.findByText('2025 Toyota Camry LE');
+    const lines = await screen.findAllByTestId('est-payment');
+    expect(lines[0].querySelector('span')).toHaveClass('text-amber-700');
+    expect(lines[1].querySelector('span')).toHaveClass('text-amber-700');
+    expect(screen.getAllByText('Above your monthly budget.')).toHaveLength(2);
+    expect(screen.getAllByTestId('down-hint')).toHaveLength(2);
+  });
+
+  it('treats a payment exactly equal to the budget as fitting', async () => {
+    // $27,929.01 with tax/fees minus $5,000 down amortizes to exactly $500/mo
+    // at 6.5% over 60 months — the <= boundary.
+    mockFetchOnce({ source: 'demo', vehicles: [{ ...FLEET[0], id: 'boundary', msrp: 27929.01 }] });
+    setup({ intake: { monthlyBudget: '500', downPayment: '5000', creditRange: 'good' } });
+    await screen.findByText('2025 Toyota Camry LE');
+    const line = (await screen.findAllByTestId('est-payment'))[0];
+    expect(line.querySelector('span')).toHaveClass('text-good-700');
+    expect(line.textContent).toContain('Est. $500/mo');
+  });
+
+  it('adds no affordability status when there is no budget', async () => {
+    mockFetchOnce({ source: 'demo', vehicles: FLEET });
+    setup({ intake: null });
+    await screen.findByText('2025 Toyota Camry LE');
+    expect(screen.queryByText('Within your monthly budget.')).toBeNull();
+    expect(screen.queryByText('Above your monthly budget.')).toBeNull();
+  });
+});
