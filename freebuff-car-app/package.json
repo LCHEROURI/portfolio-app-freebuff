@@ -32,6 +32,7 @@
     "autoprefixer": "^10.5.4",
     "jest": "^29.7.0",
     "jest-environment-jsdom": "^29.7.0",
+    "pdfjs-dist": "^6.3.289",
     "postcss": "^8.5.26",
     "tailwindcss": "^3.4.10",
     "ts-jest": "^29.2.5",
