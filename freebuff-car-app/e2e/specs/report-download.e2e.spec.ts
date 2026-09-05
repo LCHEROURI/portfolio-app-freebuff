@@ -103,6 +103,11 @@ test.describe('Intelligence Report generate + download', () => {
     await expect(page.getByText('72')).toBeVisible(); // deal score headline
     await expect(page.getByText(/Documentation fee is above/i)).toBeVisible();
 
+    // The payment row leads the comparison table, computed from the
+    // session's Step 1 inputs ($5,000 down, good credit).
+    expect(page.getByText('Est. monthly payment')).toBeVisible();
+    expect(page.getByText('$514/mo')).toBeVisible();
+    expect(page.getByText('$598/mo')).toBeVisible();
     // Side-by-side comparison table renders the saved Step 2 specs, with
     // the metric winner (Camry: lowest MSRP, highest MPG) marked "Best".
     await expect(page.getByRole('columnheader', { name: 'Toyota Camry' })).toBeVisible();
@@ -135,6 +140,7 @@ test.describe('Intelligence Report generate + download', () => {
     expect(mdText).toContain('- Negotiate the out-the-door price first');
     // The comparison table is IN the export — specs, not just filename names.
     expect(mdText).toContain('## Side-by-side comparison');
+    expect(mdText).toContain('| Est. monthly payment | $514/mo | $598/mo |');
     expect(mdText).toContain('| MSRP | $28,595 *(best)* | $32,495 |');
     expect(mdText).toContain('| MPG combined | 33 *(best)* | 29 |');
     expect(mdText).toContain('| Drivetrain | FWD | AWD |');
@@ -157,6 +163,8 @@ test.describe('Intelligence Report generate + download', () => {
     // The comparison table is in the plain-text export too (aligned text).
     expect(txtText).toContain('SIDE-BY-SIDE COMPARISON');
     expect(txtText).toContain('$28,595 (best)');
+    expect(txtText).toContain('Est. monthly payment');
+    expect(txtText).toContain('$514/mo');
     expect(txtText).toContain('$32,495');
     // Plain text must carry no Markdown syntax.
     expect(txtText).not.toContain('##');

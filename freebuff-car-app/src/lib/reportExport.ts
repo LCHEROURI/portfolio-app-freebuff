@@ -4,6 +4,7 @@
 // formats can never disagree with each other or with the on-screen report
 // (both reuse the same business utils: loan calculators, red-flag engine).
 import { monthlyPayment, totalCost } from '@/utils/financeCalculators';
+import { estimateMonthlyPayment } from '@/lib/affordability';
 import { docFeeFlags, addOnFlags } from '@/utils/redFlags';
 import type { AdvisorState } from '@/hooks/useAdvisorState';
 
@@ -64,11 +65,17 @@ export interface CompareColumn {
   seating: number | null;
   drive: string;
   safety: string;
+  /**
+   * Estimated monthly payment from the Step 1 budget inputs (same math as the
+   * Step 2 cards); null when the session has no budget or no saved price.
+   */
+  payment: number | null;
 }
 
 /** The five spec rows every comparison shows, in order. */
 export function compareRowValues(c: CompareColumn): { label: string; value: string }[] {
   return [
+    { label: 'Est. monthly payment', value: c.payment === null ? 'n/a' : `${usd(c.payment)}/mo` },
     { label: 'MSRP', value: c.msrp === null ? 'n/a' : usd(c.msrp) },
     { label: 'MPG combined', value: c.mpg === null ? 'n/a' : `${c.mpg}` },
     { label: 'Seating', value: c.seating === null ? 'n/a' : `${c.seating} seats` },
@@ -127,11 +134,17 @@ export function bestColumnsFor(columns: CompareColumn[], rowLabel: string): Set<
  */
 export function buildCompareColumns(
   vehicles: Record<string, unknown> | null | undefined,
+  intake?: Record<string, unknown> | null,
 ): CompareColumn[] {
   const comparing = vehicles?.comparing;
   if (!Array.isArray(comparing)) return [];
   const names = rec(vehicles?.names);
   const specs = rec(vehicles?.specs);
+  const budgetRaw = intake ? Number(intake.monthlyBudget) : NaN;
+  const hasBudget = Number.isFinite(budgetRaw) && budgetRaw > 0;
+  const downRaw = intake ? Number(intake.downPayment) : NaN;
+  const down = Number.isFinite(downRaw) && downRaw > 0 ? downRaw : 0;
+  const credit = intake ? String(intake.creditRange ?? '') : '';
   return (comparing as string[]).map((id) => {
     const label = typeof names?.[id] === 'string' && names[id].trim() !== '' ? names[id] : id;
     const spec = rec(specs?.[id]);
@@ -139,13 +152,18 @@ export function buildCompareColumns(
       const n = Number(v);
       return v !== undefined && v !== null && Number.isFinite(n) ? n : null;
     };
+    const msrp = num(spec?.msrp);
     return {
       label,
-      msrp: num(spec?.msrp),
+      msrp,
       mpg: num(spec?.mpg),
       seating: num(spec?.seating),
       drive: typeof spec?.drive === 'string' ? spec.drive.toUpperCase() : '',
       safety: typeof spec?.safety === 'string' ? spec.safety : '',
+      payment:
+        hasBudget && msrp !== null
+          ? estimateMonthlyPayment({ price: msrp, downPayment: down, creditRange: credit })
+          : null,
     };
   });
 }
@@ -295,7 +313,7 @@ export function buildReportData(advisor: AdvisorState | null | undefined): Repor
   });
 
   // Side-by-side comparison (Step 2 specs snapshot)
-  const compare = buildCompareColumns(vehicles);
+  const compare = buildCompareColumns(vehicles, intake);
 
   // Deal score (Step 10)
   const dealScore = rec(s?.dealScore);

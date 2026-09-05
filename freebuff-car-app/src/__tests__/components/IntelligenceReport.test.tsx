@@ -61,7 +61,8 @@ describe('IntelligenceReport', () => {
     // Budget (Step 1)
     expect(screen.getByText('$4,500')).toBeInTheDocument();
     // Financing (Step 3): 27000 financed at 6% for 60mo = 521.99/mo — computed live, not stored
-    expect(screen.getByText(/monthly payment/i)).toBeInTheDocument();
+    // Exact match: the comparison table's "Est. monthly payment" row also exists.
+    expect(screen.getByText('Monthly payment')).toBeInTheDocument();
     expect(screen.getByText(/\$522/)).toBeInTheDocument();
     // Trade (Step 7): 12000 - 9000 = +3000
     expect(screen.getByText('+$3,000')).toBeInTheDocument();
@@ -310,5 +311,17 @@ describe('IntelligenceReport', () => {
     expect(window.localStorage.getItem('freebuff-car-advisor-report-v1')).toBeNull();
     expect(screen.getByRole('button', { name: /generate report/i })).toBeInTheDocument();
     expect(onReset).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('estimated payment row on screen', () => {
+  it('shows the payment row first in the comparison table, from Step 1 inputs', () => {
+    generateReport(RICH_STATE);
+    expect(screen.getByText('Est. monthly payment')).toBeInTheDocument();
+    expect(screen.getByText('$514/mo')).toBeInTheDocument();
+    expect(screen.getByText('$598/mo')).toBeInTheDocument();
+    // Never carries a Best chip: it echoes MSRP, it is not an independent metric.
+    const row = screen.getByText('Est. monthly payment').closest('tr');
+    expect(row?.textContent).not.toContain('Best');
   });
 });
