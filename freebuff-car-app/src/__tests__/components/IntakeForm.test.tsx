@@ -120,3 +120,64 @@ describe('IntakeForm optional search fields', () => {
     expect(payload.zip).toBe('60601');
   });
 });
+
+describe('IntakeForm live price-ceiling preview', () => {
+  function typeBudget(value: string) {
+    fireEvent.change(screen.getByLabelText(/monthly budget/i), { target: { value } });
+  }
+  function typeDown(value: string) {
+    fireEvent.change(screen.getByLabelText(/desired down payment/i), { target: { value } });
+  }
+  function pickCredit(range: string) {
+    fireEvent.click(screen.getByRole('radio', { name: new RegExp(range, 'i') }));
+  }
+
+  it('appears once a budget is typed and updates as every input changes', () => {
+    render(<IntakeForm />);
+    expect(screen.queryByTestId('ceiling-panel')).toBeNull();
+
+    typeBudget('500');
+    expect(screen.getByTestId('ceiling-panel')).toHaveTextContent('roughly $23,300');
+
+    typeDown('5000');
+    expect(screen.getByTestId('ceiling-panel')).toHaveTextContent('roughly $27,900');
+
+    pickCredit('excellent');
+    expect(screen.getByTestId('ceiling-panel')).toHaveTextContent('roughly $28,700');
+
+    typeBudget('600');
+    // Still at excellent credit from the previous pick.
+    expect(screen.getByTestId('ceiling-panel')).toHaveTextContent('roughly $33,600');
+  });
+
+  it('falls back to good-credit APR while no tier is chosen and says so', () => {
+    render(<IntakeForm />);
+    typeBudget('500');
+    typeDown('5000');
+    expect(screen.getByTestId('ceiling-panel')).toHaveTextContent('roughly $27,900');
+    expect(screen.getByTestId('ceiling-panel')).toHaveTextContent('Assumes good credit for now');
+  });
+
+  it('names the chosen credit tier in the assumptions line', () => {
+    render(<IntakeForm />);
+    typeBudget('500');
+    typeDown('5000');
+    pickCredit('fair');
+    expect(screen.getByTestId('ceiling-panel')).toHaveTextContent('60-month loan at fair credit');
+  });
+
+  it('is honest when the budget is too small to estimate', () => {
+    render(<IntakeForm />);
+    typeBudget('2');
+    expect(screen.getByTestId('ceiling-panel')).toHaveTextContent('too small to estimate');
+  });
+
+  it('updates live before any submit', () => {
+    render(<IntakeForm />);
+    typeBudget('500');
+    typeDown('5000');
+    // No submit clicked — the panel already reflects the typed values.
+    expect(screen.getByTestId('ceiling-panel')).toBeInTheDocument();
+    expect(screen.getByText(/save & continue/i)).toBeInTheDocument();
+  });
+});

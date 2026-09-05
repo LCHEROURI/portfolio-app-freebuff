@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { maxPriceForBudget } from '@/lib/affordability';
 import { useState, type FormEvent } from 'react';
 
 export type CreditRange = 'poor' | 'fair' | 'good' | 'excellent';
@@ -251,6 +252,35 @@ export default function IntakeForm({ onComplete, onSaveData }: Props = {}) {
           <p className="text-xs text-red-600">{errors.creditRange}</p>
         )}
       </fieldset>
+
+      {(() => {
+        const budget = parsePositive(state.monthlyBudget);
+        const down = parsePositive(state.downPayment);
+        if (budget <= 0) return null;
+        const ceiling = maxPriceForBudget({
+          monthlyBudget: budget,
+          downPayment: down,
+          creditRange: state.creditRange,
+        });
+        return (
+          <div
+            data-testid="ceiling-panel"
+            aria-live="polite"
+            className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm"
+          >
+            <p className="font-semibold text-blue-900">
+              {ceiling !== null
+                ? <>Your budget supports roughly {formatCurrency(ceiling)} in vehicle price</>
+                : 'Your monthly budget is too small to estimate a price ceiling'}
+            </p>
+            <p className="mt-0.5 text-xs text-blue-800">
+              {state.creditRange
+                ? <>Assumes a 60-month loan at {state.creditRange} credit, plus an allowance for sales tax and fees.</>
+                : 'Assumes good credit for now — pick your credit range for a precise estimate.'}
+            </p>
+          </div>
+        );
+      })()}
 
       <div className="flex justify-end">
         <button

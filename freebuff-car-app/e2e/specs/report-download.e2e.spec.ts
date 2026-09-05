@@ -291,3 +291,25 @@ test('Over-budget Step 2 cards show a down-payment hint that fits the budget', a
   // $500/mo budget: every demo car is over -> amber figures.
   await expect(page.getByTestId('est-payment').first().locator('span').first()).toHaveClass(/text-amber-700/);
 });
+
+test('Step 1 shows a live price ceiling that updates as inputs change', async ({ page }) => {
+  // Fresh visit: no seeded session, the advisor opens on the intake form.
+  await page.goto('/advisor');
+  const budget = page.getByLabel('Monthly budget');
+  await expect(budget).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId('ceiling-panel')).toHaveCount(0);
+
+  // Typing the budget alone reveals the ceiling (good-credit fallback, no down).
+  await budget.fill('500');
+  const panel = page.getByTestId('ceiling-panel');
+  await expect(panel).toContainText('roughly $23,300');
+  await expect(panel).toContainText('Assumes good credit for now');
+
+  // Down payment raises it; credit tier re-prices it — all before any submit.
+  await page.getByLabel('Desired down payment').fill('5000');
+  await expect(panel).toContainText('roughly $27,900');
+  // The styled credit tier is a label wrapping an sr-only radio — click the label.
+  await page.getByText('Excellent', { exact: true }).click();
+  await expect(panel).toContainText('roughly $28,700');
+  await expect(panel).toContainText('60-month loan at excellent credit');
+});
