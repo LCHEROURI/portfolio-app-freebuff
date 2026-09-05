@@ -1,153 +1,39 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
+import {
+  walkAdvisorToGeneratedReport,
+  EXPECTED_SCORE,
+} from '../helpers/advisor';
 
 // End-to-end: full advisor walk Step 1 -> Step 11 against the PRODUCTION
 // build (playwright.config webServer runs `next build && next start`), with a
-// genuinely empty session — nothing is seeded, every screen is driven like a
-// user would drive it. It guards three invariants that unit tests cannot:
-//
-//  1. Each step renders EXACTLY ONE step header ("Step N of 11 — …"). A past
-//     regression embedded a duplicate "Step N of 10" h2 inside most step
-//     components, stacked under the shell's header.
-//  2. Every continue button names its real destination (two past mislabels:
-//     Step 6's "Continue to budget breakdown" and Step 9's "Continue to the
-//     report" both advanced to a different screen than they advertised).
-//  3. The generated Intelligence Report's Deal score section is populated
-//     from the saved Step 10 result (a past bug saved the stale/null result,
-//     so the report claimed Step 10 was "not completed").
-//
-// Steps 2 uses the built-in demo inventory (no MarketCheck key in CI), so the
-// sample fleet is deterministic.
+// genuinely empty session — nothing is seeded. The shared walk helper drives
+// every screen and guards per-step invariants (exactly one "Step N of 11"
+// header, no embedded "of 10" remnants, and honest continue-button labels on
+// Steps 6 and 9). This spec adds the report-level assertion: the generated
+// Intelligence Report's Deal score section is populated from the SAVED Step
+// 10 result (a past bug saved the stale/null result, so the report claimed
+// Step 10 was "not completed").
 
 test.describe.configure({ timeout: 180_000 });
 
-const DEMO_VALUES = {
-  budget: '600',
-  downPayment: '5000',
-  price: '28595',
-  apr: '6.5',
-  tradeValue: '12000',
-  payoff: '9000',
-  monthlyPayment: '462',
-  docFee: '129',
-  addOns: '3',
-  prioritiesTotal: '2',
-  prioritiesMet: '2',
-  tradeEquity: '3000',
-};
-
-async function fillNumber(page: Page, label: RegExp, value: string) {
-  await page.getByRole('spinbutton', { name: label }).fill(value);
-}
-
-async function expectSingleStepHeader(page: Page, step: number) {
-  const h1 = page.locator('h1');
-  await expect(h1).toHaveCount(1);
-  await expect(h1).toHaveText(new RegExp(`^Step ${step} of 11`));
-  // Regression guard: no embedded wrong-total "of 10" step headers anywhere.
-  await expect(page.getByText(/Step \d of 10/)).toHaveCount(0);
-}
+const SCORE_ROWS = [
+  'Financing affordability',
+  'No unnecessary dealer add-ons',
+  'Reasonable documentation fee',
+  'Matches customer non-negotiable priorities',
+  'Positive trade-in equity / no rollover',
+];
 
 test('advisor 1→11: single header per step, honest button labels, populated deal score', async ({ page }) => {
-  await page.goto('/advisor');
-
-  // ---- Step 1 — intake ----
-  await page.getByRole('heading', { name: /Step 1 of 11/i }).waitFor();
-  await expectSingleStepHeader(page, 1);
-  await fillNumber(page, /monthly budget/i, DEMO_VALUES.budget);
-  await fillNumber(page, /desired down payment/i, DEMO_VALUES.downPayment);
-  await page.getByRole('radio', { name: 'Good' }).check({ force: true });
-  await page.getByRole('button', { name: /save & continue/i }).click();
-
-  // ---- Step 2 — compare vehicles (demo fleet) ----
-  await page.getByRole('heading', { name: /Step 2 of 11/i }).waitFor();
-  await expectSingleStepHeader(page, 2);
-  await page.getByRole('checkbox', { name: /all-wheel drive/i }).check({ force: true });
-  await page.getByRole('checkbox', { name: /5\+ seats/i }).check({ force: true });
-  const compare = page.getByRole('checkbox', { name: /include in comparison/i });
-  await compare.nth(0).check({ force: true }); // Camry
-  await compare.nth(1).check({ force: true }); // Outback
-  await page.getByRole('button', { name: /continue to financing/i }).click();
-
-  // ---- Step 3 — financing math (price prefilled from the Camry) ----
-  await page.getByRole('heading', { name: /Step 3 of 11/i }).waitFor();
-  await expectSingleStepHeader(page, 3);
-  await expect(page.getByRole('spinbutton', { name: /vehicle price/i })).toHaveValue(DEMO_VALUES.price);
-  await fillNumber(page, /down payment/i, DEMO_VALUES.downPayment);
-  await fillNumber(page, /apr/i, DEMO_VALUES.apr);
-  await page.getByRole('button', { name: /^calculate$/i }).click();
-
-  // ---- Step 4 — buy vs. lease vs. used (defaults) ----
-  await page.getByRole('heading', { name: /Step 4 of 11/i }).waitFor();
-  await expectSingleStepHeader(page, 4);
-  await page.getByRole('button', { name: /save comparison/i }).click();
-
-  // ---- Step 5 — ownership budget (defaults) ----
-  await page.getByRole('heading', { name: /Step 5 of 11/i }).waitFor();
-  await expectSingleStepHeader(page, 5);
-  await page.getByRole('button', { name: /^calculate$/i }).click();
-
-  // ---- Step 6 — shopping strategy ----
-  await page.getByRole('heading', { name: /Step 6 of 11/i }).waitFor();
-  await expectSingleStepHeader(page, 6);
-  const step6Continue = page.getByRole('button', { name: /continue to/i });
-  await expect(step6Continue).toHaveText(/Continue to trade-in analysis/i);
-  await expect(step6Continue).not.toHaveText(/budget breakdown/i);
-  await step6Continue.click();
-
-  // ---- Step 7 — trade-in ----
-  await page.getByRole('heading', { name: /Step 7 of 11/i }).waitFor();
-  await expectSingleStepHeader(page, 7);
-  await fillNumber(page, /trade-in value/i, DEMO_VALUES.tradeValue);
-  await fillNumber(page, /outstanding payoff/i, DEMO_VALUES.payoff);
-  await page.getByRole('button', { name: /analyze trade/i }).click();
-
-  // ---- Step 8 — fee audit (defaults) ----
-  await page.getByRole('heading', { name: /Step 8 of 11/i }).waitFor();
-  await expectSingleStepHeader(page, 8);
-  await page.getByRole('button', { name: /audit quote/i }).click();
-
-  // ---- Step 9 — negotiation script ----
-  await page.getByRole('heading', { name: /Step 9 of 11/i }).waitFor();
-  await expectSingleStepHeader(page, 9);
-  const step9Continue = page.getByRole('button', { name: /continue to/i });
-  await expect(step9Continue).toHaveText(/Continue to deal score/i);
-  await step9Continue.click();
-
-  // ---- Step 10 — deal score ----
-  await page.getByRole('heading', { name: /Step 10 of 11/i }).waitFor();
-  await expectSingleStepHeader(page, 10);
-  await fillNumber(page, /monthly payment/i, DEMO_VALUES.monthlyPayment);
-  await fillNumber(page, /monthly budget/i, DEMO_VALUES.budget);
-  await fillNumber(page, /documentation fee/i, DEMO_VALUES.docFee);
-  await fillNumber(page, /flagged add-ons/i, DEMO_VALUES.addOns);
-  await fillNumber(page, /total priorities/i, DEMO_VALUES.prioritiesTotal);
-  await fillNumber(page, /priorities met/i, DEMO_VALUES.prioritiesMet);
-  await fillNumber(page, /trade-in equity/i, DEMO_VALUES.tradeEquity);
-  await page.getByRole('button', { name: /score this deal/i }).click();
-
-  // ---- Step 11 — generate the Intelligence Report ----
-  await page.getByRole('heading', { name: /Step 11 of 11/i }).waitFor();
-  await expectSingleStepHeader(page, 11);
-  await page.getByRole('checkbox', { name: /not financial advice/i }).check({ force: true });
-  await page.getByRole('button', { name: /generate report/i }).click();
-  await expect(page.getByRole('heading', { name: /Car Purchase Intelligence Report/i })).toBeVisible();
+  await walkAdvisorToGeneratedReport(page);
 
   // The deal-score section must come from the SAVED Step 10 result: a real
   // score out of 100, its five weighted rows, and no "not completed" text.
-  const score = page.getByRole('heading', { name: /Deal score/i }).first();
-  await expect(score).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Deal score/i }).first()).toBeVisible();
   const body = page.locator('body');
-  await expect(body).toContainText(/88 \/ 100|Deal score/);
+  await expect(body).toContainText(`${EXPECTED_SCORE} / 100`);
   await expect(body).not.toContainText(/Step 10 not completed/);
-  for (const row of [
-    'Financing affordability',
-    'No unnecessary dealer add-ons',
-    'Reasonable documentation fee',
-    'Matches customer non-negotiable priorities',
-    'Positive trade-in equity / no rollover',
-  ]) {
+  for (const row of SCORE_ROWS) {
     await expect(body).toContainText(row);
   }
-  // Sanity: with the walk's inputs the engine scores 88 (25+8+20+20+15).
-  await expect(body).toContainText('88');
 });
