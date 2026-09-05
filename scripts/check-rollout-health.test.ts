@@ -291,29 +291,71 @@ describe('.github/workflows/rollout-health.yml · test_webhook preflight guard',
   });
 });
 
-describe('deploy workflows · webhook steps must be failure-gated', () => {
-  // Found live: the notify-failure webhook step in both deploy workflows was
-  // gated ONLY on ALERT_WEBHOOK_URL being set, so every successful deploy
-  // paged a false "deploy FAILED" alert (run 33990351688 sent "🚨
-  // freebuff-car-app deploy FAILED" from a SUCCEEDED run). The step runs
-  // inside an `if: always()` job, so it must ALSO require the deploy result
-  // to actually be 'failure' — mirroring the issue step right above it.
-  it('car-app deploy webhook fires only on an actual failure', () => {
-    expect(DEPLOY_CAR).toContain("if: ${{ needs.deploy.result == 'failure' && env.ALERT_WEBHOOK_URL != '' }}");
+describe('deploy workflows · webhook steps: failure-gated + missing-secret preflight', () => {
+  // Found live (PR #66): the notify-failure webhook step in both deploy
+  // workflows was gated ONLY on ALERT_WEBHOOK_URL being set, so every
+  // successful deploy paged a false "deploy FAILED" alert (run 33990351688
+  // sent "🚨 freebuff-car-app deploy FAILED" from a SUCCEEDED run). The
+  // step runs inside an `if: always()` job, so it must ALSO require the
+  // deploy result to actually be 'failure' — mirroring the issue step above.
+  //
+  // Extended (mirrors rollout-health.yml's test_webhook preflight): the gate
+  // no longer checks the env at all. On a genuine failure, the step runs and
+  // FAILS LOUDLY with the exact setup message if ALERT_WEBHOOK_URL is
+  // missing — so an unconfigured page channel can never silently swallow a
+  // failed deploy (the old `&& env.ALERT_WEBHOOK_URL != ''` skip did exactly
+  // that: deploy failed, page skipped, nobody told).
+  const GATE = "if: ${{ needs.deploy.result == 'failure' }}";
+  const SETUP_MSG =
+    "Deploy FAILED but ALERT_WEBHOOK_URL is not set in this repo's Actions secrets. Set it with: gh secret set ALERT_WEBHOOK_URL --repo ${GITHUB_REPOSITORY}";
+
+  it('car-app deploy webhook is failure-gated and preflights the secret', () => {
+    expect(DEPLOY_CAR).toContain(GATE);
+    // The gate must NOT carry the old silent `&& env.ALERT_WEBHOOK_URL != ''`
+    // skip — that is exactly what let a missing secret swallow the page.
+    expect(DEPLOY_CAR).not.toContain("&& env.ALERT_WEBHOOK_URL != ''");
+    // And the step body must preflight: exact message + fail-fast exit.
+    expect(DEPLOY_CAR).toContain(SETUP_MSG);
+    expect(DEPLOY_CAR).toContain('exit 1');
+    // The preflight must come BEFORE the curl that sends the alert.
+    const step = DEPLOY_CAR.slice(DEPLOY_CAR.indexOf('Send webhook alert'));
+    expect(step.indexOf(SETUP_MSG)).toBeLessThan(step.indexOf('curl'));
   });
 
-  it('portfolio deploy webhook fires only on an actual failure', () => {
-    expect(DEPLOY_PORTFOLIO).toContain("if: ${{ needs.deploy.result == 'failure' && env.ALERT_WEBHOOK_URL != '' }}");
+  it('portfolio deploy webhook is failure-gated and preflights the secret', () => {
+    expect(DEPLOY_PORTFOLIO).toContain(GATE);
+    expect(DEPLOY_PORTFOLIO).not.toContain("&& env.ALERT_WEBHOOK_URL != ''");
+    expect(DEPLOY_PORTFOLIO).toContain(SETUP_MSG);
+    expect(DEPLOY_PORTFOLIO).toContain('exit 1');
+    const step = DEPLOY_PORTFOLIO.slice(DEPLOY_PORTFOLIO.indexOf('Send webhook alert'));
+    expect(step.indexOf(SETUP_MSG)).toBeLessThan(step.indexOf('curl'));
   });
 
   it('catches the webhook gate regressing to env-only (mutation)', () => {
-    const regressed = DEPLOY_CAR.replace(
-      "if: ${{ needs.deploy.result == 'failure' && env.ALERT_WEBHOOK_URL != '' }}",
-      "if: env.ALERT_WEBHOOK_URL != ''",
-    );
+    const regressed = DEPLOY_CAR.replace(GATE, "if: env.ALERT_WEBHOOK_URL != ''");
     expect(regressed, 'the env-only regression must actually land').not.toBe(DEPLOY_CAR);
     expect(() => {
-      expect(regressed).toContain("if: ${{ needs.deploy.result == 'failure' && env.ALERT_WEBHOOK_URL != '' }}");
+      expect(regressed).not.toContain("if: env.ALERT_WEBHOOK_URL != ''");
+      expect(regressed).toContain(GATE);
+    }).toThrow();
+  });
+
+  it('catches the silent && env skip returning (mutation)', () => {
+    const regressed = DEPLOY_CAR.replace(
+      GATE,
+      "if: ${{ needs.deploy.result == 'failure' && env.ALERT_WEBHOOK_URL != '' }}",
+    );
+    expect(regressed, 'the silent-skip regression must actually land').not.toBe(DEPLOY_CAR);
+    expect(() => {
+      expect(regressed).not.toContain("&& env.ALERT_WEBHOOK_URL != ''");
+    }).toThrow();
+  });
+
+  it('catches the preflight guard being dropped (mutation)', () => {
+    const regressed = DEPLOY_CAR.replace(SETUP_MSG, 'echo "skipping"');
+    expect(regressed, 'the preflight-drop must actually land').not.toBe(DEPLOY_CAR);
+    expect(() => {
+      expect(regressed).toContain(SETUP_MSG);
     }).toThrow();
   });
 });
