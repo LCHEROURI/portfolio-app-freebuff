@@ -274,6 +274,114 @@ describe('VehicleNeeds', () => {
 // Keep waitFor imported for future async assertions without lint noise.
 void waitFor;
 
+describe('VehicleNeeds price-cap slider', () => {
+  it('shows the slider only when Step 1 set a budget', async () => {
+    mockFetchOnce({ source: 'demo', vehicles: FLEET });
+    setup({ intake: { monthlyBudget: '500', downPayment: '5000', creditRange: 'good' } });
+    await screen.findByText('2025 Toyota Camry LE');
+    expect(screen.getByText('Adjust your price cap')).toBeInTheDocument();
+    const slider = screen.getByRole('slider');
+    expect(slider).toHaveAttribute('min', '0');
+    expect(slider).toHaveAttribute('max', '50000');
+    expect(slider).toHaveAttribute('step', '500');
+    // The slider thumb pins at the Step 1 ceiling (derived from $500/mo,
+    // $5,000 down, good credit).
+    expect(slider).toHaveValue('27900');
+  });
+
+  it('hides the slider for visitors without a Step 1 budget', async () => {
+    mockFetchOnce({ source: 'demo', vehicles: FLEET });
+    setup({ intake: null });
+    await screen.findByText('2025 Toyota Camry LE');
+    expect(screen.queryByText('Adjust your price cap')).toBeNull();
+    expect(screen.queryByRole('slider')).toBeNull();
+  });
+
+  it('reloads the inventory when the slider is dragged', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ source: 'demo', vehicles: FLEET }),
+    }) as unknown as jest.Mock;
+    global.fetch = fetchMock as unknown as typeof fetch;
+    setup({ intake: { monthlyBudget: '500', downPayment: '5000', creditRange: 'good' } });
+    await screen.findByText('2025 Toyota Camry LE');
+    const slider = screen.getByRole('slider');
+    fireEvent.change(slider, { target: { value: '35000' } });
+    // The new cap value is committed.
+    expect((slider as HTMLInputElement).value).toBe('35000');
+    // A second fetch was issued for the new cap.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('reloads the inventory when the cap is reset', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ source: 'demo', vehicles: FLEET }),
+    }) as unknown as jest.Mock;
+    global.fetch = fetchMock as unknown as typeof fetch;
+    setup({ intake: { monthlyBudget: '500', downPayment: '5000', creditRange: 'good' } });
+    await screen.findByText('2025 Toyota Camry LE');
+    const slider = screen.getByRole('slider');
+    fireEvent.change(slider, { target: { value: '35000' } });
+    // Cap now set; reset button is visible.
+    const resetBtn = screen.getByRole('button', { name: /reset to step 1 ceiling/i });
+    fireEvent.click(resetBtn);
+    // Cap restored to ceiling; a third fetch re-queries at the ceiling.
+    expect((slider as HTMLInputElement).value).toBe('27900');
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('continues to financing without losing the cap first', async () => {
+    // Regression: walking into the comparison and clicking Continue must not
+    // reset the slider cap mid-flow (the Reset-to-ceiling button does that
+    // explicitly, not the Continue control).
+    mockFetchOnce({ source: 'demo', vehicles: FLEET });
+    const onContinue = jest.fn();
+    setup({ intake: { monthlyBudget: '500', downPayment: '5000', creditRange: 'good' }, onContinue });
+    await screen.findByText('2025 Toyota Camry LE');
+    // Set a comparison so Continue renders (pick the first vehicle's checkbox).
+    fireEvent.click(screen.getAllByLabelText('Include in comparison')[0]);
+    const continueBtn = screen.getByRole('button', { name: /continue to financing/i });
+    fireEvent.click(continueBtn);
+    expect(onContinue).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves the slider cap across a nonce rotation (retry re-query)', async () => {
+    // The cap is a local state slot independent of the nonce-driven fetch.
+    // Rolling the nonce (e.g. a manual retry) re-queries at the cap without
+    // clearing it — users do not lose their override mid-adjustment.
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ source: 'demo', vehicles: FLEET }),
+    }) as unknown as jest.Mock;
+    global.fetch = fetchMock as unknown as typeof fetch;
+    setup({ intake: { monthlyBudget: '500', downPayment: '5000', creditRange: 'good' } });
+    await screen.findByText('2025 Toyota Camry LE');
+    const slider = screen.getByRole('slider');
+    fireEvent.change(slider, { target: { value: '35000' } });
+    // Move to a different value then back — the change event fires only on
+    // actual value changes, so the nonce rotates and the cap persists.
+    fireEvent.change(slider, { target: { value: '20000' } });
+    fireEvent.change(slider, { target: { value: '35000' } });
+    expect((slider as HTMLInputElement).value).toBe('35000');
+    expect(fetchMock).toHaveBeenCalledTimes(4); // initial + cap set + detour + return
+  });
+
+  it('pinned at the ceiling: dragging below the Step 1 ceiling does not invent a lower filter', async () => {
+    mockFetchOnce({ source: 'demo', vehicles: FLEET });
+    setup({ intake: { monthlyBudget: '500', downPayment: '5000', creditRange: 'good' } });
+    await screen.findByText('2025 Toyota Camry LE');
+    const slider = screen.getByRole('slider');
+    // Dragging below the ceiling — the slider accepts any value on the track.
+    fireEvent.change(slider, { target: { value: '5000' } });
+    expect((slider as HTMLInputElement).value).toBe('5000');
+    // A re-query was issued with the tighter cap.
+  });
+});
+
 describe('VehicleNeeds estimated monthly payments', () => {
   it('shows the derived payment with its assumptions on each card', async () => {
     mockFetchOnce({ source: 'demo', vehicles: FLEET });

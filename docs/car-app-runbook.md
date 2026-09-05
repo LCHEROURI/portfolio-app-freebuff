@@ -149,3 +149,80 @@ Alerts are severity-routed (see `scripts/check-rollout-health.sh`, which emits
   rollouts lists — deriving from builds alone collides (HTTP 400).
 - **Stale verdicts ignore parent-only pushes** — the health watch compares
   against the last commit *touching `freebuff-car-app/`*, not HEAD.
+
+## 6. The affordability math trio (one source of truth)
+
+All affordability numbers in the car app come from three pure functions in
+`freebuff-car-app/src/lib/affordability.ts`. Nothing else in the codebase is
+allowed to do amortization math — if a screen needs a payment, a ceiling, or
+a required-down figure, it calls one of these. Their shared assumptions are
+what keep Step 1's preview, Step 2's colors/hints, and the report's
+comparison table in exact agreement.
+
+### Shared assumptions (do not fork them)
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `APR_BY_CREDIT` | poor 11.0 · fair 8.5 · good 6.5 · excellent 5.0 | Industry-typical new-car purchase APR per credit tier |
+| `BUDGET_TERM_MONTHS` | 60 | Loan term used to convert budget ↔ principal |
+| `FEE_HEADROOM_FACTOR` | 0.094 | Sales-tax + title/doc-fee reserve as a share of price |
+
+Additional conventions:
+
+- **Rounding direction is conservative by construction.** The ceiling rounds
+  **DOWN** to $100 (never overstate what the budget buys); the required-down
+  rounds **UP** to $100 (never understate what it takes to fit); payments
+  round to the nearest $1 (display only).
+- An unknown/empty credit tier **falls back to good APR** — callers must say
+  so in the UI ("Assumes good credit for now"), and Step 1's panel does.
+- These figures are **screen estimates**. Step 3 computes the *exact*
+  financing from the user's real price/APR/term inputs; the trio only shapes
+  search, preview, and comparison surfaces.
+
+### The three functions and their inverse relationships
+
+1. **`maxPriceForBudget`** — budget → price ceiling.
+   Amortize the monthly budget over 60 months at the tier APR to get the max
+   principal, add the down payment, divide by `1 + 0.094` (strip the fee
+   headroom so the filter applies to the *listed MSRP*), floor to $100.
+   *Inverse of #2*: a vehicle priced at the ceiling prices back to the budget.
+2. **`estimateMonthlyPayment`** — price + down → estimated payment.
+   Inflate the price by the fee headroom, subtract the down payment,
+   amortize at the tier APR over 60 months, round to $1.
+   Returns `null` when the down payment covers the whole price — null means
+   "nothing to finance", never $0/mo.
+3. **`minDownPaymentForBudget`** — price + budget → required down.
+   `price × 1.094 − maxPrincipalForPayment(budget)`, ceiling to $100.
+   Returns `null` when the price already fits — null means "no hint needed",
+   not "no money down". *Complement of #2*: the payment at the suggested
+   down is guaranteed ≤ the budget (property-tested across every
+   price × credit-tier combination in the sample grid).
+
+Round-trip guarantee (tested): ceiling → payment lands within $1 of the
+budget ($500/mo + $5,000 down at good credit → $27,900 ceiling → $499/mo).
+
+### Where each one surfaces (live, as of build-2026-09-05-007)
+
+| Surface | Uses |
+|---|---|
+| Step 1 ceiling panel + budget slider accent | #1 (panel), #2 (accent = does the ceiling's payment fit?), #3 (target-price reverse lookup, default $35,000) |
+| `/api/inventory?budget&down&credit` | #1 → MarketCheck `price_max`; below ~$10k it short-circuits to an honest empty result |
+| Step 2 vehicle cards | #2 (green ≤ budget / amber > budget figure + inline assumptions), #3 ("About $X down would bring this within your $Y/mo budget") |
+| Intelligence Report + .md/.txt exports | #2 as the "Est. monthly payment" row (first row, never a Best chip) via the shared `buildCompareColumns` extractor |
+
+### Worked example ($500/mo · $5,000 down · good credit)
+
+| Question | Answer |
+|---|---|
+| What price ceiling does my budget support? | **$27,900** |
+| What would a $28,595 Camry cost per month? | **$514/mo** (amber, $14 over) |
+| What down fixes the Camry? | **$5,800** |
+| What down makes a $35,000 target fit? | **$12,800** |
+
+### The executable spec
+
+`freebuff-car-app/src/__tests__/lib/affordability.test.ts` pins every value
+in this section and the inverse/fit properties. If you change a constant or
+formula, that file — and the exact-value pins in the IntakeForm,
+VehicleNeeds, and reportExport tests — will tell you precisely which
+promised numbers moved. Update the docs *and* the pins in the same commit.
