@@ -178,9 +178,14 @@ jobs:
 
       # Page-tier alert: a failed deploy is always a page — it goes to the
       # ALERT_WEBHOOK_URL channel (never the quiet one), mirroring the
-      # severity routing in rollout-health.yml.
+      # severity routing in rollout-health.yml. The step must ALSO be gated
+      # on the deploy actually failing: with only the env check, every
+      # successful deploy sent a false "deploy FAILED" page (seen on run
+      # 33990351688 after the deploy SUCCEEDED), because notify-failure runs
+      # with `if: always()` and the webhook step lacked the result guard the
+      # issue step has.
       - name: Send webhook alert (optional, Slack/Discord compatible)
-        if: env.ALERT_WEBHOOK_URL != ''
+        if: ${{ needs.deploy.result == 'failure' && env.ALERT_WEBHOOK_URL != '' }}
         run: |
           set -euo pipefail
           TEXT="🚨 freebuff-car-app deploy FAILED on main (${GITHUB_SHA::7}) — $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
