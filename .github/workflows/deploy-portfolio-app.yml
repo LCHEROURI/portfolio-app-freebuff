@@ -198,10 +198,20 @@ jobs:
       # check, every successful deploy paged a false "deploy FAILED" alert
       # (notify-failure runs with `if: always()`, so the webhook step needs
       # the same result guard the issue step has).
-      - name: Send webhook alert (optional, Slack/Discord compatible)
-        if: ${{ needs.deploy.result == 'failure' && env.ALERT_WEBHOOK_URL != '' }}
+      #
+      # Preflight (mirrors rollout-health.yml's test_webhook guard): when the
+      # deploy failed, the page MUST fire — so a missing ALERT_WEBHOOK_URL is
+      # itself an incident. Instead of the silent `&& env.ALERT_WEBHOOK_URL
+      # != ''` skip, fail loudly with the setup message so an unconfigured
+      # channel can never silently swallow a failed deploy.
+      - name: Send webhook alert (Slack/Discord compatible)
+        if: ${{ needs.deploy.result == 'failure' }}
         run: |
           set -euo pipefail
+          if [ -z "${ALERT_WEBHOOK_URL:-}" ]; then
+            echo "::error::Deploy FAILED but ALERT_WEBHOOK_URL is not set in this repo's Actions secrets. Set it with: gh secret set ALERT_WEBHOOK_URL --repo ${GITHUB_REPOSITORY}"
+            exit 1
+          fi
           TEXT="🚨 portfolio-app deploy FAILED on main (${GITHUB_SHA::7}) — $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           # Slack reads "text", Discord reads "content"; each ignores the other.
           jq -n --arg text "$TEXT" '{text: $text, content: $text}' \
