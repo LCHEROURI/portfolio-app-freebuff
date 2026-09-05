@@ -312,6 +312,13 @@ test('Step 1 shows a live price ceiling that updates as inputs change', async ({
   await page.getByText('Excellent', { exact: true }).click();
   await expect(panel).toContainText('roughly $28,700');
   await expect(panel).toContainText('60-month loan at excellent credit');
+
+  // Reverse lookup: what down payment makes a $35,000 target fit?
+  // $500/mo at excellent credit -> $11,800.
+  await expect(page.getByTestId('target-down')).toContainText('About $11,800 down');
+  // Lower the target to $20,000: it fits with $0 down.
+  await page.getByLabel('Have a target vehicle in mind?').fill('20000');
+  await expect(page.getByTestId('target-down')).toContainText('fits your $500/mo budget with $0 down');
 });
 
 test('Budget slider drag updates the input and the ceiling live', async ({ page }) => {
