@@ -219,6 +219,9 @@ export default function AdvisorPage() {
           Back to home
         </a>
       </div>
+      <p className="pt-2 text-center text-xs text-ink-400">
+        freebuff-car-app deploy marker — a fresh push confirms the rollout pipeline end to end
+      </p>
     </div>
   );
 }
