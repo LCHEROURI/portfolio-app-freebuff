@@ -31,10 +31,28 @@ async function pdfText(pdfBytes: Uint8Array): Promise<string> {
       const content = await page.getTextContent();
       text += content.items.map((item: { str?: string }) => item.str ?? '').join(' ') + '\n';
     }
-    return text.replace(/\s+/g, ' ').trim();
+    return text;
   } finally {
     await loadingTask.destroy();
   }
+}
+
+// Chromium's PDF writer can split one visible word across several text runs
+// (on CI's Linux font fallback "financed" extracts as "fi nanced") — a pure
+// extraction artifact: the paper renders the correct word. Matching on the
+// whitespace-stripped text keeps the assertions faithful to what is ON the
+// paper while tolerating those run splits (and stays strict for chrome
+// absence, since any leaked chrome text would still appear after stripping).
+const norm = (s: string) => s.replace(/\s+/g, '');
+
+function assertOnPaper(paperText: string, required: string[]) {
+  const missing = required.filter((token) => !norm(paperText).includes(norm(token)));
+  expect(missing, `tokens missing from the paper output — ${missing.join(', ')}`).toEqual([]);
+}
+
+function assertNotOnPaper(paperText: string, forbidden: string[]) {
+  const leaked = forbidden.filter((token) => norm(paperText).includes(norm(token)));
+  expect(leaked, `app chrome leaked onto the paper — ${leaked.join(', ')}`).toEqual([]);
 }
 
 test('real Chromium print PDF carries the report and excludes every piece of app chrome', async ({ page }) => {
@@ -52,22 +70,24 @@ test('real Chromium print PDF carries the report and excludes every piece of app
   const paperText = await pdfText(new Uint8Array(pdf));
 
   // ---- App chrome must NOT be on the paper ----
-  // Layout top bar + the step header live in print:hidden chrome regions.
-  expect(paperText).not.toContain('Back to home');
-  expect(paperText).not.toContain('Deal Analysis');
-  expect(paperText).not.toContain('Step 11 of 11');
-  // Bottom nav (back control) and the deploy-marker footer.
-  expect(paperText).not.toContain('Back to deal score');
-  expect(paperText).not.toContain('deploy marker');
-  // The report's own on-screen action affordances are print:hidden too.
-  expect(paperText).not.toContain('Print report');
-  expect(paperText).not.toContain('Copy report');
-  expect(paperText).not.toContain('Download .md');
-  expect(paperText).not.toContain('Download .txt');
-  expect(paperText).not.toContain('Start Over');
+  assertNotOnPaper(paperText, [
+    // Layout top bar + the step header live in print:hidden chrome regions.
+    'Back to home',
+    'Deal Analysis',
+    'Step 11 of 11',
+    // Bottom nav (back control) and the deploy-marker footer.
+    'Back to deal score',
+    'deploy marker',
+    // The report's own on-screen action affordances are print:hidden too.
+    'Print report',
+    'Copy report',
+    'Download .md',
+    'Download .txt',
+    'Start Over',
+  ]);
 
   // ---- The report itself must BE on the paper ----
-  const required = [
+  assertOnPaper(paperText, [
     'Car Purchase Intelligence Report',
     // Every section heading…
     'Your budget',
@@ -85,9 +105,5 @@ test('real Chromium print PDF carries the report and excludes every piece of app
     'Positive trade-in equity',
     // …and a full report line, proving content made it onto paper.
     'Negotiate the out-the-door price first',
-  ];
-  const missing = required.filter((token) => !paperText.includes(token));
-  expect(missing, `tokens missing from the paper output — ${missing.join(', ')}
-===== extracted paper text =====
-${paperText}`).toEqual([]);
+  ]);
 });
