@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { estimateMonthlyPayment, maxPriceForBudget } from '@/lib/affordability';
+import { estimateMonthlyPayment, maxPriceForBudget, minDownPaymentForBudget } from '@/lib/affordability';
 import { useState, type FormEvent } from 'react';
 
 export type CreditRange = 'poor' | 'fair' | 'good' | 'excellent';
@@ -50,6 +50,7 @@ interface Props {
 export default function IntakeForm({ onComplete, onSaveData }: Props = {}) {
   const [state, setState] = useState<IntakeState>(DEFAULT_STATE);
   const [errors, setErrors] = useState<IntakeFieldErrors>({});
+  const [targetPrice, setTargetPrice] = useState('35000');
   const [submitted, setSubmitted] = useState(false);
 
   function validate(): boolean {
@@ -140,6 +141,11 @@ export default function IntakeForm({ onComplete, onSaveData }: Props = {}) {
     ((estimateMonthlyPayment({ price: ceiling, downPayment: downNum, creditRange: state.creditRange }) ?? Infinity) <=
       budgetNum);
   const sliderValue = budgetNum <= 0 ? 100 : Math.min(2000, Math.max(100, Math.round(budgetNum / 25) * 25));
+  const targetNum = Number(targetPrice);
+  const targetDown =
+    budgetNum > 0 && Number.isFinite(targetNum) && targetNum > 0
+      ? minDownPaymentForBudget({ price: targetNum, monthlyBudget: budgetNum, creditRange: state.creditRange })
+      : null;
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
@@ -281,6 +287,38 @@ export default function IntakeForm({ onComplete, onSaveData }: Props = {}) {
               ? <>Assumes a 60-month loan at {state.creditRange} credit, plus an allowance for sales tax and fees.</>
               : 'Assumes good credit for now — pick your credit range for a precise estimate.'}
           </p>
+          <div className="mt-3 border-t border-blue-200 pt-3">
+            <label htmlFor="targetPrice" className="block text-xs font-semibold text-blue-900">
+              Have a target vehicle in mind?
+            </label>
+            <div className="relative mt-1 max-w-48">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-blue-700">$</span>
+              <input
+                id="targetPrice"
+                data-testid="target-price"
+                type="number"
+                min="0"
+                step="any"
+                value={targetPrice}
+                onChange={(e) => setTargetPrice(e.target.value)}
+                className="block w-full rounded-lg border border-blue-300 bg-white pl-7 pr-3 py-2 text-sm text-ink-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+            {targetNum > 0 && (
+            <p className="mt-1.5 text-xs" data-testid="target-down">
+              {targetDown === null ? (
+                <span className="font-medium text-good-800">
+                  A {formatCurrency(targetNum)} vehicle fits your {formatCurrency(budgetNum)}/mo budget with $0 down.
+                </span>
+              ) : (
+                <span className="font-medium text-amber-800">
+                  About {formatCurrency(targetDown)} down would make a {formatCurrency(targetNum)} vehicle fit your{' '}
+                  {formatCurrency(budgetNum)}/mo monthly budget.
+                </span>
+              )}
+            </p>
+            )}
+          </div>
         </div>
       )}
 

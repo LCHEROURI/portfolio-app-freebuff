@@ -217,3 +217,75 @@ describe('IntakeForm budget slider', () => {
     expect(screen.queryByTestId('ceiling-panel')).toBeNull();
   });
 });
+
+describe('IntakeForm target-price reverse lookup', () => {
+  function typeBudget(value: string) {
+    fireEvent.change(screen.getByLabelText(/monthly budget/i), { target: { value } });
+  }
+  function typeDown(value: string) {
+    fireEvent.change(screen.getByLabelText(/desired down payment/i), { target: { value } });
+  }
+  function typeTarget(value: string) {
+    fireEvent.change(screen.getByLabelText(/have a target vehicle in mind/i), { target: { value } });
+  }
+
+  it('answers the required down payment for the default $35,000 target', () => {
+    render(<IntakeForm />);
+    typeBudget('500');
+    typeDown('5000');
+    expect(screen.getByTestId('target-down')).toHaveTextContent(
+      'About $12,800 down would make a $35,000 vehicle fit your $500/mo monthly budget',
+    );
+  });
+
+  it('re-prices when the target price changes', () => {
+    render(<IntakeForm />);
+    typeBudget('500');
+    typeDown('5000');
+    typeTarget('40000');
+    expect(screen.getByTestId('target-down')).toHaveTextContent('About $18,300 down');
+  });
+
+  it('re-prices with the credit tier (better credit, less down)', () => {
+    render(<IntakeForm />);
+    typeBudget('500');
+    typeDown('5000');
+    typeTarget('40000');
+    fireEvent.click(screen.getByRole('radio', { name: /excellent/i }));
+    // Same $40,000 target at excellent credit: $17,300 (was $18,300 at good).
+    expect(screen.getByTestId('target-down')).toHaveTextContent('About $17,300 down');
+  });
+
+  it('answers with the budget only — the desired down payment does not bias the reverse lookup', () => {
+    render(<IntakeForm />);
+    typeBudget('500');
+    typeDown('20000');
+    expect(screen.getByTestId('target-down')).toHaveTextContent('About $12,800 down');
+  });
+
+  it('says a fitting target needs $0 down', () => {
+    render(<IntakeForm />);
+    typeBudget('500');
+    typeDown('5000');
+    typeTarget('20000');
+    expect(screen.getByTestId('target-down')).toHaveTextContent(
+      'A $20,000 vehicle fits your $500/mo budget with $0 down',
+    );
+  });
+
+  it('hides the answer while the target field is empty', () => {
+    render(<IntakeForm />);
+    typeBudget('500');
+    typeDown('5000');
+    typeTarget('');
+    expect(screen.queryByTestId('target-down')).toBeNull();
+  });
+
+  it('re-prices live as the budget slider moves', () => {
+    render(<IntakeForm />);
+    typeBudget('500');
+    typeDown('5000');
+    fireEvent.change(screen.getByLabelText(/budget explorer/i), { target: { value: '600' } });
+    expect(screen.getByTestId('target-down')).toHaveTextContent('About $7,700 down');
+  });
+});
