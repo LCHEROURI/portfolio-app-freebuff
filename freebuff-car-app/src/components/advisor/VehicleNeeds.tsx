@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { maxPriceForBudget } from '@/lib/affordability';
 import type { Vehicle } from '@/data/vehicles';
 import { MPG_UNKNOWN } from '@/lib/marketcheck';
 import { APR_BY_CREDIT, BUDGET_TERM_MONTHS, estimateMonthlyPayment, minDownPaymentForBudget } from '@/lib/affordability';
@@ -110,8 +111,15 @@ export default function VehicleNeeds({ onContinue, intake, onSaveData }: Props =
   const [comparing, setComparing] = useState<string[]>([]);
   const [fetchState, setFetchState] = useState<FetchState>({ phase: 'loading' });
 
-  // Deterministic query string from intake + a refresh nonce, so a retry
-  // re-runs the effect (React deps) rather than refetching imperatively.
+  /**
+   * Per-visit price cap the user sets on Step 2 via the slider. When present,
+   * this OVERRIDES the Step 1 budget-derived ceiling — so the user can relax
+   * the search without going back to Step 1. Tightening below the Step 1
+   * ceiling is intentionally redundant (the budget already set that floor),
+   * so the slider pins at the ceiling rather than inventing a lower filter
+   * that no car could satisfy.
+   */
+  const [priceCap, setPriceCap] = useState<number | null>(null);
   const query = (() => {
     const p = new URLSearchParams();
     if (intake?.monthlyBudget) p.set('budget', intake.monthlyBudget);
@@ -123,6 +131,22 @@ export default function VehicleNeeds({ onContinue, intake, onSaveData }: Props =
   })();
   const [nonce, setNonce] = useState(0);
 
+  /**
+   * The effective price ceiling for this fetch — the Step 1 budget-derived
+   * ceiling unless the user overrode it on Step 2. The fetch target is
+   * derived at call time from the current intake + priceCap so the
+   * deterministic [query] dependency still holds.
+   */
+  function effectivePriceMax(): number | null {
+    if (priceCap !== null) return priceCap;
+    const budget = Number.parseFloat(intake?.monthlyBudget ?? '');
+    if (!Number.isFinite(budget) || budget <= 0) return null;
+    const down = Number.parseFloat(intake?.downPayment ?? '');
+    const intakeDown = Number.isFinite(down) && down > 0 ? down : 0;
+    const credit = intake?.creditRange ?? '';
+    return maxPriceForBudget({ monthlyBudget: budget, downPayment: intakeDown, creditRange: credit });
+  }
+
   const loadInventory = useCallback(async () => {
     setFetchState({ phase: 'loading' });
     try {
@@ -131,7 +155,13 @@ export default function VehicleNeeds({ onContinue, intake, onSaveData }: Props =
         ? (window as unknown as Record<string, unknown>).__VEHICLE_DATA__
         : undefined;
       if (Array.isArray(injected) && injected.length > 0) {
-        setFetchState({ phase: 'ready', source: 'demo', vehicles: injected as Vehicle[] });
+        const priceMax = effectivePriceMax();
+        setFetchState({
+          phase: 'ready',
+          source: 'demo',
+          vehicles: injected as Vehicle[],
+          priceMax: priceMax !== null ? priceMax : undefined,
+        });
         return;
       }
       const qs = query ? `?${query}` : '';
@@ -149,7 +179,7 @@ export default function VehicleNeeds({ onContinue, intake, onSaveData }: Props =
       console.error('[VehicleNeeds] inventory load failed:', err);
       setFetchState({ phase: 'error' });
     }
-  }, [query]);
+  }, [query, priceCap]);
 
   useEffect(() => {
     void loadInventory();
@@ -206,6 +236,34 @@ export default function VehicleNeeds({ onContinue, intake, onSaveData }: Props =
   const anyNeedActive =
     needs.awd || needs.seating5plus || needs.highFuelEconomy || needs.topSafetyPick || needs.appleCarPlay || needs.androidAuto;
 
+  // Derive the Step 1 ceiling once from the latest intake, so the slider's
+  // range and the banner label stay accurate even when the fetch is still
+  // loading. Gated on a real budget being present.
+  const step1Ceiling = (() => {
+    const budget = Number.parseFloat(intake?.monthlyBudget ?? '');
+    if (!Number.isFinite(budget) || budget <= 0) return null;
+    const down = Number.parseFloat(intake?.downPayment ?? '');
+    const intakeDown = Number.isFinite(down) && down > 0 ? down : 0;
+    const credit = intake?.creditRange ?? '';
+    return maxPriceForBudget({ monthlyBudget: budget, downPayment: intakeDown, creditRange: credit });
+  })();
+
+  function resetCap() {
+    setPriceCap(null);
+    setNonce((n) => n + 1);
+  }
+
+  /**
+   * Slider drag sets the local cap and forces a re-query (nonce rotation).
+   * There is no separate pointer handler on the thumb — resetting is an
+   * explicit action via the reset control below, so dragging never silently
+   * clears the cap.
+   */
+  function applyCap(cap: number | null) {
+    setPriceCap(cap);
+    setNonce((n) => n + 1);
+  }
+
   return (
     <div className="space-y-8">
       <div>
@@ -215,6 +273,49 @@ export default function VehicleNeeds({ onContinue, intake, onSaveData }: Props =
           are flagged.
         </p>
       </div>
+
+      {/* Price-cap slider — override the Step 1 ceiling without leaving Step 2.
+          Present only when the user arrived from Step 1 with a budget. */}
+      {intake?.monthlyBudget && step1Ceiling !== null && (
+        <div className="rounded-xl border border-ink-200 bg-white p-5 shadow-sm">
+          <p className="text-sm font-semibold text-navy-900">
+            Adjust your price cap
+          </p>
+          <p className="mt-1 text-xs text-ink-500">
+            Step 1 set your budget at {formatCurrency(Number.parseFloat(intake.monthlyBudget))} /mo, which filters to vehicles at or
+            under {formatCurrency(step1Ceiling)}. Drag to widen or tighten that ceiling — the inventory re-loads automatically.
+          </p>
+          <div className="mt-4 flex items-center gap-4">
+            <input
+              type="range"
+              min={0}
+              max={50000}
+              step={500}
+              value={priceCap ?? step1Ceiling}
+              onChange={(e) => applyCap(Number(e.target.value))}
+              className="min-w-0 flex-1 h-2 cursor-pointer appearance-none rounded-full bg-ink-100"
+            />
+            {priceCap !== null && priceCap !== step1Ceiling && (
+              <button
+                type="button"
+                onClick={resetCap}
+                className="shrink-0 rounded-lg bg-ink-100 px-3 py-1.5 text-sm font-medium text-ink-700 shadow-sm transition-colors hover:bg-ink-200"
+              >
+                Reset to Step 1 ceiling
+              </button>
+            )}
+          </div>
+          {priceCap !== null && (
+            <p className="mt-2 text-xs text-ink-400">
+              {priceCap === step1Ceiling
+                ? 'Showing your Step 1 budget-derived ceiling.'
+                : priceCap > step1Ceiling
+                  ? `Relaxed the cap to ${formatCurrency(priceCap)} — the inventory below now includes vehicles above your Step 1 ceiling. Smaller down payment or a higher budget brings that ceiling back down.`
+                  : `Tightened the cap to ${formatCurrency(priceCap)} — fewer vehicles will match. If floor price have moved up, this only helps confirm a higher-budget fit.`}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Live-feed status banner */}
       {fetchState.phase === 'ready' && fetchState.source === 'demo' && (
@@ -476,7 +577,10 @@ export default function VehicleNeeds({ onContinue, intake, onSaveData }: Props =
         <div className="flex justify-end">
           <button
             type="button"
-            onClick={onContinue}
+            onClick={() => {
+              resetCap();
+              onContinue?.();
+            }}
             className="inline-flex items-center gap-1.5 rounded-lg bg-navy-900 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-navy-800"
           >
             Continue to financing
