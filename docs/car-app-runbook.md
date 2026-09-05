@@ -8,10 +8,11 @@ pipeline; when this doc and the workflows disagree, the workflows win.
 - **Canonical live URL:** https://freebuff-car-app--portfolio-app-freebuff2.us-central1.hosted.app
   (the only hostname that serves this backend. This is the URL to open, share, and
   probe — e.g. `/api/version` and `/advisor`.)
-- **Custom domain `freebuff-car-app.web.app`:** not wired to this backend. It has no
-  DNS answer and returns Firebase "Site Not Found" / 404 — do not use it, do not link
-  to it, and do not re-add it unless the domain is explicitly connected to the
-  `freebuff-car-app` App Hosting backend in the Firebase Console.
+- **Custom domain `freebuff-car-app.web.app`:** resolves in DNS but is NOT wired to this
+  backend — it returns Firebase "Site Not Found" / 404 (currently `A 199.36.158.100`,
+  `AAAA 2620:0:890::100`). Do not use it, do not link to it, and do not re-add it unless
+  the domain is explicitly connected to the `freebuff-car-app` App Hosting backend in
+  the Firebase Console.
 - **Repo layout:** monorepo — the app lives in `freebuff-car-app/`; deploys
   only trigger on changes under that path (plus the deploy workflow itself).
 
