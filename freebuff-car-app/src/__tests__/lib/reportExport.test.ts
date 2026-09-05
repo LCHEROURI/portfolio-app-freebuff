@@ -306,3 +306,38 @@ describe('buildReportMarkdown', () => {
     expect(md).toContain('$299');
   });
 });
+
+describe('estimated payment row in the comparison table', () => {
+  it('puts the payment row first in the Markdown export, computed from intake', () => {
+    const md = buildReportMarkdown(RICH, '2026-09-03T12:00:00Z');
+    expect(md).toContain('| Est. monthly payment | $514/mo | $598/mo |');
+    // First row of the table, before MSRP.
+    expect(md.indexOf('Est. monthly payment')).toBeLessThan(md.indexOf('| MSRP |'));
+  });
+
+  it('mirrors the payment row in the plain-text export', () => {
+    const txt = buildReportPlainText(RICH, '2026-09-03T12:00:00Z');
+    expect(txt).toContain('Est. monthly payment');
+    expect(txt).toContain('$514/mo');
+    expect(txt).toContain('$598/mo');
+  });
+
+  it('renders n/a when the session has no budget (legacy sessions)', () => {
+    const noIntake: AdvisorState = { ...RICH, intake: {} };
+    const md = buildReportMarkdown(noIntake, '2026-09-03T12:00:00Z');
+    expect(md).toContain('| Est. monthly payment | n/a | n/a |');
+  });
+
+  it('renders n/a when the compared vehicle has no saved price', () => {
+    const specs = (RICH.vehicles as { specs?: Record<string, Record<string, unknown>> } | undefined)?.specs ?? {};
+    const noSpec: AdvisorState = {
+      ...RICH,
+      vehicles: {
+        ...(RICH.vehicles as Record<string, unknown>),
+        specs: { ...specs, camry: { ...specs.camry, msrp: undefined } },
+      },
+    } as AdvisorState;
+    const md = buildReportMarkdown(noSpec, '2026-09-03T12:00:00Z');
+    expect(md).toContain('| Est. monthly payment | n/a | $598/mo |');
+  });
+});

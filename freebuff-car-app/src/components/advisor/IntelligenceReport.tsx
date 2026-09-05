@@ -152,7 +152,7 @@ export default function IntelligenceReport({ onComplete, advisor, onReset }: Pro
 
   // Side-by-side spec columns for the compared vehicles (shared extractor
   // with the .md/.txt exporters — one source for all three renderings).
-  const compareColumns = buildCompareColumns(vehicles);
+  const compareColumns = buildCompareColumns(vehicles, intake);
 
   const score = dealScore?.result?.score;
   const hasScore = typeof score === 'number';
@@ -416,7 +416,7 @@ export default function IntelligenceReport({ onComplete, advisor, onReset }: Pro
                 </table>
               </div>
               {(COMPARE_MIN_ROWS.size > 0 || COMPARE_MAX_ROWS.size > 0) && (
-                <p className="mt-2 text-xs text-ink-500">Green “Best” marks the lowest MSRP and highest combined MPG among your compared vehicles.</p>
+                <p className="mt-2 text-xs text-ink-500">Green “Best” marks the lowest MSRP and highest combined MPG among your compared vehicles. Payment estimates come from your Step 1 down payment and credit range.</p>
               )}
             </Section>
           )}
