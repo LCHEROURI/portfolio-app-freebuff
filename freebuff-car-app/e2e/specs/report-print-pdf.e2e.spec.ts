@@ -67,8 +67,9 @@ test('real Chromium print PDF carries the report and excludes every piece of app
   expect(paperText).not.toContain('Start Over');
 
   // ---- The report itself must BE on the paper ----
-  expect(paperText).toContain('Car Purchase Intelligence Report');
-  for (const heading of [
+  const required = [
+    'Car Purchase Intelligence Report',
+    // Every section heading…
     'Your budget',
     'Financing math',
     'Trade-in position',
@@ -78,13 +79,15 @@ test('real Chromium print PDF carries the report and excludes every piece of app
     'Side-by-side comparison',
     'Deal score',
     'Negotiation ground rules',
-  ]) {
-    expect(paperText).toContain(heading);
-  }
-  // Populated deal score from the saved Step 10 result.
-  expect(paperText).toContain(`${EXPECTED_SCORE} / 100`);
-  expect(paperText).toContain('Financing affordability');
-  expect(paperText).toContain('Positive trade-in equity');
-  // A ground-rules line, proving full report sections made it onto paper.
-  expect(paperText).toContain('Negotiate the out-the-door price first');
+    // …the populated deal score from the saved Step 10 result…
+    `${EXPECTED_SCORE} / 100`,
+    'Financing affordability',
+    'Positive trade-in equity',
+    // …and a full report line, proving content made it onto paper.
+    'Negotiate the out-the-door price first',
+  ];
+  const missing = required.filter((token) => !paperText.includes(token));
+  expect(missing, `tokens missing from the paper output — ${missing.join(', ')}
+===== extracted paper text =====
+${paperText}`).toEqual([]);
 });
