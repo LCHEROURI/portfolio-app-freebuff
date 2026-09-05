@@ -52,10 +52,6 @@ describe('ShoppingStrategy', () => {
     delete (window as unknown as Record<string, unknown>).__VEHICLE_DATA__;
   });
 
-  it('renders the step header', () => {
-    render(<ShoppingStrategy />);
-    expect(screen.getByText('Step 6 of 10 — Auto Shopping Strategy & Recommendations')).toBeInTheDocument();
-  });
 
   it('renders all 6 needs checkboxes', () => {
     render(<ShoppingStrategy />);

@@ -169,14 +169,6 @@ export default function ShoppingStrategy({ onContinue }: Props = {}) {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h2 className="text-xl font-bold text-navy-900">Step 6 of 10 — Auto Shopping Strategy &amp; Recommendations</h2>
-        <p className="mt-1 text-ink-600">
-          Based on the needs you flagged, vehicles are grouped into three tiers. Each tier shows strengths,
-          concerns, and a plain-language next step. Adjust the needs checkboxes to refine the strategy.
-        </p>
-      </div>
-
       {activeNeeds > 0 && (
         <div className="rounded-xl border border-navy-200 bg-navy-50 p-4">
           <p className="text-sm font-medium text-navy-900">

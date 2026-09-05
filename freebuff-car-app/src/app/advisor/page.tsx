@@ -97,16 +97,16 @@ const BACK_LABELS: Partial<Record<Step, string>> = {
 
 const STEP_DESCRIPTIONS: Record<Step, string> = {
   1: 'Start with your budget and priorities. Everything else builds from this.',
-  2: 'Review the vehicles below and check the needs that matter to you.',
+  2: 'Review the vehicles below and check the needs that matter to you. Vehicles that miss a checked need are flagged.',
   3: 'Enter the vehicle price, down payment, APR, and term to see your monthly payment and total cost.',
   4: 'Compare buying new, leasing, and buying used side by side. Adjust any number to see how the trade-offs shift.',
-  5: 'Build a realistic monthly ownership budget. Enter your estimated costs for each category.',
-  6: 'Based on your needs, vehicles are grouped into three tiers with strengths, concerns, and next steps.',
-  7: 'Enter the trade-in value and payoff to see your net equity position.',
-  8: 'Itemize the dealer quote and audit fees and add-ons for red flags.',
+  5: 'Build a realistic monthly ownership budget. Enter your estimated costs for each category — the calculator adds them up and compares the total against your monthly payment.',
+  6: 'Based on the needs you flagged, vehicles are grouped into three tiers. Each tier shows strengths, concerns, and a plain-language next step. Adjust the needs checkboxes to refine the strategy.',
+  7: 'Enter the trade-in value offered by the dealer and the outstanding payoff on your current loan. We will compute your net equity and warn you if you are upside down.',
+  8: 'Enter the itemized fees from the dealer quote. The auditor flags excessive documentation fees and known high-margin add-ons.',
   9: 'Scripts for the most common dealer tactics — read before you visit.',
-  10: 'Your weighted 0-100 deal score with the full breakdown.',
-  11: 'Printable summary of everything you entered and learned.',
+  10: 'Enter the collected deal inputs. The score is computed with fixed weights: financing affordability 25, add-ons 20, doc fee 20, priorities 20, trade equity 15.',
+  11: 'Your complete car-buying briefing, assembled from the numbers you entered across the flow — ready to print and take with you.',
 };
 
 export default function AdvisorPage() {
