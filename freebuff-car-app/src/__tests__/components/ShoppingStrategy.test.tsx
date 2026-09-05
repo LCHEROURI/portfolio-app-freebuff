@@ -107,13 +107,13 @@ describe('ShoppingStrategy', () => {
     // Continue button only renders when onContinue prop is provided AND vehicles exist.
     const onContinue = jest.fn();
     render(<ShoppingStrategy onContinue={onContinue} />);
-    expect(screen.getByRole('button', { name: /continue to budget breakdown/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /continue to trade-in analysis/i })).toBeInTheDocument();
   });
 
   it('calls onContinue when continue button is clicked', () => {
     const onContinue = jest.fn();
     render(<ShoppingStrategy onContinue={onContinue} />);
-    fireEvent.click(screen.getByRole('button', { name: /continue to budget breakdown/i }));
+    fireEvent.click(screen.getByRole('button', { name: /continue to trade-in analysis/i }));
     expect(onContinue).toHaveBeenCalledTimes(1);
   });
 });
