@@ -47,16 +47,6 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v5
 
-      # ⚠️ TEMPORARY FAILURE DRILL — deliberately fails this deploy run to
-      # prove the notify-failure page alert fires only on a genuine deploy
-      # failure. Removed by the immediately-following revert PR. The live
-      # app is unaffected: the previous rollout keeps serving while this
-      # run fails before any Firebase work.
-      - name: TEMPORARY FAILURE DRILL (remove in revert PR)
-        run: |
-          echo "::error::TEMPORARY FAILURE DRILL — intentionally failing deploy to prove alert routing"
-          exit 1
-
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
