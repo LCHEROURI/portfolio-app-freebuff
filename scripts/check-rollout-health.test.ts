@@ -234,6 +234,63 @@ describe('.github/workflows/rollout-health.yml · workflow text matches the rout
   });
 });
 
+describe('.github/workflows/rollout-health.yml · test_webhook preflight guard', () => {
+  // A test_webhook=true dispatch exists to PROVE page-tier webhook delivery
+  // end to end. With ALERT_WEBHOOK_URL missing it must fail fast and loudly
+  // with the exact setup message — before the classify/issue steps run —
+  // rather than succeeding at classification and failing deep inside the
+  // webhook step. The step is gated on the input so scheduled runs and
+  // ordinary dispatches never touch it.
+  const PREFLIGHT_MSG =
+    "::error::Webhook test FAILED — ALERT_WEBHOOK_URL is not set in this repo's Actions secrets. Set it with: gh secret set ALERT_WEBHOOK_URL --repo $GITHUB_REPOSITORY";
+
+  it('fails a test_webhook dispatch when ALERT_WEBHOOK_URL is missing, with the exact message', () => {
+    expect(WORKFLOW).toContain('name: Preflight webhook secret (test_webhook dispatch)');
+    expect(WORKFLOW).toContain("if: ${{ inputs.test_webhook == true }}");
+    expect(WORKFLOW).toContain(PREFLIGHT_MSG);
+    expect(WORKFLOW).toContain('exit 1');
+  });
+
+  it('runs the preflight BEFORE any gcloud/Firebase work', () => {
+    const preflightStart = WORKFLOW.indexOf('Preflight webhook secret');
+    const checkoutStart = WORKFLOW.indexOf('uses: actions/checkout@v5');
+    const activateStart = WORKFLOW.indexOf('Activate service account');
+    expect(preflightStart).toBeGreaterThan(-1);
+    expect(checkoutStart).toBeGreaterThan(preflightStart);
+    expect(activateStart).toBeGreaterThan(preflightStart);
+  });
+
+  it('leaves the downstream safety-net check in the webhook step', () => {
+    // The preflight makes the failure fast; the webhook step's own guard
+    // remains the safety net for any path that reaches it without the
+    // secret. Both must carry the identical message so alerts are uniform.
+    const webhookStep = WORKFLOW.slice(WORKFLOW.indexOf('Send webhook alert'));
+    expect(webhookStep).toContain(PREFLIGHT_MSG);
+  });
+
+  it('catches the preflight being dropped (mutation)', () => {
+    const dropped = WORKFLOW.replace(
+      '      - name: Preflight webhook secret (test_webhook dispatch)',
+      '      - name: (preflight removed)',
+    );
+    expect(dropped, 'the preflight-drop mutation must actually land').not.toBe(WORKFLOW);
+    expect(() => {
+      expect(dropped).toContain('name: Preflight webhook secret (test_webhook dispatch)');
+    }).toThrow();
+  });
+
+  it('catches the preflight gate being removed so it would run on every dispatch (mutation)', () => {
+    const ungated = WORKFLOW.replace(
+      "        if: ${{ inputs.test_webhook == true }}\n",
+      '',
+    );
+    expect(ungated, 'the gate-removal mutation must actually land').not.toBe(WORKFLOW);
+    expect(() => {
+      expect(ungated).toContain("if: ${{ inputs.test_webhook == true }}");
+    }).toThrow();
+  });
+});
+
 describe('deploy workflows · webhook steps must be failure-gated', () => {
   // Found live: the notify-failure webhook step in both deploy workflows was
   // gated ONLY on ALERT_WEBHOOK_URL being set, so every successful deploy

@@ -53,6 +53,24 @@ jobs:
       ALERT_WEBHOOK_URL_QUIET: ${{ secrets.ALERT_WEBHOOK_URL_QUIET }}
 
     steps:
+      # Preflight for the forced webhook proof: test_webhook=true exists to
+      # prove page-tier delivery end to end, so with the secret missing the
+      # dispatch must fail FAST with the exact setup message — not run the
+      # classify/issue steps and fail deep inside the webhook step. The
+      # downstream check stays as the safety net; this makes the failure
+      # immediate, before any gcloud or Firebase work.
+      - name: Preflight webhook secret (test_webhook dispatch)
+        if: ${{ inputs.test_webhook == true }}
+        env:
+          ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${ALERT_WEBHOOK_URL:-}" ]; then
+            echo "::error::Webhook test FAILED — ALERT_WEBHOOK_URL is not set in this repo's Actions secrets. Set it with: gh secret set ALERT_WEBHOOK_URL --repo $GITHUB_REPOSITORY"
+            exit 1
+          fi
+          echo "preflight: ALERT_WEBHOOK_URL is set — proceeding with the forced webhook test"
+
       - name: Check out repository
         uses: actions/checkout@v5
 
