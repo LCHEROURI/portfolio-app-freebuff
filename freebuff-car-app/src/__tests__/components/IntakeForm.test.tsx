@@ -181,3 +181,39 @@ describe('IntakeForm live price-ceiling preview', () => {
     expect(screen.getByText(/save & continue/i)).toBeInTheDocument();
   });
 });
+
+describe('IntakeForm budget slider', () => {
+  it('writes the budget on drag and re-prices the ceiling live', () => {
+    render(<IntakeForm />);
+    const slider = screen.getByLabelText(/budget explorer/i);
+    fireEvent.change(slider, { target: { value: '600' } });
+    // Two-way sync: the text input mirrors the drag.
+    expect(screen.getByLabelText(/monthly budget/i)).toHaveValue(600);
+    // $600/mo, $0 down, good-credit fallback -> $28,000 ceiling.
+    expect(screen.getByTestId('ceiling-panel')).toHaveTextContent('roughly $28,000');
+    // Within-budget drag position renders with the green accent.
+    expect(slider).toHaveClass('accent-good-600');
+  });
+
+  it('moves when the budget is typed (two-way sync)', () => {
+    render(<IntakeForm />);
+    fireEvent.change(screen.getByLabelText(/monthly budget/i), { target: { value: '750' } });
+    expect(screen.getByLabelText(/budget explorer/i)).toHaveValue('750');
+    expect(screen.getByTestId('ceiling-panel')).toHaveTextContent('roughly $35,000');
+  });
+
+  it('clamps an out-of-range budget to the slider bounds without editing the input', () => {
+    render(<IntakeForm />);
+    fireEvent.change(screen.getByLabelText(/monthly budget/i), { target: { value: '5000' } });
+    // Thumb pins at the top of the scale; the typed value stays intact.
+    expect(screen.getByLabelText(/budget explorer/i)).toHaveValue('2000');
+    expect(screen.getByLabelText(/monthly budget/i)).toHaveValue(5000);
+  });
+
+  it('sits ready at $100 before any budget is typed', () => {
+    render(<IntakeForm />);
+    expect(screen.getByLabelText(/budget explorer/i)).toHaveValue('100');
+    // No ceiling panel yet — nothing saved, nothing claimed.
+    expect(screen.queryByTestId('ceiling-panel')).toBeNull();
+  });
+});
