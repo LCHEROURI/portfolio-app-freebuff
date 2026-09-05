@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Vehicle } from '@/data/vehicles';
 import { MPG_UNKNOWN } from '@/lib/marketcheck';
+import { APR_BY_CREDIT, BUDGET_TERM_MONTHS, estimateMonthlyPayment } from '@/lib/affordability';
 
 /** Persisted spec snapshot for one compared vehicle (Step 2 → report). */
 export interface VehicleSpecSnapshot {
@@ -312,7 +313,13 @@ export default function VehicleNeeds({ onContinue, intake, onSaveData }: Props =
         </div>
       )}
 
-      {fetchState.phase === 'ready' && fetchState.vehicles.length > 0 && (
+      {fetchState.phase === 'ready' && fetchState.vehicles.length > 0 && (() => {
+        const term = BUDGET_TERM_MONTHS;
+        const apr = APR_BY_CREDIT[(intake?.creditRange as keyof typeof APR_BY_CREDIT) ?? 'good'] ?? APR_BY_CREDIT.good;
+        const downRaw = Number.parseFloat(intake?.downPayment ?? '');
+        const intakeDown = Number.isFinite(downRaw) && downRaw > 0 ? downRaw : 0;
+        const intakeCredit = intake?.creditRange ?? '';
+        return (
         <div className="space-y-4">
           {fetchState.vehicles.map((vehicle) => {
             const meets = vehicleMeetsNeeds(vehicle, needs);
@@ -320,6 +327,11 @@ export default function VehicleNeeds({ onContinue, intake, onSaveData }: Props =
             const met = meetsCount(meets);
             const total = Object.keys(needs).length;
             const isComparing = comparing.includes(vehicle.id);
+            const estPayment = estimateMonthlyPayment({
+              price: vehicle.msrp,
+              downPayment: intakeDown,
+              creditRange: intakeCredit,
+            });
 
             return (
               <div
@@ -343,6 +355,18 @@ export default function VehicleNeeds({ onContinue, intake, onSaveData }: Props =
                       {vehicle.fuelEconomyCombined === MPG_UNKNOWN ? '' : ' MPG combined'} ·{' '}
                       {vehicle.seating} seats · {vehicle.drive.toUpperCase()} · {vehicle.safetyRating}
                     </p>
+                    {intake?.monthlyBudget && (estPayment !== null ? (
+                      <p className="mt-1 text-sm font-medium text-navy-900" data-testid="est-payment">
+                        Est. {formatCurrency(estPayment)}/mo
+                        <span className="font-normal text-ink-500">
+                          {' '}· {term} mo at {apr}% APR with {formatCurrency(intakeDown)} down
+                        </span>
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-sm text-ink-500" data-testid="est-payment">
+                        Est. payment unavailable — {formatCurrency(vehicle.msrp)} MSRP with {formatCurrency(intakeDown)} down leaves nothing to finance.
+                      </p>
+                    ))}
                     {vehicle.tech.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         {vehicle.tech.map((t) => (
@@ -411,8 +435,14 @@ export default function VehicleNeeds({ onContinue, intake, onSaveData }: Props =
               </div>
             );
           })}
+          {intake?.monthlyBudget && (
+            <p className="text-xs text-ink-400">
+              Payment estimates use your Step 1 down payment and credit range over a {term}-month loan, plus an allowance for sales tax and fees. Step 3 computes exact figures from your real deal.
+            </p>
+          )}
         </div>
-      )}
+        );
+      })()}
 
       {/* Comparison summary */}
       {comparing.length > 0 && (

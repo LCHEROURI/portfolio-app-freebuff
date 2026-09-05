@@ -1,4 +1,5 @@
 import {
+  estimateMonthlyPayment,
   maxPriceForBudget,
   maxPrincipalForPayment,
   monthlyPayment,
@@ -73,5 +74,44 @@ describe('maxPriceForBudget', () => {
   it('returns null when the ceiling rounds below $100 (tiny budget)', () => {
     // $2/mo x 60 = $120 principal -> price ~$110 -> floors to 0.
     expect(maxPriceForBudget({ monthlyBudget: 2, downPayment: 0, creditRange: 'good', aprOverride: 6 })).toBeNull();
+  });
+});
+
+describe('estimateMonthlyPayment', () => {
+  it('prices the sample fleet exactly (good credit, $5,000 down)', () => {
+    expect(estimateMonthlyPayment({ price: 28595, downPayment: 5000, creditRange: 'good' })).toBe(514);
+    expect(estimateMonthlyPayment({ price: 32495, downPayment: 5000, creditRange: 'good' })).toBe(598);
+  });
+
+  it('moves with the credit tier (better credit, lower payment)', () => {
+    expect(estimateMonthlyPayment({ price: 28595, downPayment: 5000, creditRange: 'excellent' })).toBe(496);
+    const excellent = estimateMonthlyPayment({ price: 28595, downPayment: 5000, creditRange: 'excellent' });
+    const poor = estimateMonthlyPayment({ price: 28595, downPayment: 5000, creditRange: 'poor' });
+    expect((poor as number)).toBeGreaterThan(excellent as number);
+  });
+
+  it('round-trips against maxPriceForBudget: the ceiling prices back to the budget', () => {
+    for (const monthlyBudget of [500, 750]) {
+      const ceiling = maxPriceForBudget({ monthlyBudget, downPayment: 5000, creditRange: 'good' });
+      expect(ceiling).not.toBeNull();
+      const payment = estimateMonthlyPayment({ price: ceiling as number, downPayment: 5000, creditRange: 'good' });
+      expect(payment).not.toBeNull();
+      // Within one rounding dollar of the budget — the two functions are inverses.
+      expect(Math.abs((payment as number) - monthlyBudget)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('is honest when there is nothing to finance', () => {
+    expect(estimateMonthlyPayment({ price: 0, downPayment: 0, creditRange: 'good' })).toBeNull();
+    expect(estimateMonthlyPayment({ price: -500, downPayment: 0, creditRange: 'good' })).toBeNull();
+    expect(estimateMonthlyPayment({ price: 3000, downPayment: 3000, creditRange: 'good' })).toBeNull();
+    expect(estimateMonthlyPayment({ price: 3000, downPayment: 5000, creditRange: 'good' })).toBeNull();
+    expect(estimateMonthlyPayment({ price: NaN, downPayment: 0, creditRange: 'good' })).toBeNull();
+  });
+
+  it('treats a missing down payment as zero', () => {
+    const withZero = estimateMonthlyPayment({ price: 28595, downPayment: 0, creditRange: 'good' });
+    const withEmpty = estimateMonthlyPayment({ price: 28595, downPayment: -400, creditRange: 'good' });
+    expect(withEmpty).toBe(withZero);
   });
 });
