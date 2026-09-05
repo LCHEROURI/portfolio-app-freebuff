@@ -70,4 +70,17 @@ test('the .md and .txt exports carry the same populated deal-score breakdown as 
   expect(txtText).toContain(`${EXPECTED_SCORE} / 100`);
   for (const row of SCORE_ROWS) expect(txtText).toContain(`* ${row}`);
   expect(txtText).not.toContain('not completed');
+
+  // ---- Copy to clipboard: writes the SAME markdown the .md download
+  // produced (both call buildReportMarkdown(advisor, savedAt)), so it must
+  // equal the .md file byte-for-byte — deal-score breakdown included. ----
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.getByRole('button', { name: /copy report/i }).click();
+  await expect(page.getByText('Copied!')).toBeVisible();
+  const clipboard = await page.evaluate(() => navigator.clipboard.readText());
+  expect(clipboard).toBe(mdText);
+  // Belt and braces: the deal-score section is present in the clipboard text.
+  expect(clipboard).toContain('## Deal score');
+  expect(clipboard).toContain(`**${EXPECTED_SCORE} / 100**`);
+  for (const row of SCORE_ROWS) expect(clipboard).toContain(`- ${row}`);
 });
