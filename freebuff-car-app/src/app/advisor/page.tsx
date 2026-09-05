@@ -226,7 +226,7 @@ export default function AdvisorPage() {
         </a>
       </div>
       <p data-testid="advisor-footer" className={`pt-2 text-center text-xs text-ink-400 ${printHideChrome}`}>
-        freebuff-car-app deploy marker — a fresh push confirms the rollout pipeline end to end
+        freebuff-car-app deploy marker — a fresh push confirms the rollout pipeline end to end · stale-webhook-proof-2026-09-05
       </p>
     </div>
   );
