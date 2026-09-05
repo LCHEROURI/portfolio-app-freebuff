@@ -147,9 +147,15 @@ export default function AdvisorPage() {
 
   const stepDescription = STEP_DESCRIPTIONS[step];
 
+  // On the report step, printing is the app's one printable artifact: the
+  // Intelligence Report. Its own chrome is already print:hidden, so the
+  // page shell around it (step header + progress, bottom nav, deploy
+  // marker) must not leak into the printed page — see Prompt 11.
+  const printHideChrome = step === 11 ? 'print:hidden' : '';
+
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div data-testid="advisor-chrome" className={`flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between ${printHideChrome}`}>
         <div>
           <h1 className="text-2xl font-bold text-navy-900">
             Step {step} of 11 — {stepLabel}
@@ -196,7 +202,7 @@ export default function AdvisorPage() {
         />
       )}
 
-      <div className="flex items-center justify-between pt-4">
+      <div data-testid="advisor-nav" className={`flex items-center justify-between pt-4 ${printHideChrome}`}>
         {step > 1 && (
           <button
             type="button"
@@ -219,7 +225,7 @@ export default function AdvisorPage() {
           Back to home
         </a>
       </div>
-      <p className="pt-2 text-center text-xs text-ink-400">
+      <p data-testid="advisor-footer" className={`pt-2 text-center text-xs text-ink-400 ${printHideChrome}`}>
         freebuff-car-app deploy marker — a fresh push confirms the rollout pipeline end to end
       </p>
     </div>

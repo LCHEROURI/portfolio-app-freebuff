@@ -150,3 +150,20 @@
 - `npx jest` — 94/94 tests pass (11 suites)
 - `npx next lint` — clean
 - `npx next build` — compiled successfully
+
+### Prompt 11 gap-fix — print CSS hides app navigation in the Intelligence Report
+
+**Date:** 2026-09-05
+
+**Problem found:** Prompt 11 requires "Print CSS does not show app navigation in the report," but only the IntelligenceReport's *own* chrome was print:hidden. Printing from Step 11 emitted the whole advisor page shell — the sticky top bar, the Step header + StepProgress, the bottom Back/Back-to-home nav, and the deploy-marker footer — around the report.
+
+**Changes:**
+- `src/app/advisor/layout.tsx` — top bar header is now `print:hidden` (pure app navigation).
+- `src/app/advisor/page.tsx` — on Step 11 the page shell (`advisor-chrome` header row incl. StepProgress, `advisor-nav` bottom row, `advisor-footer` deploy marker) gets `print:hidden`; other steps keep their chrome printable.
+- `src/styles/globals.css` — `@media print`: white body, zeroed main padding, shadows stripped, `print-color-adjust: exact`, and sections avoid page breaks.
+- `src/__tests__/app/advisor-print.test.tsx` — 3 tests: report-step chrome is print-hidden, generated report stays printable while its action buttons stay hidden, and non-report steps keep chrome visible.
+
+**Verification:**
+- `npx tsc --noEmit` — clean
+- `npx jest` — 287/287 pass (24 suites)
+- `npx next build` — green

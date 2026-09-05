@@ -7,8 +7,9 @@ export default function AdvisorLayout({
 }) {
   return (
     <div className="min-h-screen bg-ink-50">
-      {/* Top bar */}
-      <header className="sticky top-0 z-30 w-full border-b border-ink-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
+      {/* Top bar — pure app navigation, never printed (the Intelligence
+          Report is the only printable artifact and it must not carry it). */}
+      <header className="sticky top-0 z-30 w-full border-b border-ink-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80 print:hidden">
         <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-4 sm:px-6 lg:px-8">
           <Link
             href="/"
