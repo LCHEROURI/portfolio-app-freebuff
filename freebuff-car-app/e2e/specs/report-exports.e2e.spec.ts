@@ -6,12 +6,16 @@ import { walkAdvisorToGeneratedReport, EXPECTED_SCORE } from '../helpers/advisor
 
 // End-to-end: after walking the real advisor flow (empty session -> generated
 // report), download the .md and .txt exports and assert they carry the SAME
-// populated deal-score breakdown the on-screen report shows — the score out
-// of 100 and each of the five weighted engine rows — with no "not completed"
-// placeholder. The report component and both exporters all read the single
-// saved `dealScore.result`, so any divergence between the three renderings
-// fails here. Expected math for the walk's inputs: 88 = 25 (financing) + 8
-// (3 flagged add-ons) + 20 (doc fee) + 20 (priorities) + 15 (equity).
+// populated report the on-screen version shows — every section: budget,
+// financing math, trade-in, dealer-quote audit (incl. red flags), ownership
+// budget, needs, the side-by-side comparison, the negotiation ground rules,
+// and the deal-score breakdown (88 / 100 with all five weighted rows) — with
+// no "not completed" placeholder. The on-screen component and both exporters
+// all read the single saved advisor state, so any divergence between the
+// renderings fails here. Expected math for the walk's inputs: financing
+// 28595 - 5000 at 6.5%/60mo = $462/mo, $27,700 total; equity 12000 - 9000 =
+// +$3,000; ownership defaults = $915/mo; deal score 88 = 25 + 8 + 20 + 20
+// + 15.
 
 test.describe.configure({ timeout: 180_000 });
 
@@ -45,7 +49,51 @@ const DEAL_SCORE_TOKENS = [
   }),
 ];
 
-test('the .md and .txt exports carry the same populated deal-score breakdown as the screen', async ({ page }) => {
+// Every other section's figures, in report order. Single-column rows use
+// `label: value` (contiguous in all four renderings after normalization);
+// comparison-table cells use label-only + value-only tokens because columns
+// are side-by-side there.
+const SECTION_TOKENS = [
+  // Section headings themselves.
+  'Your budget', 'Financing math', 'Trade-in position', 'Dealer-quote audit',
+  'Monthly ownership budget', 'Non-negotiable needs',
+  'Side-by-side comparison', 'Deal score', 'Negotiation ground rules',
+  // Budget (Step 1)
+  'Monthly budget: $600', 'Down payment: $5,000', 'Credit range: good',
+  // Financing math (Step 3)
+  'Vehicle price: $28,595', 'Amount financed: $23,595',
+  'APR / term: 6.5% / 60 mo', 'Monthly payment: $462',
+  'Total cost of loan: $27,700', 'fits within your monthly budget',
+  // Trade-in (Step 7)
+  'Trade-in value: $12,000', 'Loan payoff: $9,000', 'Equity: +$3,000',
+  // Dealer-quote audit (Step 8)
+  'Documentation fee: $129', 'Title & registration: $345',
+  'Add-ons quoted: Fabric Protection, Nitrogen Tires, Glass Etching',
+  'High-margin add-on detected: "fabric protection"',
+  'High-margin add-on detected: "nitrogen tires"',
+  'High-margin add-on detected: "glass etching"',
+  // Ownership budget (Step 5)
+  'Estimated total per month: $915',
+  // Non-negotiable needs (Step 2)
+  'All-wheel drive', '5+ seats',
+  // Side-by-side comparison (columns render side-by-side, so token the
+  // labels and each column's values independently)
+  'Est. monthly payment', '514/mo', '598/mo',
+  'MSRP', '28,595', '32,495',
+  'MPG combined', '33', '29',
+  'Seating', '5 seats',
+  'Drivetrain', 'FWD', 'AWD',
+  'Safety', 'IIHS Top Safety Pick+', 'Best',
+  // Negotiation ground rules
+  'Negotiate the out-the-door price first — payments last.',
+];
+
+const EXPECTED_TOKENS = [
+  ...DEAL_SCORE_TOKENS,
+  ...SECTION_TOKENS.map((t) => norm(t)),
+];
+
+test('the .md and .txt exports carry every report section identically to the screen', async ({ page }) => {
   await walkAdvisorToGeneratedReport(page);
 
   // Baseline: the on-screen report shows the score and all five rows.
@@ -102,8 +150,9 @@ test('the .md and .txt exports carry the same populated deal-score breakdown as 
   // clipboard and .md are both buildReportMarkdown output and were asserted
   // byte-for-byte equal above. The remaining formats deliberately use a
   // different syntax (DOM text, plain text), so their agreement with the
-  // others is asserted on the canonical figures — every score/earned/max
-  // token must appear in all four renderings of this single generation. ----
+  // others is asserted on the canonical figures — every section heading,
+  // figure, and row must appear in all four renderings of this single
+  // generation. ----
   const screenText = await page.locator('main').innerText();
   const renderings: Record<string, string> = {
     'on-screen': norm(screenText),
@@ -112,10 +161,10 @@ test('the .md and .txt exports carry the same populated deal-score breakdown as 
     'clipboard': norm(clipboard),
   };
   for (const [format, text] of Object.entries(renderings)) {
-    for (const token of DEAL_SCORE_TOKENS) {
+    for (const token of EXPECTED_TOKENS) {
       expect(
         text,
-        `${format} rendering is missing deal-score figure "${token}"`,
+        `${format} rendering is missing report figure "${token}"`,
       ).toContain(token);
     }
   }
