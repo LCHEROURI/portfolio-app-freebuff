@@ -53,6 +53,38 @@ export function maxPrincipalForPayment(payment: number, annualRatePercent: numbe
   return (payment * (factor - 1)) / (monthlyRate * factor);
 }
 
+export interface PaymentEstimateInput {
+  /** Listed vehicle price (MSRP) in dollars. */
+  price: number;
+  /** Down payment in dollars (e.g. 5000). */
+  downPayment: number;
+  /** Credit tier from Step 1; '' when the user has not chosen yet. */
+  creditRange: string;
+  /** Loan term in months. Defaults to BUDGET_TERM_MONTHS. */
+  termMonths?: number;
+  /** Override APR (annual %) — used by tests to pin exact values. */
+  aprOverride?: number;
+}
+
+/**
+ * Estimated monthly payment for a listed price under the SAME assumptions as
+ * maxPriceForBudget (tier APR, BUDGET_TERM_MONTHS, FEE_HEADROOM_FACTOR), so a
+ * vehicle priced at the user's ceiling shows a payment ~= their budget.
+ * Returns null when no meaningful estimate exists (non-positive price, or a
+ * price that does not exceed the down payment — nothing left to finance).
+ */
+export function estimateMonthlyPayment(input: PaymentEstimateInput): number | null {
+  const { price, downPayment, creditRange, termMonths = BUDGET_TERM_MONTHS } = input;
+  if (!Number.isFinite(price) || price <= 0) return null;
+  const down = downPayment > 0 ? downPayment : 0;
+  if (down >= price) return null;
+
+  const apr = input.aprOverride ?? APR_BY_CREDIT[creditRange as keyof typeof APR_BY_CREDIT] ?? APR_BY_CREDIT.good;
+  const taxed = price * (1 + FEE_HEADROOM_FACTOR);
+  const principal = taxed - down;
+  return Math.round(monthlyPayment(principal, apr, termMonths));
+}
+
 export interface BudgetInput {
   /** Monthly payment budget in dollars (e.g. 4500). */
   monthlyBudget: number;

@@ -241,4 +241,12 @@ test('Step 1 budget funnels into the Step 2 inventory request', async ({ page })
   expect(url.searchParams.get('budget')).toBe('4500');
   expect(url.searchParams.get('down')).toBe('5000');
   expect(url.searchParams.get('credit')).toBe('good');
+
+  // Each Step 2 card derives an estimated monthly payment from the Step 1
+  // budget inputs. Demo fleet first card: Camry at $28,595, good credit,
+  // $5,000 down -> exactly $514/mo over the assumed 60-month term.
+  const payments = page.getByTestId('est-payment');
+  await expect(payments).toHaveCount(3);
+  await expect(payments.first()).toContainText('Est. $514/mo');
+  await expect(payments.first()).toContainText('60 mo at 6.5% APR with $5,000 down');
 });

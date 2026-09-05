@@ -273,3 +273,43 @@ describe('VehicleNeeds', () => {
 
 // Keep waitFor imported for future async assertions without lint noise.
 void waitFor;
+
+describe('VehicleNeeds estimated monthly payments', () => {
+  it('shows the derived payment with its assumptions on each card', async () => {
+    mockFetchOnce({ source: 'demo', vehicles: FLEET });
+    setup({ intake: { monthlyBudget: '500', downPayment: '5000', creditRange: 'good' } });
+    await screen.findByText('2025 Toyota Camry LE');
+    const lines = await screen.findAllByTestId('est-payment');
+    expect(lines).toHaveLength(2);
+    expect(lines[0].textContent).toContain('Est. $514/mo');
+    expect(lines[0].textContent).toContain('60 mo at 6.5% APR with $5,000 down');
+    expect(lines[1].textContent).toContain('Est. $598/mo');
+    // Assumptions footer explains the derivation.
+    expect(screen.getByText(/Payment estimates use your Step 1 down payment/)).toBeInTheDocument();
+  });
+
+  it('moves the payment with the credit tier', async () => {
+    mockFetchOnce({ source: 'demo', vehicles: FLEET });
+    setup({ intake: { monthlyBudget: '500', downPayment: '5000', creditRange: 'excellent' } });
+    await screen.findByText('2025 Toyota Camry LE');
+    const lines = await screen.findAllByTestId('est-payment');
+    expect(lines[0].textContent).toContain('Est. $496/mo');
+    expect(lines[0].textContent).toContain('at 5% APR');
+  });
+
+  it('is honest when the down payment leaves nothing to finance', async () => {
+    mockFetchOnce({ source: 'demo', vehicles: FLEET });
+    setup({ intake: { monthlyBudget: '500', downPayment: '50000', creditRange: 'good' } });
+    await screen.findByText('2025 Toyota Camry LE');
+    const lines = await screen.findAllByTestId('est-payment');
+    expect(lines[0].textContent).toContain('Est. payment unavailable');
+    expect(lines[0].textContent).toContain('leaves nothing to finance');
+  });
+
+  it('hides payment estimates when no Step 1 budget exists', async () => {
+    mockFetchOnce({ source: 'demo', vehicles: FLEET });
+    setup({ intake: null });
+    await screen.findByText('2025 Toyota Camry LE');
+    expect(screen.queryAllByTestId('est-payment')).toHaveLength(0);
+  });
+});
