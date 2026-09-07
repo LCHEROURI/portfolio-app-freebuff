@@ -16,11 +16,23 @@
 //   node scripts/scan-all.mjs --skip foo,bar  # skip repo names
 //   node scripts/scan-all.mjs --token <pat>   # bearer token for the API
 //   node scripts/scan-all.mjs --notify        # after a clean sweep, regenerate
-//                                             # the daily email via the cron
+//                                             # the daily report via the cron
 //                                             # endpoint (CRON_SECRET required)
+//                                             # and verify its AI sections
 //   node scripts/scan-all.mjs --notify-secret <s>  # explicit cron secret
 //
 // Exits nonzero if any repo failed to ingest, so it can gate CI or be chained.
+//
+// --notify AI retry-once (same tolerance as scripts/verify-cron-reports.mjs):
+// the regenerated daily report's AI sections come from OpenRouter, and a
+// transient provider blip can ship a body without them even though the app is
+// healthy (the 8182177 flake passed minutes later, same host/script/secret,
+// all six AI sections rendered). So when the deployed app reports AI
+// configured (configured.openrouter=true) and the daily body fails the AI
+// sub-checks on the FIRST pass, wait AI_RETRY_DELAY_MS and re-fetch the report
+// once, re-running the AI sub-checks. A blip clears on retry (notify logs a
+// pass instead of a failure); a real regression fails BOTH passes (still
+// loud). Deterministic checks (ok flag, counts) never retry.
 // ============================================================================
 
 import { spawnSync } from 'node:child_process';
@@ -201,10 +213,47 @@ const resolveCronSecret = () => {
 /**
  * Derive the cron endpoint from the scanner API base, so --api points at one
  * origin and the notify call follows it (localhost dev vs deployed prod).
+ *
+ * ?previewBody=1 is the dev-only flag that makes the response carry each
+ * report's composed body — required so the AI sub-checks can inspect the
+ * regenerated daily body. It does not change what the route composes or
+ * persists (reports are composed in-app; the route only logs activity).
  */
 const cronUrl = () => {
   const base = API.replace(/\/api\/scanner\/?$/, '');
-  return `${base}/api/cron/reports?kind=daily`;
+  return `${base}/api/cron/reports?kind=daily&previewBody=1`;
+};
+
+// ── Transient-OpenRouter retry for the --notify daily AI body ───────────────
+// Mirrors scripts/verify-cron-reports.mjs (same constants and one-retry-only
+// shape): the daily AI sections (executive summary + top-three narration) are
+// the only provider-dependent surface in the notify path, so a first-pass
+// sub-check failure triggers ONE retry after a short delay before any failure
+// is logged. A blip clears on retry; a build that genuinely lost its AI
+// sections fails both passes. Deterministic checks (ok flag, counts) never go
+// through this path.
+const AI_RETRY_DELAY_MS = 5000;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// The AI sub-checks for a daily report body. The executive summary must always
+// carry the friendly heading + raw-id footer. The top-three narration is
+// data-dependent (absent when there's no actionable top three), so it is only
+// checked when present — matching verify-cron-reports' graceful path. Returns
+// [] when all applicable checks pass.
+const dailyAiFailures = (report, body) => {
+  const fails = [];
+  if (!body.includes('## ✨ AI executive summary (DeepSeek Chat)'))
+    fails.push('daily body missing friendly exec-summary heading "(DeepSeek Chat)"');
+  if (!body.includes('Model: `deepseek/deepseek-chat`'))
+    fails.push('daily body missing raw-id footer "Model: `deepseek/deepseek-chat`"');
+  const narration = report?.narration;
+  if (narration) {
+    if (!body.includes('## 🎯 Why these three matter today (DeepSeek Chat)'))
+      fails.push('daily body missing narration heading "(DeepSeek Chat)"');
+    if (narration.model !== 'deepseek/deepseek-chat')
+      fails.push('daily narration.model mismatch');
+  }
+  return fails;
 };
 
 /**
@@ -240,6 +289,41 @@ const notifyDaily = async () => {
         ? ` (${json.counts.projects} projects, ${json.counts.tasks} tasks, ${json.counts.repositories} repos, ${json.counts.deployments} deployments)`
         : '';
       log(`✓ daily report regenerated${counts}${json.note ? ` — ${json.note}` : ''}.`);
+      // AI body verification with retry-once: a provider blip must not turn a
+      // good scan into a loud failure — same tolerance as verify-cron-reports.
+      // Unconfigured builds (configured.openrouter=false) skip: deterministic-
+      // only is the design there, so there is nothing AI to assert.
+      const aiConfigured = json.configured?.openrouter === true;
+      const dailyReport = json.reports?.find((r) => r.kind === 'daily');
+      if (aiConfigured && dailyReport) {
+        const dailyBody = dailyReport.body ?? '';
+        let fails = dailyAiFailures(dailyReport, dailyBody);
+        if (fails.length > 0) {
+          log(`--notify: daily AI sub-checks failed on the first pass — retrying once after ${AI_RETRY_DELAY_MS}ms (transient provider blip?)`);
+          await sleep(AI_RETRY_DELAY_MS);
+          const retryRes = await fetch(url, {
+            headers: { authorization: `Bearer ${secret}` },
+            cache: 'no-store',
+          });
+          const retryJson = retryRes.ok ? await retryRes.json().catch(() => null) : null;
+          const retryReport = retryJson?.reports?.find((r) => r.kind === 'daily');
+          const retryBody = retryReport?.body ?? '';
+          const retryFails = dailyAiFailures(retryReport ?? {}, retryBody);
+          if (retryFails.length === 0) {
+            log('✓ daily AI sub-checks passed on retry — first-pass absence was a transient provider failure, not a regression');
+          } else {
+            for (const f of retryFails) fail(`--notify: ${f}`);
+          }
+        } else if (dailyBody.includes('## ✨ AI executive summary (DeepSeek Chat)')) {
+          log('✓ daily AI exec summary + narration sub-checks pass on the first pass');
+        }
+      } else if (aiConfigured) {
+        fail('--notify: deployed app reports AI configured but the daily response has no report entry');
+      } else if (json.configured?.openrouter === false) {
+        log('--notify: deployed app reports NO OPENROUTER_API_KEY — AI body sub-checks SKIP (deterministic checks still enforced)');
+      } else {
+        log('--notify: deployed build predates the configured.openrouter field — AI body sub-checks re-verify after the next deploy');
+      }
     } else {
       fail(`--notify: cron endpoint reported ok=false${json?.note ? ` — ${json.note}` : ''}`);
     }
