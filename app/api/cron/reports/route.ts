@@ -75,6 +75,18 @@ const withAlertsSection = (body: string, alerts: AutomationAlert[]): string => {
 };
 
 /**
+ * Prepend a visible AI-outage note when OpenRouter is configured but the
+ * executive-summary call failed. The deterministic body still ships (never
+ * fails); the note replaces the missing AI section so a reader sees the
+ * degradation instead of a silently dropped summary. Unconfigured builds
+ * never render this note — deterministic-only is the expected design there,
+ * not a failure (the same distinction the verify script draws via
+ * configured.openrouter).
+ */
+const withAiDegradationNote = (body: string): string =>
+  `> ⚠️ AI executive summary unavailable — OpenRouter call failed; this report was composed from deterministic data only.\n\n${body}`;
+
+/**
  * Append the weekly deploy-incident summary to a report body. Renders one line
  * per incident (source-tagged, linked to its issue) plus a recoveries line;
  * a quiet week renders a clean "no incidents" line and an unreadable log says
@@ -118,6 +130,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Unauthorized.' }, { status: 401 });
   }
 
+  // Whether the deployed env carries an OpenRouter key — computed once and
+  // echoed as configured.openrouter (the verify script's REQUIRED/SKIP switch)
+  // AND used to gate the visible AI-degradation note below, so the response
+  // field and the composed body can never disagree about the key state.
+  const openRouterConfigured = Boolean(process.env.OPENROUTER_API_KEY?.trim());
+
   // 2. Resolve run parameters.
   const ownerId = process.env.REPORT_OWNER_ID ?? 'demo-user';
   const rawKind = req.nextUrl.searchParams.get('kind') ?? 'auto';
@@ -154,7 +172,7 @@ export async function GET(req: NextRequest) {
       ok: true,
       note: 'No live data configured — nothing to report yet. Wire Firestore/GitHub env vars first.',
       ownerId,
-      configured: { ...snapshot.configured, openrouter: Boolean(process.env.OPENROUTER_API_KEY?.trim()) },
+      configured: { ...snapshot.configured, openrouter: openRouterConfigured },
     });
   }
 
@@ -258,6 +276,13 @@ export async function GET(req: NextRequest) {
     const winnerSections = await winnerPromise;
     const incidentsSummary = await incidentsPromise;
     let body = withExecutiveSummary(withAlertsSection(r.body, alerts), ai?.summary ?? null, ai?.model ?? null);
+    // Visible degradation note: a configured key + failed summarize call means
+    // a provider outage, not a quiet day — the deterministic body must say so
+    // (same lesson as the incidents fetchError note). Unconfigured builds stay
+    // note-free: deterministic-only is the design, not a failure.
+    if (openRouterConfigured && !ai) {
+      body = withAiDegradationNote(body);
+    }
     if (kind === 'daily') {
       body = withTopThreeNarration(body, narration?.paragraph ?? null, narration?.model ?? null);
     }
@@ -351,7 +376,7 @@ export async function GET(req: NextRequest) {
     ok: true,
     ownerId,
     kind,
-    configured: { ...snapshot.configured, openrouter: Boolean(process.env.OPENROUTER_API_KEY?.trim()) },
+    configured: { ...snapshot.configured, openrouter: openRouterConfigured },
     counts: {
       projects: snapshot.collections.projects.length,
       versions: snapshot.collections.versions.length,
