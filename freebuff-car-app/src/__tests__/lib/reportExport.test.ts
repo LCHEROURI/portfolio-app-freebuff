@@ -1,4 +1,5 @@
 import { buildReportMarkdown, buildReportPlainText, reportFileName } from '@/lib/reportExport';
+import { nearbyDealers } from '@/lib/dealers';
 import type { AdvisorState } from '@/hooks/useAdvisorState';
 
 const RICH: AdvisorState = {
@@ -339,5 +340,38 @@ describe('estimated payment row in the comparison table', () => {
     } as AdvisorState;
     const md = buildReportMarkdown(noSpec, '2026-09-03T12:00:00Z');
     expect(md).toContain('| Est. monthly payment | n/a | $598/mo |');
+  });
+});
+
+describe('nearby dealers in exports', () => {
+  const WITH_ZIP: AdvisorState = {
+    ...RICH,
+    intake: { monthlyBudget: '4500', downPayment: '5000', creditRange: 'good', zip: '94103' },
+  };
+
+  it('includes the dealers section in Markdown with names, phones, and directions', () => {
+    const md = buildReportMarkdown(WITH_ZIP, '2026-09-03T12:00:00Z');
+    expect(md).toContain('## Nearby dealers');
+    // The export shows the same ZIP-seeded dealers the on-screen sheet shows.
+    const first = nearbyDealers('94103').dealers[0];
+    expect(md).toContain(`- ${first.name}`);
+    expect(md).toContain('(555)');
+    expect(md).toContain('https://www.google.com/maps/dir/');
+    expect(md).toContain('Demo dealers');
+  });
+
+  it('includes the same section in plain text', () => {
+    const txt = buildReportPlainText(WITH_ZIP, '2026-09-03T12:00:00Z');
+    expect(txt).toContain('NEARBY DEALERS');
+    expect(txt).toContain('(555)');
+    expect(txt).toContain('google.com/maps/dir/');
+    expect(txt).toContain('Demo dealers');
+  });
+
+  it('omits the section when no ZIP is saved', () => {
+    const md = buildReportMarkdown(RICH, '2026-09-03T12:00:00Z');
+    const txt = buildReportPlainText(RICH, '2026-09-03T12:00:00Z');
+    expect(md).not.toContain('Nearby dealers');
+    expect(txt).not.toContain('NEARBY DEALERS');
   });
 });

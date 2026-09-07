@@ -1,5 +1,7 @@
 'use client';
 
+import DealerContactSheet from '@/components/DealerContactSheet';
+
 interface Objection {
   if: string;
   say: string;
@@ -40,9 +42,13 @@ const OBJECTIONS: Objection[] = [
 
 interface Props {
   onComplete?: () => void;
+  /** 5-digit ZIP from Step 1 — seeds the nearby-dealers sheet. */
+  zip?: string;
+  /** Winning vehicle label (lowest-MSRP compared vehicle). */
+  vehicleLabel?: string | null;
 }
 
-export default function DriveScript({ onComplete }: Props = {}) {
+export default function DriveScript({ onComplete, zip, vehicleLabel }: Props = {}) {
   return (
     <div className="space-y-6">
       <div>
@@ -73,6 +79,8 @@ export default function DriveScript({ onComplete }: Props = {}) {
           <li>Walking away is your strongest move, and it costs nothing.</li>
         </ul>
       </div>
+
+      <DealerContactSheet zip={zip} vehicleLabel={vehicleLabel} />
 
       <div className="flex justify-end">
         <button

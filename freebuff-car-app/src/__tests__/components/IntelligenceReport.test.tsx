@@ -361,3 +361,26 @@ describe('estimated payment row on screen', () => {
     expect(row?.textContent).not.toContain('Best');
   });
 });
+
+describe('nearby dealers section', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('renders ZIP-seeded demo dealers for the winning vehicle', () => {
+    generateReport({ ...RICH_STATE, intake: { ...RICH_STATE.intake, zip: '94103' } });
+    expect(screen.getByText('Nearby dealers')).toBeInTheDocument();
+    // Winning vehicle = lowest MSRP (Camry) — named in the sheet subtitle.
+    expect(screen.getByText(/dealers likely to carry the toyota camry/i)).toBeInTheDocument();
+    // Five dealer cards with Directions links, plus the demo disclaimer.
+    expect(screen.getAllByText(/directions/i).length).toBe(5);
+    expect(screen.getByText(/demo dealers/i)).toBeInTheDocument();
+  });
+
+  it('prompts for a ZIP when Step 1 has none', () => {
+    generateReport({ ...RICH_STATE, intake: { ...RICH_STATE.intake, zip: '' } });
+    expect(screen.getByText('Nearby dealers')).toBeInTheDocument();
+    expect(screen.getByText(/enter a 5-digit zip on step 1/i)).toBeInTheDocument();
+    expect(screen.queryByText(/directions/i)).not.toBeInTheDocument();
+  });
+});
