@@ -106,10 +106,23 @@ interface Props {
   onSaveData?: (data: unknown) => void;
 }
 
+/** Body-style options mirroring the Step 1 intake select. */
+const BODY_STYLES = ['sedan', 'suv', 'crossover', 'hatchback', 'pickup', 'minivan', 'wagon', 'coupe'] as const;
+
 export default function VehicleNeeds({ onContinue, intake, onSaveData }: Props = {}) {
   const [needs, setNeeds] = useState<Needs>(DEFAULT_NEEDS);
   const [comparing, setComparing] = useState<string[]>([]);
   const [fetchState, setFetchState] = useState<FetchState>({ phase: 'loading' });
+
+  /**
+   * Inline search refinement on Step 2: the user can change the ZIP or body
+   * style here without returning to Step 1, turning this screen into a real
+   * search-results page. Seeded from the Step 1 intake; budget, down
+   * payment, and credit stay pinned to Step 1 (the price-cap slider above
+   * is the knob for the ceiling).
+   */
+  const [refineZip, setRefineZip] = useState(() => intake?.zip ?? '');
+  const [refineBody, setRefineBody] = useState(() => intake?.bodyStyle ?? '');
 
   /**
    * Per-visit price cap the user sets on Step 2 via the slider. When present,
@@ -125,8 +138,10 @@ export default function VehicleNeeds({ onContinue, intake, onSaveData }: Props =
     if (intake?.monthlyBudget) p.set('budget', intake.monthlyBudget);
     if (intake?.downPayment) p.set('down', intake.downPayment);
     if (intake?.creditRange) p.set('credit', intake.creditRange);
-    if (intake?.zip) p.set('zip', intake.zip);
-    if (intake?.bodyStyle) p.set('bodyType', intake.bodyStyle);
+    // Only a complete 5-digit ZIP is a real geographic filter — partial
+    // entries fall back to national inventory (mirrors the route's check).
+    if (/^\d{5}$/.test(refineZip)) p.set('zip', refineZip);
+    if (refineBody) p.set('bodyType', refineBody);
     return p.toString();
   })();
   const [nonce, setNonce] = useState(0);
@@ -266,6 +281,63 @@ export default function VehicleNeeds({ onContinue, intake, onSaveData }: Props =
 
   return (
     <div className="space-y-8">
+      {/* Inline search refinement — change ZIP or body style on Step 2
+          without going back to Step 1. Budget, down payment, and credit
+          stay pinned to Step 1; the price-cap slider below is the ceiling
+          knob. Every change re-queries the inventory automatically. */}
+      <div className="rounded-xl border border-ink-200 bg-white p-5 shadow-sm">
+        <p className="text-sm font-semibold text-navy-900">Refine search</p>
+        <p className="mt-1 text-xs text-ink-500">
+          Adjust the area or body style and the inventory reloads automatically.
+        </p>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <label htmlFor="refineZip" className="block text-sm font-semibold text-navy-900">
+              ZIP code
+            </label>
+            <input
+              id="refineZip"
+              type="text"
+              inputMode="numeric"
+              maxLength={5}
+              value={refineZip}
+              onChange={(e) => setRefineZip(e.target.value.replace(/\D/g, '').slice(0, 5))}
+              placeholder="e.g. 60601"
+              className="block w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-sm text-ink-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+            <p className="text-xs text-ink-500">
+              {refineZip !== '' && !/^\d{5}$/.test(refineZip)
+                ? 'Enter a 5-digit ZIP to filter nearby inventory.'
+                : "Empty shows national inventory."}
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <label htmlFor="refineBody" className="block text-sm font-semibold text-navy-900">
+              Body style
+            </label>
+            <select
+              id="refineBody"
+              value={refineBody}
+              onChange={(e) => setRefineBody(e.target.value)}
+              className="block w-full rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-sm text-ink-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              <option value="">Any body style</option>
+              {BODY_STYLES.map((style) => (
+                <option key={style} value={style}>
+                  {style.charAt(0).toUpperCase() + style.slice(1)}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-ink-500">Filters the live inventory feed by vehicle type.</p>
+          </div>
+        </div>
+        {(refineZip !== intake?.zip || refineBody !== intake?.bodyStyle) && (
+          <p className="mt-3 text-xs text-ink-400">
+            Showing results for a refined search — the Step 1 answers stay saved.
+          </p>
+        )}
+      </div>
+
       {/* Price-cap slider — override the Step 1 ceiling without leaving Step 2.
           Present only when the user arrived from Step 1 with a budget. */}
       {intake?.monthlyBudget && step1Ceiling !== null && (
