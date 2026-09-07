@@ -7,6 +7,7 @@ import type { AdvisorState } from '@/hooks/useAdvisorState';
 
 import { REPORT_STORAGE_KEY } from '@/lib/progress';
 import { buildReportMarkdown, buildReportPlainText, reportFileName, buildCompareColumns, compareRowValues, bestColumnsFor, COMPARE_MIN_ROWS, COMPARE_MAX_ROWS } from '@/lib/reportExport';
+import { saveAdvisorReport, downloadTextAsFile } from '@/lib/savedReports';
 
 type StoredReport = {
   savedAt: string;
@@ -96,11 +97,14 @@ export default function IntelligenceReport({ onComplete, advisor, onReset }: Pro
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [confirmingReset, setConfirmingReset] = useState(false);
   const [copyState, setCopyState] = useState<'idle' | 'ok' | 'error'>('idle');
+  const [saveState, setSaveState] = useState<'idle' | 'saved'>('idle');
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     return () => {
       if (copyTimer.current) clearTimeout(copyTimer.current);
+      if (saveTimer.current) clearTimeout(saveTimer.current);
     };
   }, []);
 
@@ -184,18 +188,21 @@ export default function IntelligenceReport({ onComplete, advisor, onReset }: Pro
   }
 
   function downloadFormat(ext: 'md' | 'txt') {
-    const markdown = ext === 'md' ? buildReportMarkdown(advisor, savedAt) : buildReportPlainText(advisor, savedAt);
-    const blob = new Blob([markdown], {
-      type: ext === 'md' ? 'text/markdown;charset=utf-8' : 'text/plain;charset=utf-8',
-    });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = reportFileName(savedAt, ext, advisor);
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
+    const text = ext === 'md' ? buildReportMarkdown(advisor, savedAt) : buildReportPlainText(advisor, savedAt);
+    downloadTextAsFile(
+      text,
+      reportFileName(savedAt, ext, advisor),
+      ext === 'md' ? 'text/markdown;charset=utf-8' : 'text/plain;charset=utf-8',
+    );
+  }
+
+  function saveToLibrary() {
+    if (!advisor) return;
+    const saved = saveAdvisorReport(advisor);
+    if (!saved) return;
+    setSaveState('saved');
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => setSaveState('idle'), 2500);
   }
 
   function generate() {
@@ -477,6 +484,14 @@ export default function IntelligenceReport({ onComplete, advisor, onReset }: Pro
               className="inline-flex items-center gap-1.5 rounded-lg border border-ink-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 shadow-sm transition-colors hover:bg-ink-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
             >
               Download .txt
+            </button>
+            <button
+              type="button"
+              onClick={saveToLibrary}
+              data-testid="save-report"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+            >
+              {saveState === 'saved' ? 'Saved to My reports ✓' : 'Save to My reports'}
             </button>
             <button
               type="button"

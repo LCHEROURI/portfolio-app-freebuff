@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import ResumeSessionBanner from '@/components/ResumeSessionBanner';
+import SavedReportsLibrary from '@/components/SavedReportsLibrary';
 
 export default function HomePage() {
   return (
@@ -34,6 +35,7 @@ export default function HomePage() {
       {/* Hero */}
       <main className="mx-auto max-w-4xl px-4 pt-12 sm:px-6 sm:pt-20 pb-24 sm:pb-32 lg:px-8">
         <ResumeSessionBanner />
+        <SavedReportsLibrary />
         <section className="mb-12 rounded-2xl border border-ink-200 bg-white/80 p-6 sm:p-10 shadow-sm">
           <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:gap-12">
             {/* Headshot placeholder block */}

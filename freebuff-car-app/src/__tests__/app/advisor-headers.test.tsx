@@ -1,6 +1,8 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import AdvisorPage from '@/app/advisor/page';
 import { STORAGE_KEY } from '@/hooks/useAdvisorState';
+import { REPORT_STORAGE_KEY } from '@/lib/progress';
+import { saveAdvisorReport } from '@/lib/savedReports';
 
 // Renders the real client AdvisorPage. Seeding `step: N` makes useAdvisorState
 // hydrate to that step so the shell header (the single source of truth) shows.
@@ -11,6 +13,9 @@ function seedStep(step: number) {
 describe('AdvisorPage step headers (single source of truth — one header, 11 steps)', () => {
   beforeEach(() => {
     window.localStorage.clear();
+    // Keep the URL clean between tests so a restore test's query string
+    // cannot leak into a later test's hydration.
+    window.history.replaceState({}, '', '/advisor');
     // jsdom has no fetch; the step-1 VersionMarker calls it before hydration
     // moves the page off step 1.
     global.fetch = jest.fn(() => Promise.resolve({
@@ -49,5 +54,55 @@ describe('AdvisorPage step headers (single source of truth — one header, 11 st
       ).toHaveLength(1),
     );
     expect(screen.queryByText(/Step \d of 10/)).not.toBeInTheDocument();
+  });
+
+  it('restores a saved report from /advisor?report=<id> onto Step 11', async () => {
+    const saved = saveAdvisorReport(
+      {
+        step: 2,
+        maxStep: 2,
+        intake: { monthlyBudget: '400' },
+        dealScore: { input: {}, result: { score: 55, breakdown: [] } },
+      },
+      '2026-09-07T12:00:00.000Z',
+    );
+    expect(saved).not.toBeNull();
+    window.history.replaceState({}, '', `/advisor?report=${saved?.id}`);
+
+    render(<AdvisorPage />);
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole('heading', { name: /Step 11 of 11 — Intelligence report/i }),
+      ).toHaveLength(1),
+    );
+
+    // The saved snapshot replaced the live session and persisted at step 11.
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const persisted = raw
+      ? (JSON.parse(raw) as { step: number; dealScore?: { result?: { score?: number } } })
+      : null;
+    expect(persisted?.step).toBe(11);
+    expect(persisted?.dealScore?.result?.score).toBe(55);
+
+    // The report-generated marker is set so the restored report renders.
+    expect(window.localStorage.getItem(REPORT_STORAGE_KEY)).not.toBeNull();
+
+    // The query string was cleaned up so a refresh keeps the session.
+    expect(window.location.search).toBe('');
+  });
+
+  it('ignores an unknown report id and stays on the current step', async () => {
+    seedStep(3);
+    window.history.replaceState({}, '', '/advisor?report=does-not-exist');
+
+    render(<AdvisorPage />);
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByRole('heading', { name: /Step 3 of 11 — Run the financing math/i }),
+      ).toHaveLength(1),
+    );
+    expect(window.location.search).toBe('');
   });
 });
