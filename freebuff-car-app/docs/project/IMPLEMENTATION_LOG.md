@@ -167,3 +167,22 @@
 - `npx tsc --noEmit` — clean
 - `npx jest` — 287/287 pass (24 suites)
 - `npx next build` — green
+
+### Post-manual feature — inline search refinement on Step 2 (PR #72 → `e66add5`)
+
+**Date:** 2026-09-07
+
+**Problem found:** Step 2 was a one-shot results page — changing the ZIP or body style forced a trip back to Step 1, which undercut the manual's "true search results page" intent for the vehicle selection screen.
+
+**Changes:**
+- `src/components/advisor/VehicleNeeds.tsx` — new "Refine search" panel on Step 2 with a sanitized 5-digit ZIP input and a body-style select mirroring the Step 1 options; local `refineZip`/`refineBody` state seeded from the intake funnel; the inventory query now reads the refined values and re-queries automatically when they change (the existing query → loadInventory → effect chain).
+- Budget, down payment, and credit stay pinned to Step 1 — the price-cap slider remains the ceiling knob; only ZIP/body re-query.
+- Only a complete 5-digit ZIP is sent as a geographic filter (partial entries fall back to national inventory, mirroring the route's check).
+- A refined-search hint appears when the user diverges from the Step 1 answers, confirming Step 1's saved data is untouched.
+- `src/__tests__/components/VehicleNeeds.test.tsx` — 4 new tests: intake seeding, refined re-query (with budget params pinned), input sanitization + partial-ZIP fallback, and the hint gating.
+
+**Verification:**
+- `npx tsc --noEmit` — clean
+- `npx jest` — 293/293 pass (25 suites)
+- `npx next build` — green
+- Shipped: PR #72 merged (`e66add5`), deploy run `34075694628` success, live `/api/version` = `e66add5` / `build-2026-09-07-001`, `/advisor` 200
