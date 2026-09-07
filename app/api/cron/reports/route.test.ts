@@ -55,7 +55,7 @@ vi.mock('@/lib/server/incidents', () => ({
 
 import { GET } from './route';
 import { loadLiveSnapshot } from '@/lib/server/reporting/data';
-import { narrateMonthlyBriefing, narrateTopThree, recommendWinner } from '@/lib/openrouter';
+import { narrateMonthlyBriefing, narrateTopThree, recommendWinner, summarizeReport } from '@/lib/openrouter';
 import { fetchIncidentsSummary } from '@/lib/server/incidents';
 import { firestoreUpsert, isFirestoreAdminConfigured } from '@/lib/server/firestoreAdmin';
 
@@ -226,6 +226,98 @@ describe('GET /api/cron/reports — daily top-three narration', () => {
     // Executive summary + deterministic body still ship.
     expect(body).toContain('AI executive summary');
     expect(body).toContain('# Daily Command Center Report');
+  });
+});
+
+// ─── AI degradation (failing OpenRouter summarize call) ─────────────────────
+
+describe('GET /api/cron/reports — failing OpenRouter summarize call', () => {
+  const withKey = async (value: string | undefined, fn: () => Promise<void>) => {
+    const before = process.env.OPENROUTER_API_KEY;
+    try {
+      if (value === undefined) delete process.env.OPENROUTER_API_KEY;
+      else process.env.OPENROUTER_API_KEY = value;
+      await fn();
+    } finally {
+      if (before === undefined) delete process.env.OPENROUTER_API_KEY;
+      else process.env.OPENROUTER_API_KEY = before;
+    }
+  };
+
+  // vi.clearAllMocks() (the file-level afterEach) clears call history but NOT
+  // the mockResolvedValue implementation this describe replaces — restore the
+  // factory default so later describes still see a succeeding summarize call.
+  afterEach(() => {
+    vi.mocked(summarizeReport).mockResolvedValue({
+      summary: 'Executive summary text.',
+      model: 'deepseek/deepseek-chat',
+    });
+  });
+
+  it('still composes the deterministic report with a visible degradation note when the AI call fails', async () => {
+    // Provider outage with a configured key: summarizeReport returns null (it
+    // never throws), so the route must ship the deterministic body AND say so
+    // visibly instead of silently dropping the AI section — a reader would
+    // otherwise mistake the outage for a quiet day.
+    await withKey('sk-or-test-key', async () => {
+      vi.mocked(summarizeReport).mockResolvedValue(null);
+
+      const res = await GET(makePreviewReq('daily'));
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as { reports: Array<{ body: string; aiModel: string | null }> };
+      const body = json.reports[0].body;
+
+      // Deterministic composition is intact: title + the top-three narration
+      // (the narration mock still succeeds) + the automation alerts section.
+      expect(body).toContain('# Daily Command Center Report');
+      expect(body).toContain('Why these three matter today');
+      expect(body).toContain('## ⚠️ Automation alerts (14 rules)');
+
+      // The visible degradation note replaces the silently-missing AI section.
+      expect(body).toContain('> ⚠️ AI executive summary unavailable');
+      expect(body).toContain('OpenRouter call failed');
+      expect(body).toContain('composed from deterministic data only');
+      expect(body).not.toContain('## ✨ AI executive summary (DeepSeek Chat)');
+
+      // The structured AI observability field stays honest: null model, and the
+      // configured.openrouter echo still reports the key (the verify script's
+      // REQUIRED/SKIP switch — a configured build missing the sections is what
+      // the retry-once + fail path guards against).
+      expect(json.reports[0].aiModel).toBeNull();
+    });
+  });
+
+  it('does NOT add the degradation note when the key is unconfigured (deterministic-only is the design, not a failure)', async () => {
+    // Unconfigured builds render no AI section BY DESIGN — no note, because
+    // there is nothing degraded. The note must be gated on a configured key
+    // whose call failed, not on the mere absence of a summary.
+    await withKey(undefined, async () => {
+      vi.mocked(summarizeReport).mockResolvedValue(null);
+
+      const res = await GET(makePreviewReq('weekly'));
+      const json = (await res.json()) as { reports: Array<{ body: string; aiModel: string | null }> };
+      const body = json.reports[0].body;
+      expect(body).toContain('# Weekly Command Center Report');
+      expect(body).not.toContain('AI executive summary unavailable');
+      expect(body).not.toContain('## ✨ AI executive summary');
+      expect(json.reports[0].aiModel).toBeNull();
+    });
+  });
+
+  it('does NOT add the degradation note when the summarize call succeeds', async () => {
+    await withKey('sk-or-test-key', async () => {
+      vi.mocked(summarizeReport).mockResolvedValue({
+        summary: 'Executive summary text.',
+        model: 'deepseek/deepseek-chat',
+      });
+
+      const res = await GET(makePreviewReq('daily'));
+      const json = (await res.json()) as { reports: Array<{ body: string }> };
+      const body = json.reports[0].body;
+      expect(body).toContain('## ✨ AI executive summary (DeepSeek Chat)');
+      expect(body).toContain('Executive summary text.');
+      expect(body).not.toContain('AI executive summary unavailable');
+    });
   });
 });
 
