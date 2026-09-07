@@ -79,3 +79,57 @@ describe('SavedReportsLibrary', () => {
     expect(list.map((r) => r.id)).toEqual(['r2']);
   });
 });
+
+describe('SavedReportsLibrary /reports page variant', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('renders an empty state with a CTA when nothing is saved', () => {
+    render(<SavedReportsLibrary variant="page" />);
+    expect(screen.getByTestId('saved-reports-empty')).toBeInTheDocument();
+    expect(screen.getByText(/no saved reports yet/i)).toBeInTheDocument();
+    const cta = screen.getByRole('link', { name: /start your deal analysis/i });
+    expect(cta).toHaveAttribute('href', '/advisor');
+  });
+
+  it('lists every saved report (no home teaser cap)', () => {
+    // 9 reports: past the home teaser's 8-row cap, but the page shows all.
+    for (let i = 0; i < 9; i++) {
+      seed(`r${i}`, `Report ${i}`, `2026-09-0${i + 1}T12:00:00.000Z`);
+    }
+    const { container } = render(<SavedReportsLibrary variant="page" />);
+    expect(screen.getByText(/9 saved reports/i)).toBeInTheDocument();
+    const rows = container.querySelectorAll('li[data-testid^="saved-report-"]');
+    expect(rows).toHaveLength(9);
+    expect(screen.queryByText(/showing the/i)).not.toBeInTheDocument();
+  });
+
+  it('uses the page heading level (h1) for the standalone page', () => {
+    seed('r1', 'Honda Civic', '2026-09-07T12:00:00.000Z');
+    render(<SavedReportsLibrary variant="page" />);
+    const heading = screen.getByText('My saved reports');
+    expect(heading.tagName).toBe('H1');
+  });
+});
+
+describe('SavedReportsLibrary home teaser', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it('links to the full /reports page when more reports exist than the teaser shows', () => {
+    for (let i = 0; i < 9; i++) {
+      seed(`t${i}`, `Report ${i}`, `2026-09-0${i + 1}T12:00:00.000Z`);
+    }
+    render(<SavedReportsLibrary />);
+    const viewAll = screen.getByRole('link', { name: /view all saved reports/i });
+    expect(viewAll).toHaveAttribute('href', '/reports');
+  });
+
+  it('omits the view-all link when every report fits on the home page', () => {
+    seed('r1', 'Honda Civic', '2026-09-07T12:00:00.000Z');
+    render(<SavedReportsLibrary />);
+    expect(screen.queryByRole('link', { name: /view all saved reports/i })).not.toBeInTheDocument();
+  });
+});

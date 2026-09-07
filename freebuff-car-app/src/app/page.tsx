@@ -20,6 +20,13 @@ export default function HomePage() {
           </div>
           <nav className="flex items-center gap-4 text-sm font-medium text-ink-600">
             <Link
+              href="/reports"
+              data-testid="nav-my-reports"
+              className="rounded-lg px-3 py-2 text-ink-600 transition-colors hover:bg-ink-100 hover:text-navy-900"
+            >
+              My saved reports
+            </Link>
+            <Link
               href="/advisor"
               className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-blue-700 hover:bg-blue-50 hover:text-blue-800 transition-colors"
             >
