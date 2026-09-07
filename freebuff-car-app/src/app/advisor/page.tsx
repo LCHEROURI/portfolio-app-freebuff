@@ -16,6 +16,8 @@ import { useAdvisorState } from '@/hooks/useAdvisorState';
 import type { AdvisorState } from '@/hooks/useAdvisorState';
 import { STEP_LABELS, type Step } from '@/lib/steps';
 import StepProgress from '@/components/StepProgress';
+import { REPORT_STORAGE_KEY } from '@/lib/progress';
+import { findSavedReport } from '@/lib/savedReports';
 
 interface VersionBody {
   service?: string;
@@ -119,6 +121,32 @@ export default function AdvisorPage() {
     if (hydrated && advisorState.step >= 1 && advisorState.step <= 11) {
       setStep(advisorState.step as Step);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated]);
+
+  // Opening a saved report from the home-page library lands here as
+  // /advisor?report=<id>. Replace the live session with that report's
+  // snapshot, mark the report as generated (so Step 11 renders it and the
+  // progress meter counts 11/11), and jump straight to Step 11. The query
+  // string is then cleaned so a plain refresh keeps the restored session
+  // instead of re-running the restore.
+  useEffect(() => {
+    if (!hydrated) return;
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get('report');
+    if (!id) return;
+    const saved = findSavedReport(id);
+    if (saved) {
+      updateAdvisorState({ ...saved.state, step: 11 });
+      try {
+        window.localStorage.setItem(REPORT_STORAGE_KEY, JSON.stringify({ savedAt: saved.savedAt }));
+      } catch {
+        // storage unavailable: the report still renders from the store
+      }
+      setStep(11);
+    }
+    window.history.replaceState(null, '', window.location.pathname);
+    // Runs once, after hydration — not on later in-session step changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated]);
 

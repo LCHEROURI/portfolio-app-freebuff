@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import IntelligenceReport from '@/components/advisor/IntelligenceReport';
 import type { AdvisorState } from '@/hooks/useAdvisorState';
+import { SAVED_REPORTS_KEY } from '@/lib/savedReports';
 
 // The download filename embeds generate-time date; tests that assert it pin
 // the clock so they are deterministic no matter which day CI runs on.
@@ -312,9 +313,44 @@ describe('IntelligenceReport', () => {
     expect(screen.getByRole('button', { name: /generate report/i })).toBeInTheDocument();
     expect(onReset).toHaveBeenCalledTimes(1);
   });
+
+  it('saves the session to My reports when Save is clicked', () => {
+    generateReport(RICH_STATE);
+
+    fireEvent.click(screen.getByTestId('save-report'));
+    expect(screen.getByText(/saved to my reports ✓/i)).toBeInTheDocument();
+
+    const raw = window.localStorage.getItem(SAVED_REPORTS_KEY);
+    expect(raw).not.toBeNull();
+    const list = JSON.parse(raw as string) as {
+      id: string;
+      savedAt: string;
+      title: string;
+      state: AdvisorState;
+    }[];
+    expect(list).toHaveLength(1);
+    expect(list[0].title).toBe('Toyota Camry vs Subaru Outback');
+    expect(list[0].state.step).toBe(11);
+    // The full snapshot rides along — including the compared vehicles and the
+    // deal-score result, so a reopened report renders identically.
+    expect(list[0].state.vehicles?.comparing).toEqual(['camry', 'outback']);
+    expect((list[0].state.dealScore?.result as { score: number }).score).toBe(72);
+  });
+
+  it('re-save creates a second report (the library keeps both)', () => {
+    generateReport(RICH_STATE);
+    fireEvent.click(screen.getByTestId('save-report'));
+    fireEvent.click(screen.getByTestId('save-report'));
+    const raw = window.localStorage.getItem(SAVED_REPORTS_KEY) ?? '[]';
+    expect(JSON.parse(raw)).toHaveLength(2);
+  });
 });
 
 describe('estimated payment row on screen', () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
   it('shows the payment row first in the comparison table, from Step 1 inputs', () => {
     generateReport(RICH_STATE);
     expect(screen.getByText('Est. monthly payment')).toBeInTheDocument();
