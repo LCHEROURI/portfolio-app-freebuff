@@ -1,0 +1,56 @@
+# Report cron — compose scheduled command-center reports.
+#
+# Replaces the retired Vercel Cron trigger (vercel.json): GitHub Actions now
+# invokes the DEPLOYED Firebase App Hosting /api/cron/reports every day at
+# 07:00 UTC (the old Vercel schedule). The route evaluates the 14 automation
+# rules against live data and composes daily/weekly/monthly reports for the
+# in-app Reports page and the verification suite. The CRON_SECRET bearer is
+# sent by this workflow — the same value baked into the deployed app's server
+# env by scripts/deploy-portfolio-app.sh, so the route accepts it.
+#
+# A non-200 response fails the run loudly (visible in the Actions run list).
+name: Report cron
+
+on:
+  schedule:
+    # Daily 07:00 UTC — identical cadence to the retired Vercel cron.
+    - cron: '0 7 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: report-cron
+  cancel-in-progress: false
+
+jobs:
+  compose:
+    name: Compose scheduled reports
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      CRON_SECRET: ${{ secrets.CRON_SECRET }}
+      APP_URL: https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app
+
+    steps:
+      # Loud guard: a scheduled run without CRON_SECRET must fail visibly, not
+      # silently skip — a skipped run would masquerade as a green schedule.
+      - name: Trigger /api/cron/reports on the Firebase App Hosting backend
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET is not set in this repo's Actions secrets. Set it with: gh secret set CRON_SECRET --repo ${GITHUB_REPOSITORY} (must match the deployed app's server env)"
+            exit 1
+          fi
+          CODE="$(curl -s -o /tmp/report-cron.json -w '%{http_code}' -m 120 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$APP_URL/api/cron/reports?kind=auto")"
+          echo "status: $CODE  endpoint: $APP_URL/api/cron/reports"
+          if [ "$CODE" != "200" ]; then
+            echo "::error::report cron returned HTTP $CODE (expected 200)"
+            cat /tmp/report-cron.json
+            exit 1
+          fi
+          jq -c '{ok, kind, configured, counts, reports: [.reports[] | {kind, title, aiModel, narrationModel}]}' \
+            /tmp/report-cron.json || cat /tmp/report-cron.json

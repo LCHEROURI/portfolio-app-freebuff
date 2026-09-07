@@ -22,9 +22,10 @@ import {
 // ============================================================================
 // GET /api/cron/reports — automation engine entry point.
 //
-// Vercel Cron invokes this daily (see vercel.json) and automatically attaches
-// `Authorization: Bearer <CRON_SECRET>`; the route verifies it and returns 401
-// for anything else, so the endpoint is not publicly triggerable.
+// A GitHub Actions schedule (.github/workflows/report-cron.yml) invokes this
+// daily at 07:00 UTC and attaches `Authorization: Bearer <CRON_SECRET>`; the
+// route verifies it and returns 401 for anything else, so the endpoint is not
+// publicly triggerable.
 //
 // Behavior:
 //   ?kind=auto   (default) → daily report every run; weekly report when the UTC
@@ -110,7 +111,7 @@ const withIncidentsSummary = (
 };
 
 export async function GET(req: NextRequest) {
-  // 1. Verify the Vercel Cron secret.
+  // 1. Verify the scheduled cron secret.
   const secret = process.env.CRON_SECRET;
   const auth = req.headers.get('authorization') ?? '';
   if (!secret || auth !== `Bearer ${secret}`) {
@@ -151,7 +152,7 @@ export async function GET(req: NextRequest) {
   if (totalData === 0) {
     return NextResponse.json({
       ok: true,
-      note: 'No live data configured — nothing to report yet. Wire Firestore/GitHub/Vercel env vars first.',
+      note: 'No live data configured — nothing to report yet. Wire Firestore/GitHub env vars first.',
       ownerId,
       configured: { ...snapshot.configured, openrouter: Boolean(process.env.OPENROUTER_API_KEY?.trim()) },
     });
