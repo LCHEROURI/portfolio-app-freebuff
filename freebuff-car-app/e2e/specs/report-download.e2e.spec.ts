@@ -100,7 +100,10 @@ test.describe('Intelligence Report generate + download', () => {
     // math, not copies: 27000 financed at 6% for 60mo = $521.99/mo).
     await expect(page.getByText('$522')).toBeVisible();
     await expect(page.getByText('+$3,000')).toBeVisible(); // trade equity 12000 - 9000
-    await expect(page.getByText('72')).toBeVisible(); // deal score headline
+    // The full score line scopes the match: the report now also shows a
+    // ZIP-seeded dealers section whose demo phones/addresses can contain
+    // the bare digits "72" as a substring.
+    await expect(page.getByText('72 / 100')).toBeVisible(); // deal score headline
     await expect(page.getByText(/Documentation fee is above/i)).toBeVisible();
 
     // The payment row leads the comparison table, computed from the
