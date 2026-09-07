@@ -153,7 +153,7 @@ export async function GET(req: NextRequest) {
       ok: true,
       note: 'No live data configured — nothing to report yet. Wire Firestore/GitHub/Vercel env vars first.',
       ownerId,
-      configured: snapshot.configured,
+      configured: { ...snapshot.configured, openrouter: Boolean(process.env.OPENROUTER_API_KEY?.trim()) },
     });
   }
 
@@ -350,7 +350,7 @@ export async function GET(req: NextRequest) {
     ok: true,
     ownerId,
     kind,
-    configured: snapshot.configured,
+    configured: { ...snapshot.configured, openrouter: Boolean(process.env.OPENROUTER_API_KEY?.trim()) },
     counts: {
       projects: snapshot.collections.projects.length,
       versions: snapshot.collections.versions.length,
