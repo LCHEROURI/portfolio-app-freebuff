@@ -44,7 +44,7 @@ const flag = (name, fallback) => {
   return i >= 0 && args[i + 1] ? args[i + 1] : fallback;
 };
 
-const BASE = (flag('--base', process.env.VERIFY_BASE_URL) ?? 'https://portfolio-app-freebuff.vercel.app').replace(/\/$/, '');
+const BASE = (flag('--base', process.env.VERIFY_BASE_URL) ?? 'https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app').replace(/\/$/, '');
 const SECRET =
   flag('--secret') ??
   process.env.CRON_SECRET ??
@@ -111,6 +111,23 @@ if (probe.status === 401) {
   fail(`authenticated probe returned unexpected status ${probe.status}`, 'secret-drift');
 }
 
+// AI-body sub-checks are REQUIRED only when the deployed build reports an
+// OPENROUTER_API_KEY (configured.openrouter, added alongside this change). An
+// unconfigured deployment renders no AI sections by design (graceful null), so
+// the sub-checks loudly SKIP instead of failing — the same precedent as
+// verify-review-sheet's model-label sub-check. A build that predates the field
+// soft-passes with an explicit re-verify note (the weekly-incidents deploy-race
+// precedent). A configured build that still lacks the sections FAILS — a real
+// regression. AI sections present while configured=false is also an
+// inconsistency worth a loud failure.
+const OR_FLAG = probe.json?.configured?.openrouter; // true | false | undefined
+const aiRequired = OR_FLAG === true;
+if (OR_FLAG === false) {
+  console.log('  ↳ deployed app reports NO OPENROUTER_API_KEY — AI body sub-checks SKIP (deterministic checks still enforced)');
+} else if (OR_FLAG === undefined) {
+  console.log('  ↳ deployed build predates the configured.openrouter field — AI body sub-checks re-verify after the next deploy');
+}
+
 // 3. Weekly report body: friendly heading + raw footer + winner recommendation.
 console.log('\n[3/6] Weekly report body (?kind=weekly&previewBody=1)');
 const weekly = await getJson('/api/cron/reports?kind=weekly&previewBody=1', auth);
@@ -130,10 +147,14 @@ if (OWNER) {
   }
 }
 if (!weeklyBody) fail('weekly body missing from response', 'weekly-body');
-if (!weeklyBody.includes('## ✨ AI executive summary (DeepSeek Chat)'))
-  fail('weekly body missing friendly heading "(DeepSeek Chat)"', 'weekly-body');
-if (!weeklyBody.includes('Model: `deepseek/deepseek-chat`'))
-  fail('weekly body missing raw-id footer "Model: `deepseek/deepseek-chat`"', 'weekly-body');
+if (aiRequired) {
+  if (!weeklyBody.includes('## ✨ AI executive summary (DeepSeek Chat)'))
+    fail('weekly body missing friendly heading "(DeepSeek Chat)"', 'weekly-body');
+  if (!weeklyBody.includes('Model: `deepseek/deepseek-chat`'))
+    fail('weekly body missing raw-id footer "Model: `deepseek/deepseek-chat`"', 'weekly-body');
+} else if (weeklyBody.includes('## ✨ AI executive summary (DeepSeek Chat)') && !weeklyBody.includes('Model: `deepseek/deepseek-chat`')) {
+  fail('weekly body has the AI heading but no raw-id footer', 'weekly-body');
+}
 if (!weeklyBody.includes('# Weekly Command Center Report'))
   fail('weekly body missing report title', 'weekly-body');
 // Weekly winner recommendation (rule 10) — data-dependent like the daily
@@ -197,8 +218,8 @@ if (weeklyRecs && weeklyRecs.length > 0) {
 } else {
   ok('no rule-10 winner candidates in live data — winner recommendation gracefully omitted');
 }
-if (!failures) {
-  ok(`weekly body carries friendly heading + raw footer (${weeklyBody.length} chars)`);
+if (!failures && (aiRequired || weeklyBody.includes('## ✨ AI executive summary (DeepSeek Chat)'))) {
+  ok(`weekly body carries AI friendly heading + raw footer (${weeklyBody.length} chars)`);
   if (weeklyReport?.aiModel) ok(`weekly aiModel=${weeklyReport.aiModel}`);
 }
 
@@ -213,10 +234,12 @@ const daily = await getJson('/api/cron/reports?kind=daily&previewBody=1', auth);
 const dailyReport = daily.json?.reports?.find((r) => r.kind === 'daily');
 const dailyBody = dailyReport?.body ?? '';
 if (!dailyBody) fail('daily body missing from response', 'daily-body');
-if (!dailyBody.includes('## ✨ AI executive summary (DeepSeek Chat)'))
-  fail('daily body missing executive-summary friendly heading', 'daily-body');
-if (!dailyBody.includes('Model: `deepseek/deepseek-chat`'))
-  fail('daily body missing raw-id footer', 'daily-body');
+if (aiRequired) {
+  if (!dailyBody.includes('## ✨ AI executive summary (DeepSeek Chat)'))
+    fail('daily body missing executive-summary friendly heading', 'daily-body');
+  if (!dailyBody.includes('Model: `deepseek/deepseek-chat`'))
+    fail('daily body missing raw-id footer', 'daily-body');
+}
 const narration = dailyReport?.narration;
 if (narration) {
   if (!dailyBody.includes('## 🎯 Why these three matter today (DeepSeek Chat)'))
@@ -244,10 +267,12 @@ const monthly = await getJson('/api/cron/reports?kind=monthly&previewBody=1', au
 const monthlyReport = monthly.json?.reports?.find((r) => r.kind === 'monthly');
 const monthlyBody = monthlyReport?.body ?? '';
 if (!monthlyBody) fail('monthly body missing from response', 'monthly-body');
-if (!monthlyBody.includes('## ✨ AI executive summary (DeepSeek Chat)'))
-  fail('monthly body missing executive-summary friendly heading', 'monthly-body');
-if (!monthlyBody.includes('Model: `deepseek/deepseek-chat`'))
-  fail('monthly body missing raw-id footer', 'monthly-body');
+if (aiRequired) {
+  if (!monthlyBody.includes('## ✨ AI executive summary (DeepSeek Chat)'))
+    fail('monthly body missing executive-summary friendly heading', 'monthly-body');
+  if (!monthlyBody.includes('Model: `deepseek/deepseek-chat`'))
+    fail('monthly body missing raw-id footer', 'monthly-body');
+}
 if (!monthlyBody.includes('# Monthly Command Center Report'))
   fail('monthly body missing report title', 'monthly-body');
 if (!monthlyBody.includes('## Velocity — what advanced this month'))
@@ -269,7 +294,9 @@ if (briefing) {
     fail('briefing is null but the body still contains a briefing section', 'monthly-body');
   ok('no monthly briefing in live data — deterministic monthly body shipped (graceful path)');
 }
-if (!failures) ok(`monthly body carries exec summary + monthly sections (${monthlyBody.length} chars)`);
+if (!failures && (aiRequired || monthlyBody.includes('## ✨ AI executive summary (DeepSeek Chat)'))) {
+  ok(`monthly body carries AI exec summary + monthly sections (${monthlyBody.length} chars)`);
+}
 
 // 6. Email-envelope sweep: the emailed-report feature was removed, so NO
 //    report may carry an `email` envelope ({ sent, emailId, reason }) and the

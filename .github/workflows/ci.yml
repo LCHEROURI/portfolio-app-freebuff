@@ -165,6 +165,10 @@ jobs:
       FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
       FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
       REPORT_OWNER_ID: ${{ secrets.REPORT_OWNER_ID }}
+      # All deployed-app probes in this job run against the Firebase App
+      # Hosting backend (the legacy Vercel host is retired). Every verify
+      # script honors VERIFY_BASE_URL before its own hardcoded default.
+      VERIFY_BASE_URL: https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app
       # The deployed-store LIVE-flag set. These are PUBLIC build-time flags
       # (inlined into the client bundle), so wiring them here as plain values
       # is safe — it declares what the deployed store must carry. The deploy
@@ -419,6 +423,9 @@ jobs:
     env:
       FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
       FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+      # Probe the Firebase App Hosting backend (the legacy Vercel host is
+      # retired); verify-prod-signin.mjs honors VERIFY_BASE_URL first.
+      VERIFY_BASE_URL: https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app
 
     steps:
       - name: Check out repository

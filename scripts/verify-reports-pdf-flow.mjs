@@ -65,7 +65,7 @@ const flag = (name, fallback) => {
   const i = args.indexOf(name);
   return i >= 0 && args[i + 1] ? args[i + 1] : fallback;
 };
-const APP = (flag('--app', process.env.VERIFY_BASE_URL) ?? 'https://portfolio-app-freebuff.vercel.app').replace(/\/$/, '');
+const APP = (flag('--app', process.env.VERIFY_BASE_URL) ?? 'https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app').replace(/\/$/, '');
 // The downloads dir MUST be unique per run (like the Chrome profile): Chrome
 // overwrites same-named downloads IN PLACE in the CDP dir, so with a shared
 // default OUT a filename from a previous run was already in the pre-click

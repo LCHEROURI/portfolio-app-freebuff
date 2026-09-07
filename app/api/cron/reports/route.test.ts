@@ -633,4 +633,23 @@ describe('GET /api/cron/reports — plain-text preview (format=text)', () => {
     );
     expect(res.status).toBe(401);
   });
+
+  // The deployed-verify contract (scripts/verify-cron-reports.mjs) reads
+  // configured.openrouter to decide whether the AI body sub-checks are REQUIRED
+  // or loudly skipped (the review-sheet precedent for unconfigured deploys). A
+  // missing field would silently re-arm nothing — lock it to the env state.
+  it('echoes configured.openrouter from the server env state', async () => {
+    const before = process.env.OPENROUTER_API_KEY;
+    try {
+      process.env.OPENROUTER_API_KEY = 'sk-or-test-key';
+      let res = await GET(makeReq('daily'));
+      expect(((await res.json()) as { configured: { openrouter: boolean } }).configured.openrouter).toBe(true);
+      delete process.env.OPENROUTER_API_KEY;
+      res = await GET(makeReq('daily'));
+      expect(((await res.json()) as { configured: { openrouter: boolean } }).configured.openrouter).toBe(false);
+    } finally {
+      if (before === undefined) delete process.env.OPENROUTER_API_KEY;
+      else process.env.OPENROUTER_API_KEY = before;
+    }
+  });
 });

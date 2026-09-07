@@ -75,7 +75,7 @@ if (isMain) {
     return i >= 0 && args[i + 1] ? args[i + 1] : fallback;
   };
 
-  const BASE = (flag('--app', process.env.VERIFY_BASE_URL) ?? 'https://portfolio-app-freebuff.vercel.app').replace(/\/$/, '');
+  const BASE = (flag('--app', process.env.VERIFY_BASE_URL) ?? 'https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app').replace(/\/$/, '');
   const API_KEY =
     flag('--api-key') ??
     process.env.FIREBASE_WEB_API_KEY ??
