@@ -186,3 +186,52 @@
 - `npx jest` — 293/293 pass (25 suites)
 - `npx next build` — green
 - Shipped: PR #72 merged (`e66add5`), deploy run `34075694628` success, live `/api/version` = `e66add5` / `build-2026-09-07-001`, `/advisor` 200
+
+## 2026-09-07 — Saved-report library (post-manual feature wave)
+
+**Date:** 2026-09-07
+
+**Problem solved:** a finished Intelligence Report was gone from the app the moment
+Step 11 was left or the tab closed — only *in-progress* sessions resumed via the
+restore banner. Saved deals should persist, list, and be re-downloadable, turning
+the advisor from a one-shot calculator into a buying-history tool.
+
+**Changes:**
+- `src/lib/savedReports.ts` — pure localStorage store: `listSavedReports`,
+  `saveReport` (newest-first, capped at 20), `deleteSavedReport`, `getSavedReport`;
+  corruption-tolerant (invalid JSON → empty list, no crash); shared
+  `downloadReportFile` trigger used by both Step 11 and the library; display
+  helpers (`reportTitle`, `savedReportDate`).
+- `src/components/SavedReportsLibrary.tsx` — home-page library: lists saved reports
+  with title, save date, and a Deal score chip; per report Open report, Download
+  .md, Download .txt, and Delete behind an inline confirmation.
+- `src/components/advisor/IntelligenceReport.tsx` — "Save to My reports" button
+  beside Print/Copy/Download; snapshots the whole session via the existing
+  `reportExport` builders and saves to the store; "Saved to My reports ✓"
+  confirmation.
+- `src/app/page.tsx` — "My saved reports" section (above the disclosure) wired to
+  `SavedReportsLibrary`.
+- `src/app/advisor/page.tsx` — `?report=<id>` open path: restores the saved
+  session snapshot, marks it generated, jumps to Step 11, and cleans the URL so a
+  refresh keeps the restored session.
+- `src/__tests__/lib/savedReports.test.ts` — store ops: save/list order/cap,
+  snapshot isolation, delete, corruption tolerance.
+- `src/__tests__/components/SavedReportsLibrary.test.tsx` — renders saved reports
+  newest-first, open/delete flows, empty state.
+- `src/__tests__/components/IntelligenceReport.test.tsx` — extended: Save to My
+  reports writes the store.
+- `src/__tests__/app/advisor-headers.test.tsx` — extended: restore path renders
+  Step 11 from a saved report id; unknown id falls back to the normal flow.
+
+**Design notes:** nothing is pre-rendered at save time — the on-screen report,
+.md, .txt, and re-downloads all rebuild from the snapshot through the shared pure
+`reportExport` builders, so the four renderings can never disagree and old saves
+keep rendering correctly if exporters improve later.
+
+**Verification:**
+- `npx tsc --noEmit` — clean
+- `npx jest` — 312/312 pass (28 suites, +19 new)
+- `npx next lint` — clean (one pre-existing `VehicleNeeds` warning)
+- `npx next build` — green
+- Merged via PR #75 as `17e8372`; deploy rollout `build-2026-09-07-002`;
+  live `/api/version` = `17e8372`; `/`, `/advisor`, `/status` all 200
