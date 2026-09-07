@@ -271,6 +271,73 @@ describe('VehicleNeeds', () => {
   });
 });
 
+describe('VehicleNeeds inline search refinement', () => {
+  it('seeds ZIP and body style from the Step 1 intake', async () => {
+    mockFetchOnce({ source: 'demo', vehicles: FLEET });
+    setup({ intake: { monthlyBudget: '500', zip: '60601', bodyStyle: 'suv' } });
+    await screen.findByText('2025 Toyota Camry LE');
+    expect(screen.getByLabelText('ZIP code')).toHaveValue('60601');
+    expect(screen.getByLabelText('Body style')).toHaveValue('suv');
+  });
+
+  it('re-queries with the new ZIP and body style when refined inline', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ source: 'marketcheck', vehicles: FLEET }),
+    }) as unknown as jest.Mock;
+    global.fetch = fetchMock as unknown as typeof fetch;
+    setup({ intake: { monthlyBudget: '500', downPayment: '5000', creditRange: 'good', zip: '60601', bodyStyle: 'sedan' } });
+    await screen.findByText('2025 Toyota Camry LE');
+
+    fireEvent.change(screen.getByLabelText('ZIP code'), { target: { value: '90210' } });
+    fireEvent.change(screen.getByLabelText('Body style'), { target: { value: 'suv' } });
+
+    // Each change re-queries; the final request carries both refinements.
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(2);
+    const url = new URL(fetchMock.mock.calls[fetchMock.mock.calls.length - 1][0] as string, 'http://localhost');
+    expect(url.searchParams.get('zip')).toBe('90210');
+    expect(url.searchParams.get('bodyType')).toBe('suv');
+    // Budget/down/credit stay pinned to Step 1.
+    expect(url.searchParams.get('budget')).toBe('500');
+    expect(url.searchParams.get('down')).toBe('5000');
+    expect(url.searchParams.get('credit')).toBe('good');
+  });
+
+  it('strips non-digits from the ZIP and ignores partial entries', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ source: 'demo', vehicles: FLEET }),
+    }) as unknown as jest.Mock;
+    global.fetch = fetchMock as unknown as typeof fetch;
+    setup({ intake: { monthlyBudget: '500' } });
+    await screen.findByText('2025 Toyota Camry LE');
+
+    const zip = screen.getByLabelText('ZIP code') as HTMLInputElement;
+    fireEvent.change(zip, { target: { value: '90a21-0' } });
+    expect(zip.value).toBe('90210');
+    // Refined search fired with the sanitized ZIP.
+    const url = new URL(fetchMock.mock.calls[1][0] as string, 'http://localhost');
+    expect(url.searchParams.get('zip')).toBe('90210');
+
+    // Clearing back to a partial value drops the zip param (empty means
+    // national inventory) and re-queries.
+    fireEvent.change(zip, { target: { value: '9' } });
+    const url2 = new URL(fetchMock.mock.calls[2][0] as string, 'http://localhost');
+    expect(url2.searchParams.get('zip')).toBeNull();
+  });
+
+  it('shows a refined-search hint only after the user diverges from intake', async () => {
+    mockFetchOnce({ source: 'demo', vehicles: FLEET });
+    setup({ intake: { monthlyBudget: '500', zip: '60601', bodyStyle: 'suv' } });
+    await screen.findByText('2025 Toyota Camry LE');
+    expect(screen.queryByText(/refined search/)).toBeNull();
+    fireEvent.change(screen.getByLabelText('ZIP code'), { target: { value: '90210' } });
+    expect(screen.getByText(/refined search/)).toBeInTheDocument();
+  });
+});
+
 // Keep waitFor imported for future async assertions without lint noise.
 void waitFor;
 
