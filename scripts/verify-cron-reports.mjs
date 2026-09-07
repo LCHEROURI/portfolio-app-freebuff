@@ -18,6 +18,17 @@
 //      emailed-report feature is gone — a silent re-introduction fails CI just
 //      like the unit tests in app/api/cron/reports/route.test.ts).
 //
+// Transient-OpenRouter retry (rule 2-4, aiRequired builds only): the AI
+// executive-summary call can fail briefly provider-side (the 8182177 flake:
+// the same host/script/secret that reddened CI passed minutes later with all
+// six AI sections rendered). When the deployed build reports AI configured
+// (configured.openrouter=true) but an AI body sub-check fails on the FIRST
+// pass, the script waits AI_RETRY_DELAY_MS and re-fetches that report once,
+// re-running the AI sub-checks. A blip clears on retry (CI stays green); a
+// build that genuinely lost its AI sections fails BOTH passes (still red).
+// Deterministic checks (titles, sections, envelope sweep) never retry — they
+// are not provider-dependent.
+//
 // Usage:
 //   node scripts/verify-cron-reports.mjs [--base https://...] [--secret <CRON_SECRET>] [--owner <uid>]
 //
@@ -83,6 +94,53 @@ const getJson = async (path, headers = {}) => {
   return { status: res.status, json };
 };
 
+// ── Transient-OpenRouter retry for the AI body sub-checks ───────────────────
+// The AI executive-summary call is the only provider-dependent surface here;
+// a transient OpenRouter blip reddens CI for a build that is actually healthy
+// (the 8182177 flake passed minutes later, same host/script/secret, all six
+// AI sections rendered). So when aiRequired, a first-pass AI sub-check failure
+// triggers ONE retry after a short delay before any failure is emitted. A
+// blip clears on retry; a build that genuinely lost its AI sections fails
+// both passes. Deterministic checks never go through this path.
+const AI_RETRY_DELAY_MS = 5000;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// The aiRequired exec-summary sub-checks for one report body (friendly
+// heading + raw-id footer). Returns [] when both pass.
+const aiExecFailures = (kind, body) => {
+  const fails = [];
+  if (!body.includes('## ✨ AI executive summary (DeepSeek Chat)'))
+    fails.push(`${kind} body missing friendly heading "(DeepSeek Chat)"`);
+  if (!body.includes('Model: `deepseek/deepseek-chat`'))
+    fails.push(`${kind} body missing raw-id footer "Model: \`deepseek/deepseek-chat\`"`);
+  return fails;
+};
+
+// Fetch a kind's preview body, running the aiRequired exec-summary sub-checks
+// with ONE retry on a first-pass failure. Returns { report, body } from the
+// pass whose AI sub-checks passed (or the last pass when both failed), so the
+// caller's deterministic checks always read the freshest successful body. The
+// raw first-pass response stays available to the caller for the envelope
+// sweep (which is deterministic — it must not be retried).
+const withAiRetry = async (kind, firstResp) => {
+  const reportOf = (resp) => resp.json?.reports?.find((r) => r.kind === kind);
+  let report = reportOf(firstResp);
+  let body = report?.body ?? '';
+  if (!aiRequired || aiExecFailures(kind, body).length === 0) return { report, body };
+  console.log(`  ↳ ${kind} AI sub-checks failed on the first pass — retrying once after ${AI_RETRY_DELAY_MS}ms (transient provider blip?)`);
+  await sleep(AI_RETRY_DELAY_MS);
+  const retryResp = await getJson(`/api/cron/reports?kind=${kind}&previewBody=1`, auth);
+  report = reportOf(retryResp);
+  body = report?.body ?? '';
+  const fails = aiExecFailures(kind, body);
+  if (fails.length === 0) {
+    ok(`${kind} AI sub-checks passed on retry — first-pass absence was a transient provider failure, not a regression`);
+  } else {
+    for (const f of fails) fail(f, `${kind}-body`);
+  }
+  return { report, body };
+};
+
 // 1. Auth gate.
 console.log(`\n[1/6] Auth gate at ${BASE}`);
 const anon = await getJson('/api/cron/reports?kind=daily');
@@ -130,29 +188,23 @@ if (OR_FLAG === false) {
 
 // 3. Weekly report body: friendly heading + raw footer + winner recommendation.
 console.log('\n[3/6] Weekly report body (?kind=weekly&previewBody=1)');
-const weekly = await getJson('/api/cron/reports?kind=weekly&previewBody=1', auth);
-const weeklyReport = weekly.json?.reports?.find((r) => r.kind === 'weekly');
-const weeklyBody = weeklyReport?.body ?? '';
+const weeklyResp = await getJson('/api/cron/reports?kind=weekly&previewBody=1', auth);
+const { report: weeklyReport, body: weeklyBody } = await withAiRetry('weekly', weeklyResp);
 // Owner-scoped strict mode: the deployed cron reads REPORT_OWNER_ID server-side,
 // so when --owner is passed the response's ownerId must match it — anything else
-// means the Vercel env never got the real uid and the report is scoped to the
+// means the deployed env never got the real uid and the report is scoped to the
 // wrong account (or demo-user).
 if (OWNER) {
-  if (!weekly.json?.ownerId) {
+  if (!weeklyResp.json?.ownerId) {
     fail(`response missing ownerId — cannot verify --owner ${OWNER}`, 'weekly-body');
-  } else if (weekly.json.ownerId !== OWNER) {
-    fail(`deployed REPORT_OWNER_ID is "${weekly.json.ownerId}" but --owner expects "${OWNER}". Set REPORT_OWNER_ID=${OWNER} on Vercel and redeploy.`, 'weekly-body');
+  } else if (weeklyResp.json.ownerId !== OWNER) {
+    fail(`deployed REPORT_OWNER_ID is "${weeklyResp.json.ownerId}" but --owner expects "${OWNER}". Set REPORT_OWNER_ID=${OWNER} on the App Hosting backend and redeploy.`, 'weekly-body');
   } else {
     ok(`deployed REPORT_OWNER_ID matches --owner (${OWNER})`);
   }
 }
 if (!weeklyBody) fail('weekly body missing from response', 'weekly-body');
-if (aiRequired) {
-  if (!weeklyBody.includes('## ✨ AI executive summary (DeepSeek Chat)'))
-    fail('weekly body missing friendly heading "(DeepSeek Chat)"', 'weekly-body');
-  if (!weeklyBody.includes('Model: `deepseek/deepseek-chat`'))
-    fail('weekly body missing raw-id footer "Model: `deepseek/deepseek-chat`"', 'weekly-body');
-} else if (weeklyBody.includes('## ✨ AI executive summary (DeepSeek Chat)') && !weeklyBody.includes('Model: `deepseek/deepseek-chat`')) {
+if (!aiRequired && weeklyBody.includes('## ✨ AI executive summary (DeepSeek Chat)') && !weeklyBody.includes('Model: `deepseek/deepseek-chat`')) {
   fail('weekly body has the AI heading but no raw-id footer', 'weekly-body');
 }
 if (!weeklyBody.includes('# Weekly Command Center Report'))
@@ -203,7 +255,7 @@ if (!weeklyIncidents) {
     ok('no incidents in the past week — quiet-week line rendered (graceful path)');
   }
 }
-const ownerScoped = OWNER && weekly.json?.ownerId === OWNER;
+const ownerScoped = OWNER && weeklyResp.json?.ownerId === OWNER;
 if (weeklyRecs && weeklyRecs.length > 0) {
   if (!weeklyBody.includes('## 🏆 AI winner recommendations (DeepSeek Chat)'))
     fail('weekly winner section missing friendly heading "(DeepSeek Chat)"', 'weekly-body');
@@ -230,16 +282,9 @@ if (!failures && (aiRequired || weeklyBody.includes('## ✨ AI executive summary
 //    summary and raw footer still ship. This keeps the check green on quiet
 //    days without letting regressions sneak through.
 console.log('\n[4/6] Daily report body (?kind=daily&previewBody=1)');
-const daily = await getJson('/api/cron/reports?kind=daily&previewBody=1', auth);
-const dailyReport = daily.json?.reports?.find((r) => r.kind === 'daily');
-const dailyBody = dailyReport?.body ?? '';
+const dailyResp = await getJson('/api/cron/reports?kind=daily&previewBody=1', auth);
+const { report: dailyReport, body: dailyBody } = await withAiRetry('daily', dailyResp);
 if (!dailyBody) fail('daily body missing from response', 'daily-body');
-if (aiRequired) {
-  if (!dailyBody.includes('## ✨ AI executive summary (DeepSeek Chat)'))
-    fail('daily body missing executive-summary friendly heading', 'daily-body');
-  if (!dailyBody.includes('Model: `deepseek/deepseek-chat`'))
-    fail('daily body missing raw-id footer', 'daily-body');
-}
 const narration = dailyReport?.narration;
 if (narration) {
   if (!dailyBody.includes('## 🎯 Why these three matter today (DeepSeek Chat)'))
@@ -263,16 +308,9 @@ if (!failures && narration) {
 //    trends / backlog drift) is data-dependent — when present it must carry the
 //    friendly heading and structured paragraph, never the raw id inline.
 console.log('\n[5/6] Monthly report body (?kind=monthly&previewBody=1)');
-const monthly = await getJson('/api/cron/reports?kind=monthly&previewBody=1', auth);
-const monthlyReport = monthly.json?.reports?.find((r) => r.kind === 'monthly');
-const monthlyBody = monthlyReport?.body ?? '';
+const monthlyResp = await getJson('/api/cron/reports?kind=monthly&previewBody=1', auth);
+const { report: monthlyReport, body: monthlyBody } = await withAiRetry('monthly', monthlyResp);
 if (!monthlyBody) fail('monthly body missing from response', 'monthly-body');
-if (aiRequired) {
-  if (!monthlyBody.includes('## ✨ AI executive summary (DeepSeek Chat)'))
-    fail('monthly body missing executive-summary friendly heading', 'monthly-body');
-  if (!monthlyBody.includes('Model: `deepseek/deepseek-chat`'))
-    fail('monthly body missing raw-id footer', 'monthly-body');
-}
 if (!monthlyBody.includes('# Monthly Command Center Report'))
   fail('monthly body missing report title', 'monthly-body');
 if (!monthlyBody.includes('## Velocity — what advanced this month'))
@@ -314,7 +352,7 @@ const sweepReports = (reports, label) => {
     }
   }
 };
-for (const [label, resp] of [['weekly', weekly.json], ['daily', daily.json], ['monthly', monthly.json]]) {
+for (const [label, resp] of [['weekly', weeklyResp.json], ['daily', dailyResp.json], ['monthly', monthlyResp.json]]) {
   sweepReports(resp?.reports, label);
   if (resp && 'email' in resp) {
     envelopeHits += 1;
