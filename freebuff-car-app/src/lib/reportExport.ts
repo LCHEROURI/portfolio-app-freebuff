@@ -6,6 +6,7 @@
 import { monthlyPayment, totalCost } from '@/utils/financeCalculators';
 import { estimateMonthlyPayment } from '@/lib/affordability';
 import { docFeeFlags, addOnFlags } from '@/utils/redFlags';
+import { nearbyDealers } from '@/lib/dealers';
 import type { AdvisorState } from '@/hooks/useAdvisorState';
 
 function parseNumber(value: unknown): number {
@@ -329,6 +330,24 @@ export function buildReportData(advisor: AdvisorState | null | undefined): Repor
     headline: hasScore ? `${parseNumber(result?.score)} / 100` : undefined,
     items: breakdown.map((item) => `${item.label}: ${item.earned}/${item.maxPoints}`),
   });
+
+  // Nearby dealers (Step 1 ZIP + winning vehicle). Demo mode: the same
+  // ZIP-seeded placeholders the on-screen sheet shows, so exports and the
+  // UI can never disagree. Directions links open Google Maps.
+  const intake2 = rec(s?.intake);
+  const zip = str(intake2, 'zip').trim();
+  const { dealers } = nearbyDealers(zip);
+  if (dealers.length > 0) {
+    sections.push({
+      title: 'Nearby dealers',
+      completed: true,
+      items: dealers.map((dealer) => {
+        const line = `${dealer.name} — ${dealer.distanceMi.toFixed(1)} mi — ${dealer.address} — ${dealer.phone}`;
+        return `${line} — ${dealer.directionsUrl}`;
+      }),
+      footnote: 'Demo dealers — placeholders generated from your Step 1 ZIP; a live feed is not configured yet.',
+    });
+  }
 
   return {
     sections,

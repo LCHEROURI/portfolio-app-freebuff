@@ -18,6 +18,7 @@ import { STEP_LABELS, type Step } from '@/lib/steps';
 import StepProgress from '@/components/StepProgress';
 import { REPORT_STORAGE_KEY } from '@/lib/progress';
 import { findSavedReport } from '@/lib/savedReports';
+import { winningVehicleLabel } from '@/lib/dealers';
 
 interface VersionBody {
   service?: string;
@@ -175,6 +176,11 @@ export default function AdvisorPage() {
 
   const stepDescription = STEP_DESCRIPTIONS[step];
 
+  // Winning vehicle label (lowest-MSRP compared vehicle) for the
+  // nearby-dealers contact sheet on Step 9 and the report's dealers section.
+  const winnerLabel = winningVehicleLabel(advisorState.vehicles);
+  const intakeZip = (advisorState.intake as { zip?: string } | undefined)?.zip ?? '';
+
   // On the report step, printing is the app's one printable artifact: the
   // Intelligence Report. Its own chrome is already print:hidden, so the
   // page shell around it (step header + progress, bottom nav, deploy
@@ -216,7 +222,7 @@ export default function AdvisorPage() {
       ) : step === 8 ? (
         <FeeAuditor onComplete={() => goToStep(9)} onSaveData={saveData('fees')} />
       ) : step === 9 ? (
-        <DriveScript onComplete={() => goToStep(10)} />
+        <DriveScript onComplete={() => goToStep(10)} zip={intakeZip} vehicleLabel={winnerLabel} />
       ) : step === 10 ? (
         <DealScoreCard onComplete={() => goToStep(11)} onSaveData={saveData('dealScore')} />
       ) : (

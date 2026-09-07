@@ -8,6 +8,8 @@ import type { AdvisorState } from '@/hooks/useAdvisorState';
 import { REPORT_STORAGE_KEY } from '@/lib/progress';
 import { buildReportMarkdown, buildReportPlainText, reportFileName, buildCompareColumns, compareRowValues, bestColumnsFor, COMPARE_MIN_ROWS, COMPARE_MAX_ROWS } from '@/lib/reportExport';
 import { saveAdvisorReport, downloadTextAsFile } from '@/lib/savedReports';
+import { winningVehicleLabel } from '@/lib/dealers';
+import DealerContactSheet from '@/components/DealerContactSheet';
 
 type StoredReport = {
   savedAt: string;
@@ -160,6 +162,9 @@ export default function IntelligenceReport({ onComplete, advisor, onReset }: Pro
 
   const score = dealScore?.result?.score;
   const hasScore = typeof score === 'number';
+
+  const intakeZip = str(intake as Record<string, unknown> | undefined, 'zip').trim();
+  const winnerLabel = winningVehicleLabel(vehicles);
 
   function performReset() {
     try {
@@ -442,6 +447,10 @@ export default function IntelligenceReport({ onComplete, advisor, onReset }: Pro
               <Empty step="10" />
             )}
           </Section>
+
+          {/* Nearby dealers (Step 1 ZIP + winning vehicle) — the next real
+              action after the report is contacting a dealer. */}
+          <DealerContactSheet zip={intakeZip} vehicleLabel={winnerLabel} />
 
           <Section title="Negotiation ground rules">
             <ul className="list-disc space-y-1 pl-5 text-sm text-ink-700">
