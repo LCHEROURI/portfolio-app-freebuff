@@ -67,4 +67,22 @@ describe('scripts/verify-cron-reports.mjs · AI retry-once contract', () => {
     // The sweep loop must read the first-pass responses, not the retried ones.
     expect(SCRIPT).toContain('for (const [label, resp] of');
   });
+
+  it('counts retry engagements for the blip-frequency marker', () => {
+    // The retry counter increments exactly when the retry ENGAGES and when it
+    // CLEARS, so the marker's frequency telemetry is accurate per run.
+    expect(SCRIPT).toContain('let aiRetriesEngaged = 0;');
+    expect(SCRIPT).toContain('let aiRetriesCleared = 0;');
+    expect(SCRIPT).toContain('aiRetriesEngaged += 1;');
+    expect(SCRIPT).toContain('aiRetriesCleared += 1;');
+  });
+
+  it('emits the VERIFY-AI-RETRY marker on EVERY run with engaged/cleared counts', () => {
+    // Emitted unconditionally (engaged=0 included) so CI can distinguish "no
+    // retry this run" from "marker missing" (a script regression).
+    expect(SCRIPT).toContain('console.log(`VERIFY-AI-RETRY|engaged=${aiRetriesEngaged}|cleared=${aiRetriesCleared}`);');
+    // The marker must ride on the stdout CI parses (same stream as the
+    // VERIFY-SUBRESULT markers verify-all.mjs consumes).
+    expect(SCRIPT).toContain('VERIFY-AI-RETRY');
+  });
 });

@@ -331,8 +331,13 @@ export function crossCheckVerifyAllSecrets({ rows, header, verifyAllSrc, npmScri
 const CI_VERIFY_JOBS = new Set(['verify-deployed', 'verify-auth-domains', 'verify-prod-signin']);
 // A step's `if:` gating: `env.<SECRET> != ''` (multiple may be AND-ed).
 const CI_GATING_RE = /env\.([A-Z][A-Z0-9_]*)\s*!=\s*''/g;
-// A step that runs a gate script: `run: node scripts/verify-<name>.mjs`.
+// A step that runs a gate script: `run: node scripts/verify-<name>.mjs` —
+// either on the `run:` line itself, or inside a `run: |` block scalar that
+// captures the script's output (the cron-reports step tees stdout so CI can
+// read the VERIFY-AI-RETRY marker). The block form is matched by its
+// continuation line that actually invokes the script.
 const CI_RUN_RE = /^        run:\s*node scripts\/(verify-[\w-]+\.mjs)\s*$/;
+const CI_RUN_BLOCK_RE = /^          (?:[^\n]*?\$\()?node scripts\/(verify-[\w-]+\.mjs)/;
 
 /**
  * Parse ci.yml's post-deploy verify jobs into their gated gate steps.
@@ -365,6 +370,8 @@ export function parseCiGateSteps(ciSrc) {
     if (ifMatch) current.ifCondition = ifMatch[1];
     const runMatch = line.match(CI_RUN_RE);
     if (runMatch) current.run = runMatch[1];
+    const runBlockMatch = line.match(CI_RUN_BLOCK_RE);
+    if (runBlockMatch) current.run = runBlockMatch[1];
   }
   return steps
     .filter((s) => CI_VERIFY_JOBS.has(s.job) && /^verify-[\w-]+\.mjs$/.test(s.run))

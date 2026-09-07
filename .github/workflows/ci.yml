@@ -165,6 +165,13 @@ jobs:
     needs: validate
     if: ${{ github.event_name == 'push' || github.event_name == 'workflow_dispatch' }}
 
+    # Issues write: the AI-blip frequency step appends dated entries to the
+    # shared `ai-blip` labeled issue (deploy-failure-log pattern). All other
+    # steps stay read-only.
+    permissions:
+      contents: read
+      issues: write
+
     # Job-level env is the only place secrets can be read for step gating
     # (`secrets` is not a valid context in `if:`). An unset secret becomes an
     # empty string, so `env.X != ''` gates each step cleanly.
@@ -235,9 +242,44 @@ jobs:
 
       - name: Verify deployed cron report bodies
         if: ${{ env.CRON_SECRET != '' }}
-        run: node scripts/verify-cron-reports.mjs
+        id: verify-cron
+        run: |
+          OUT="$(node scripts/verify-cron-reports.mjs 2>&1)"
+          printf '%s\n' "$OUT"
+          RETRY="$(printf '%s\n' "$OUT" | sed -n 's/^VERIFY-AI-RETRY|engaged=\([0-9]*\)|cleared=\([0-9]*\)$/\1 \2/p' | tail -1)"
+          echo "ai_retry_marker=${RETRY:-0 0}" >> "$GITHUB_OUTPUT"
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
+
+      # Blip-frequency log: when the cron-verify's AI retry ENGAGED this run
+      # (a provider blip that needed the retry pass), append a dated line to
+      # the shared `ai-blip` labeled issue — the deploy-failure-log pattern,
+      # but for provider blips that cleared on retry. The weekly report reads
+      # this log (lib/server/incidents.ts) and renders "AI provider blips this
+      # week: N" so blip frequency is visible without digging through CI logs.
+      # engaged=0 runs emit nothing (no issue churn on healthy runs).
+      - name: Record AI-blip frequency (retry engaged this run)
+        if: ${{ env.CRON_SECRET != '' && steps.verify-cron.outputs.ai_retry_marker != '0 0' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RETRY_MARKER: ${{ steps.verify-cron.outputs.ai_retry_marker }}
+        run: |
+          set -euo pipefail
+          ENGAGED="$(printf '%s' "$RETRY_MARKER" | cut -d' ' -f1)"
+          CLEARED="$(printf '%s' "$RETRY_MARKER" | cut -d' ' -f2)"
+          TODAY="$(date -u +%Y-%m-%d)"
+          BODY="AI retry engaged $ENGAGED time(s), $CLEARED cleared on retry — $TODAY UTC (run $GITHUB_RUN_ID). Provider blip, not a regression."
+          EXISTING="$(gh issue list --repo "$GITHUB_REPOSITORY" --label ai-blip --state open --limit 1 --json number --jq '.[0].number' 2>/dev/null || true)"
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body "$BODY"
+          else
+            gh label create ai-blip --repo "$GITHUB_REPOSITORY" --color FBCA04 --description "OpenRouter provider blips that cleared on the cron-verify AI retry (frequency log, not failures)" 2>/dev/null || true
+            gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "🤖 AI provider blips — frequency log" \
+              --body "$BODY" \
+              --label ai-blip
+          fi
+          echo "recorded ai-blip entry (engaged=$ENGAGED cleared=$CLEARED)"
 
       # Firestore rules isolation, probed in the VERIFICATION SANDBOX (the
       # second Spark project) so CI never touches the production read quota.

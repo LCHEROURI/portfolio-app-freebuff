@@ -105,6 +105,16 @@ const getJson = async (path, headers = {}) => {
 const AI_RETRY_DELAY_MS = 5000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Blip-frequency accounting for the machine-readable marker (emitted at the
+// end of the run): counts how many times the AI retry ENGAGED this run and
+// how many of those cleared on the retry pass. CI reads `VERIFY-AI-RETRY|
+// engaged=<n>|cleared=<m>` and appends a dated line to the shared `ai-blip`
+// labeled issue (the deploy-failure-log pattern, but for provider blips that
+// cleared on retry) — the weekly report then renders "AI provider blips this
+// week: N" so blip frequency is visible without digging through CI logs.
+let aiRetriesEngaged = 0;
+let aiRetriesCleared = 0;
+
 // The aiRequired exec-summary sub-checks for one report body (friendly
 // heading + raw-id footer). Returns [] when both pass.
 const aiExecFailures = (kind, body) => {
@@ -128,12 +138,14 @@ const withAiRetry = async (kind, firstResp) => {
   let body = report?.body ?? '';
   if (!aiRequired || aiExecFailures(kind, body).length === 0) return { report, body };
   console.log(`  ↳ ${kind} AI sub-checks failed on the first pass — retrying once after ${AI_RETRY_DELAY_MS}ms (transient provider blip?)`);
+  aiRetriesEngaged += 1;
   await sleep(AI_RETRY_DELAY_MS);
   const retryResp = await getJson(`/api/cron/reports?kind=${kind}&previewBody=1`, auth);
   report = reportOf(retryResp);
   body = report?.body ?? '';
   const fails = aiExecFailures(kind, body);
   if (fails.length === 0) {
+    aiRetriesCleared += 1;
     ok(`${kind} AI sub-checks passed on retry — first-pass absence was a transient provider failure, not a regression`);
   } else {
     for (const f of fails) fail(f, `${kind}-body`);
@@ -365,6 +377,11 @@ if (envelopeHits === 0) ok('no report in the weekly, daily, or monthly response 
 // secret drift, weekly body, daily body, no-email envelope) is visible at a
 // glance without reading the full stdout. verify-all.mjs scans for
 // `VERIFY-SUBRESULT|<name>|<PASS|FAIL>` on its piped stdout.
+// Blip-frequency marker for CI: emitted on EVERY run (engaged=0 included) so
+// the workflow can distinguish "no retry this run" from "the marker line is
+// missing" (a script regression). Only run-length data — the durable
+// frequency record lives in the ai-blip issue log, written by the workflow.
+console.log(`VERIFY-AI-RETRY|engaged=${aiRetriesEngaged}|cleared=${aiRetriesCleared}`);
 console.log(`VERIFY-SUBRESULT|auth-gate|${(sectionFails['auth-gate'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
 console.log(`VERIFY-SUBRESULT|secret-drift|${(sectionFails['secret-drift'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);
 console.log(`VERIFY-SUBRESULT|weekly-body|${(sectionFails['weekly-body'] ?? 0) === 0 ? 'PASS' : 'FAIL'}`);

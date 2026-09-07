@@ -598,6 +598,26 @@ describe('GET /api/cron/reports — weekly deploy-incident summary', () => {
     expect(dailyJson.reports[0].body).not.toContain('Deploy incidents this week');
     expect(monthlyJson.reports[0].body).not.toContain('Deploy incidents this week');
   });
+
+  it('renders the AI-blip frequency line when the retry engaged this week', async () => {
+    vi.mocked(fetchIncidentsSummary).mockResolvedValue({
+      incidents: [],
+      recoveries: [],
+      resolvedCount: 0,
+      aiBlips: { count: 3, lastEngagedAt: '2026-09-05T08:00:00Z' },
+    });
+    const res = await GET(makePreviewReq('weekly'));
+    const json = (await res.json()) as { reports: Array<{ body: string }> };
+    expect(json.reports[0].body).toContain('🤖 AI provider blips this week: 3');
+    expect(json.reports[0].body).toContain('last 2026-09-05');
+    expect(json.reports[0].body).toContain('each cleared on the verify retry');
+  });
+
+  it('omits the AI-blip line when no blips were recorded (no noise on a clean week)', async () => {
+    const res = await GET(makePreviewReq('weekly'));
+    const json = (await res.json()) as { reports: Array<{ body: string }> };
+    expect(json.reports[0].body).not.toContain('AI provider blips this week');
+  });
 });
 
 // ─── Preview body (?previewBody=1, dev-only) ────────────────────────────────
