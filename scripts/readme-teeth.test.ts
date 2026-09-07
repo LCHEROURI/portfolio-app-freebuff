@@ -26,7 +26,7 @@ const TEETH = README.slice(teethStart, teethEnd === -1 ? undefined : teethEnd);
 describe("README · 'Re-proving the gate's teeth in seconds'", () => {
   it('keeps the section with its read-only framing and the npm-script entry points', () => {
     expect(TEETH.length).toBeGreaterThan(0);
-    expect(TEETH).toContain('All are read-only against git and Vercel');
+    expect(TEETH).toContain('All are read-only against git');
     // The npm scripts are the no-copy-paste entry points; the runner copies
     // the CURRENT artifacts, so the proofs are age-independent.
     expect(TEETH).toContain('copies the CURRENT hook/driver artifacts in');

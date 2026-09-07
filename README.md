@@ -4,14 +4,14 @@
 
 **One dashboard to run every AI-built version of your app idea.**
 
-[![Live app](https://img.shields.io/badge/Live%20app-Vercel-000000?style=for-the-badge&logo=vercel&logoColor=white)](https://portfolio-app-freebuff.vercel.app)
+[![Live app](https://img.shields.io/badge/Live%20app-Firebase%20App%20Hosting-FFCA28?style=for-the-badge&logo=firebase&logoColor=black)](https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app)
 [![CI](https://img.shields.io/github/actions/workflow/status/LCHEROURI/portfolio-app-freebuff/ci.yml?style=for-the-badge&logo=githubactions&logoColor=white&label=CI)](https://github.com/LCHEROURI/portfolio-app-freebuff/actions/workflows/ci.yml)
 [![Next.js](https://img.shields.io/badge/Next.js%2014-black?style=for-the-badge&logo=nextdotjs&logoColor=white)](https://nextjs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![Firebase](https://img.shields.io/badge/Firebase-FFCA28?style=for-the-badge&logo=firebase&logoColor=black)](https://firebase.google.com)
 [![Tailwind](https://img.shields.io/badge/Tailwind%20CSS-38BDF8?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
 
-**[Live app →](https://portfolio-app-freebuff.vercel.app)** · Real Firebase Auth — sign in with email/password or Google to see your command center.
+**[Live app →](https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app)** · Real Firebase Auth — sign in with email/password or Google to see your command center.
 
 </div>
 
@@ -53,10 +53,12 @@ Google) with per-user isolation enforced by `firestore.rules`. Without the
 Firebase env vars the app falls back to **local demo mode** (localStorage
 seed) — the no-config path for forks and local dev. Each live integration is
 toggled by a `NEXT_PUBLIC_LIVE_*` build-time flag plus a matching server
-credential (GitHub → Repositories, Vercel → Deployments, OpenRouter → AI
+credential (GitHub → Repositories, Firebase → Deployments, OpenRouter → AI
 briefings). The automation engine (`lib/engine.ts`) runs 14 rules and the
-priority queue, and a Vercel Cron (`/api/cron/reports`) composes daily/weekly
-report bodies into the in-app Reports page — nothing is sent anywhere. Entry
+priority queue, and a GitHub Actions schedule (`.github/workflows/report-cron.yml`)
+triggers `/api/cron/reports` on the deployed backend daily at 07:00 UTC to
+compose daily/weekly/monthly report bodies into the in-app Reports page —
+nothing is sent anywhere. Entry
 points: `app/` (routes + API), `lib/` (client store + live facade),
 `lib/server/` (server data + rules), `scripts/` (verify suite + local tools),
 `.github/workflows/` (CI + deploy gates).
@@ -75,21 +77,22 @@ Data flow at a glance:
 │   pages · client store (lib/store) · live facade     │
 └──────┬──────────────────┬──────────────────┬─────────┘
        │                  │                  │
-  /api/* routes      GitHub REST        Vercel API
+  /api/* routes      GitHub REST        Firebase APIs
   (app/api/,         (lib/server/       (lib/server/
   token-verified)     github.ts)         deployments.ts)
        │                  │                  │
        ▼                  ▼                  ▼
-┌──────────────┐   ┌─────────────┐   ┌──────────────┐
-│   Firestore  │   │   GitHub    │   │    Vercel    │
-│  (the single │   │   repos     │   │  deployments │
-│  data store) │   │   feed      │   │  + health    │
-└──────┬───────┘   └─────────────┘   └──────────────┘
+┌──────────────┐   ┌─────────────┐   ┌──────────────────┐
+│   Firestore  │   │   GitHub    │   │  App Hosting +   │
+│  (the single │   │   repos     │   │  Hosting deploys │
+│  data store) │   │   feed      │   │  + health        │
+└──────┬───────┘   └─────────────┘   └──────────────────┘
        │
        │  reads the same docs via service account (FIREBASE_SERVICE_ACCOUNT)
        ▼
 ┌──────────────────────────────────────────────────────┐
-│  Vercel Cron — /api/cron/reports                     │
+│  GitHub Actions schedule — report-cron.yml           │
+│  → /api/cron/reports on the deployed backend         │
 │  composes daily/weekly report bodies                 │
 │  → in-app Reports page (nothing is sent)             │
 └──────────────────────────────────────────────────────┘
@@ -131,7 +134,7 @@ preceded by the hook's static and render gates — **0.6** import-surface,
 gate (re-renders the onboarding-docs and review-sheet PNGs and fails until
 the committed screenshots match; the review-sheet capture runs in
 deterministic mode) — and `npm run ship:go` commits, pushes, waits for the
-Vercel deploy, then re-runs `ship:ready` against the live build.
+Firebase App Hosting deploy, then re-runs `ship:ready` against the live build.
 
 ### Firestore read budget & the Blaze decision
 
@@ -318,8 +321,8 @@ The same screens in light and dark — the sidebar's connection-status widget
 (per-var console links + copy buttons) is visible on every route. Captured
 from a demo build (`NEXT_PUBLIC_DEMO_OVERRIDE=1`, see below) so the shots show
 the app's screens without the sign-in gate; the live production URL
-(`portfolio-app-freebuff.vercel.app`) is **Firebase-live** and starts at the
-auth gate.
+(`portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app`) is
+**Firebase-live** and starts at the auth gate.
 
 | Route | Light | Dark |
 | :--- | :---: | :---: |
@@ -334,7 +337,7 @@ auth gate.
 | **Settings** | ![Settings light](screenshots/settings.png) | ![Settings dark](screenshots/settings-dark.png) |
 
 > Try either theme on the live site: `?theme=light` / `?theme=dark` — e.g.
-> `https://portfolio-app-freebuff.vercel.app/command-center?theme=dark` (the
+> `https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app/command-center?theme=dark` (the
 > site is Firebase-live, so the first screen you meet is the sign-in gate)
 >
 > Regenerate the whole gallery whenever the UI changes with one command
@@ -386,7 +389,7 @@ auth gate.
 - **Frontend:** Next.js 14 (App Router), React 18, TypeScript
 - **Styling:** Tailwind CSS, Lucide icons, light/dark/system themes (`?theme=` URL override)
 - **Data:** Firebase Auth + Cloud Firestore (typed, user-isolated, `firestore.rules`) with a fully functional **local demo fallback** (localStorage) — local demo data can be **imported into a real account** on first sign-in
-- **Automation:** 14-rule engine + priority queue + "Today's Top Three", fired by a Vercel Cron (`/api/cron/reports`) that composes daily/weekly reports against live data
+- **Automation:** 14-rule engine + priority queue + "Today's Top Three", fired by a GitHub Actions schedule (`.github/workflows/report-cron.yml`) that triggers `/api/cron/reports` to compose daily/weekly/monthly reports against live data
 - **Integrations:** GitHub REST, Vercel API, Google Calendar, Gemini AI summaries
 
 ## Getting started
@@ -464,12 +467,13 @@ persists to localStorage and the app never asks for credentials. This is the
 fallback for local dev / forks — the deployed **Production** environment has
 all six Firebase vars set and runs verified Firebase-live, not demo mode.
 
-### 🌐 Production environment on Vercel
+### 🌐 Production environment on Firebase App Hosting
 
-As of the current deploy, the Vercel project's **Production** environment runs
-in **Firebase mode** — every live API route requires a cryptographically
-verified Firebase ID token. The environment carries these variables (names only
-— values are encrypted in Vercel and never committed):
+As of the current deploy, the Firebase App Hosting backend's **Production**
+environment runs in **Firebase mode** — every live API route requires a
+cryptographically verified Firebase ID token. The environment carries these
+variables (names only — values are baked into `.env.production` by
+`scripts/deploy-portfolio-app.sh` and never committed):
 
 ```bash
 # Firebase identity + data (flips every API route from demo to verified auth)
@@ -497,8 +501,9 @@ every live API route (`/api/tasks`, `/api/repos`, `/api/deployments`, all
 Firebase ID token** and ignores the legacy `x-app-user` header. If a future
 deploy silently drops one of these six, the app falls back to **demo mode**:
 the auth gate disappears, data lives in per-browser localStorage, and the API
-routes trust the spoofable `x-app-user` header again. Keep the full set on
-Vercel in every environment that should behave as a real account.
+routes trust the spoofable `x-app-user` header again. Keep the full set in the
+deployed backend's server env for every environment that should behave as a
+real account.
 
 **Demo-mode identity caveat:** a local dev server runs in demo mode unless you
 copy the same six Firebase vars into `.env.local`. When they are present the
@@ -604,11 +609,13 @@ route.
 
 ### 🤖 Automation Engine — scheduled daily/weekly/monthly report generation
 
-The 14 rules aren't just a dashboard widget — a **Vercel Cron job**
-(`vercel.json` → `/api/cron/reports`) evaluates them against the **live data**
-(Firestore tasks/projects/versions/evaluations via the service account, live
-GitHub repos, Vercel/Firebase deployments with health checks) and composes a
-report for the in-app **Reports** page (nothing is emailed):
+The 14 rules aren't just a dashboard widget — a **GitHub Actions schedule**
+(`.github/workflows/report-cron.yml`) hits `/api/cron/reports` on the deployed
+Firebase App Hosting backend daily at 07:00 UTC, evaluating the rules against
+the **live data** (Firestore tasks/projects/versions/evaluations via the
+service account, live GitHub repos, Firebase App Hosting/Hosting deployments
+with health checks) and composing a report for the in-app **Reports** page
+(nothing is emailed):
 
 - **Daily (07:00 UTC):** attention items, overdue + due-today + completed-
 yesterday tasks, failed deployments, unpushed commits, priority queue, and
@@ -623,13 +630,16 @@ narrated by the AI monthly briefing.
 **Setup:**
 
 ```bash
-# 1. Add to Vercel → Project → Settings → Environment Variables:
-CRON_SECRET=<long-random-string>   # Vercel Cron sends this as the auth header
+# 1. Set the CRON_SECRET GitHub Actions secret (Settings → Secrets → Actions):
+#    gh secret set CRON_SECRET --repo LCHEROURI/portfolio-app-freebuff
+CRON_SECRET=<long-random-string>   # report-cron.yml sends this as the auth header
 
 # 2. Optional: REPORT_OWNER_ID (default demo-user), REPORT_WEEKLY_DAY (1=Mon),
-#    REPORT_MONTHLY_DAY (1=1st), REPORT_STALE_DAYS (7)
+#    REPORT_MONTHLY_DAY (1=1st), REPORT_STALE_DAYS (7) — same value must be
+#    baked into the deployed app's server env by scripts/deploy-portfolio-app.sh.
 
-# 3. Redeploy — Vercel registers the cron from vercel.json automatically.
+# 3. The schedule is registered by the workflow file itself — no console config.
+#    Deploy the backend with the matching CRON_SECRET so the route accepts it.
 ```
 
 > **No email.** The cron evaluates the 14 automation rules and composes the
@@ -642,11 +652,11 @@ header, so it can't be triggered by the public. Test a run manually:
 
 ```bash
 curl -H "Authorization: Bearer $CRON_SECRET" \
-  "https://portfolio-app-freebuff.vercel.app/api/cron/reports?kind=daily"
+  "https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app/api/cron/reports?kind=daily"
 ```
 
 It skips composing while no live sources are wired (nothing to report), and each
-report is also visible in the Vercel cron invocation logs.
+run is visible in the Actions run list of the `Report cron` workflow.
 
 **Verifying the composed bodies without an inbox:** the route accepts a dev-only
 `?previewBody=1` flag (still CRON_SECRET-authed) that includes each composed
@@ -657,7 +667,7 @@ a file or viewer without waiting for the scheduled cron:
 
 ```bash
 curl -H "Authorization: Bearer $CRON_SECRET" \
-  "https://portfolio-app-freebuff.vercel.app/api/cron/reports?kind=daily&previewBody=1&format=text"
+  "https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app/api/cron/reports?kind=daily&previewBody=1&format=text"
 ```
 
 The packaged smoke test asserts the auth gate, the friendly model heading, the
@@ -686,12 +696,11 @@ packaged smoke tests run against the deployed URL after each push to `main`
 | `npm run verify:auth-domains` | Deployed `/api/status?project=<domain>` reports `authDomains.ok` for the shipping domain (defaults to the production URL; pass `--domain <preview-url>` to validate a preview before it ships) | `FIREBASE_WEB_API_KEY` |
 
 Set `CRON_SECRET` and `FIREBASE_WEB_API_KEY` in **GitHub → Settings → Secrets
-→ Actions** (and the same values in Vercel's env for the deployed app). The
-`verify-deployed` CI job runs cron-reports + Firestore rules after every push;
-the `verify-auth-domains` job fails the run when the domain is not in the
-project's Firebase **Authorized domains** list; and
-`.github/workflows/preview-gate.yml` runs the same check against every Vercel
-**preview** URL via the `deployment_status` webhook. The merged
+→ Actions** (and the same values baked into the deployed app's server env by
+`scripts/deploy-portfolio-app.sh`). The `verify-deployed` CI job runs
+cron-reports + Firestore rules after every push, and the
+`verify-auth-domains` job fails the run when the domain is not in the
+project's Firebase **Authorized domains** list. The merged
 `firestore.rules` itself is guarded by `lib/firestoreRules.test.ts`, which
 asserts every portfolio + meal-planner collection and its field-level
 constraints survive future edits.
@@ -709,7 +718,7 @@ Firestore `activity` collection when the service account is configured, so the
 `/activity` feed shows when the automation engine generated reports.
 
 **Rotating `CRON_SECRET`** (do this whenever it may have leaked, or to keep the
-local `.env.local` and the Vercel/GitHub values in lockstep):
+local `.env.local` and the deployed/GitHub values in lockstep):
 
 ```bash
 # 1. Generate a fresh value and update it everywhere the old one lives. Use
@@ -798,8 +807,8 @@ git worktree add --detach /tmp/portfolio-stale-guard HEAD~1 && (cd /tmp/portfoli
 git worktree add --detach /tmp/portfolio-hook-block HEAD~1 && mkdir -p /tmp/portfolio-hook-block/.githooks && cp .githooks/pre-push /tmp/portfolio-hook-block/.githooks/ && cp scripts/verify-deployed-hash-gate.mjs scripts/verify-deployed-hash.mjs /tmp/portfolio-hook-block/scripts/ && (cd /tmp/portfolio-hook-block && printf 'refs/heads/main a refs/heads/main b\n' | bash .githooks/pre-push; echo "hook exit=$?"); git worktree remove /tmp/portfolio-hook-block --force
 ```
 
-All are read-only against git and Vercel — nothing is pushed, deployed, or
-modified; only temporary worktrees are created and removed.
+All are read-only against git — nothing is pushed, deployed, or modified;
+only temporary worktrees are created and removed.
 
 ### Local Repository Scanner companion
 
@@ -821,7 +830,7 @@ without waiting for the scheduled run:
 npm run scan:all                          # sweep ~/Documents → local API
 npm run scan:all -- --root ~/dev          # custom root
 npm run scan:all -- --notify              # also fire the daily cron report
-node scripts/scan-all.mjs --api https://portfolio-app-freebuff.vercel.app/api/scanner \
+node scripts/scan-all.mjs --api https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app/api/scanner \
   --token <pat> --notify                  # sweep into the deployed API
 ```
 
