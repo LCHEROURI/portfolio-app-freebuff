@@ -109,7 +109,7 @@ export const fetchAiBlipsSummary = async (
       if (newest && (!lastEngagedAt || newest > lastEngagedAt)) lastEngagedAt = newest;
     }
     return count > 0 ? { count, lastEngagedAt } : undefined;
-  } catch (err) {
+  } catch (_err) {
     return undefined;
   }
 };
