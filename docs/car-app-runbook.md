@@ -135,6 +135,18 @@ working even after deploys move off Actions.
 Optional: set the `ALERT_WEBHOOK_URL` secret to a Slack/Discord incoming
 webhook and failures also ping that channel — no other change needed.
 
+> **PENDING (deferred by choice — revisit after the app is fully built):**
+> both webhook secrets currently point at temporary webhook.site capture
+> inboxes used for proof runs, not a real chat. When ready, replace each
+> with a real Slack/Discord incoming-webhook URL:
+> `gh secret set ALERT_WEBHOOK_URL --repo LCHEROURI/portfolio-app-freebuff`
+> (page/urgent — deploy failures, serving outages) and
+> `gh secret set ALERT_WEBHOOK_URL_QUIET --repo LCHEROURI/portfolio-app-freebuff`
+> (quiet — stale warnings only, never pages). Secrets live under repo
+> Settings → Secrets and variables → Actions. A Slack/Discord webhook URL is
+> created in the chat app (channel Settings → Integrations → Webhooks) — no
+> code or Firebase change needed, the workflows read the secrets directly.
+
 Alerts are severity-routed (see `scripts/check-rollout-health.sh`, which emits
 `severity=page|warning` with every verdict):
 
