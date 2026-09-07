@@ -196,6 +196,40 @@ describe('.github/workflows/ci.yml · verify-deployed job (post-deploy smoke gat
 
 });
 
+describe('.github/workflows/ci.yml · checkout ref (re-run fidelity)', () => {
+  // Every job that checks out the repo must pin the checkout to the exact
+  // commit the run was triggered on. `gh run rerun --failed` re-executes a
+  // run against the SAME branch head at re-run time when the checkout uses
+  // github.ref — the 8182177 rerun (2026-09-07) fetched refs/heads/main at
+  // 19:28 and silently tested newer code than the original 17:21 run. The
+  // push/PR fallback must be github.sha (the preserved triggering commit),
+  // never github.ref (a live branch that moves).
+  it('pins the push/PR checkout fallback to github.sha, never github.ref', () => {
+    const refLines = CI.split('\n').filter((l) => l.includes('ref: ${{ github.event_name =='));
+    // All five jobs (validate, launch-checklist, verify-deployed,
+    // verify-auth-domains, verify-prod-signin) must pin identically.
+    expect(refLines.length).toBe(5);
+    for (const line of refLines) {
+      expect(line).toContain("github.event.inputs.commit_sha || github.sha");
+      expect(line).not.toContain('github.ref');
+    }
+  });
+
+  it('keeps the manual re-verify concurrency group keyed on the requested sha', () => {
+    // A re-verify dispatch gets its own concurrency slot keyed by the
+    // requested sha so a fresh push can never cancel it; losing the sha key
+    // would let a concurrent push kill the re-verify mid-run.
+    expect(CI).toContain("format('reverify-{0}', github.event.inputs.commit_sha)");
+  });
+
+  it('documents the drift risk next to each pinned checkout', () => {
+    // The rationale must stay attached so a future editor understands why
+    // github.sha (not the shorter github.ref) is load-bearing.
+    expect(CI).toContain('github.ref would re-fetch the branch\'s CURRENT head at');
+    expect(CI).toContain('re-run time and silently test newer code');
+  });
+});
+
 describe('.github/workflows/gallery.yml · PR/dispatch gallery capture', () => {
   it('triggers on pull_request to main and workflow_dispatch, with a fork guard', () => {
     expect(GALLERY).toContain('pull_request:');

@@ -34,8 +34,12 @@ jobs:
         uses: actions/checkout@v5
         with:
           # Manual re-verify: check out the requested commit sha. On push/PR
-          # this falls back to the ref head, identical to the old behavior.
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha || github.ref }}
+          # this falls back to github.sha — the exact commit this run was
+          # triggered on — so a RE-RUN of a failed run re-verifies the same
+          # code. (github.ref would re-fetch the branch's CURRENT head at
+          # re-run time and silently test newer code — the 8182177 rerun
+          # drift, observed 2026-09-07.)
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha || github.sha }}
 
       # Guard: the Firebase project id is portfolio-app-freebuff2 (with the
       # trailing 2). A bare portfolio-app-freebuff in a FIREBASE CONTEXT
@@ -132,8 +136,12 @@ jobs:
         uses: actions/checkout@v5
         with:
           # Manual re-verify: check out the requested commit sha. On push/PR
-          # this falls back to the ref head, identical to the old behavior.
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha || github.ref }}
+          # this falls back to github.sha — the exact commit this run was
+          # triggered on — so a RE-RUN of a failed run re-verifies the same
+          # code. (github.ref would re-fetch the branch's CURRENT head at
+          # re-run time and silently test newer code — the 8182177 rerun
+          # drift, observed 2026-09-07.)
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha || github.sha }}
 
       - name: Verify launch-checklist gates are runnable
         run: node scripts/verify-launch-checklist.mjs
@@ -184,8 +192,12 @@ jobs:
         uses: actions/checkout@v5
         with:
           # Manual re-verify: check out the requested commit sha. On push/PR
-          # this falls back to the ref head, identical to the old behavior.
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha || github.ref }}
+          # this falls back to github.sha — the exact commit this run was
+          # triggered on — so a RE-RUN of a failed run re-verifies the same
+          # code. (github.ref would re-fetch the branch's CURRENT head at
+          # re-run time and silently test newer code — the 8182177 rerun
+          # drift, observed 2026-09-07.)
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha || github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
@@ -361,8 +373,12 @@ jobs:
         uses: actions/checkout@v5
         with:
           # Manual re-verify: check out the requested commit sha. On push/PR
-          # this falls back to the ref head, identical to the old behavior.
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha || github.ref }}
+          # this falls back to github.sha — the exact commit this run was
+          # triggered on — so a RE-RUN of a failed run re-verifies the same
+          # code. (github.ref would re-fetch the branch's CURRENT head at
+          # re-run time and silently test newer code — the 8182177 rerun
+          # drift, observed 2026-09-07.)
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha || github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
@@ -432,8 +448,12 @@ jobs:
         uses: actions/checkout@v5
         with:
           # Manual re-verify: check out the requested commit sha. On push/PR
-          # this falls back to the ref head, identical to the old behavior.
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha || github.ref }}
+          # this falls back to github.sha — the exact commit this run was
+          # triggered on — so a RE-RUN of a failed run re-verifies the same
+          # code. (github.ref would re-fetch the branch's CURRENT head at
+          # re-run time and silently test newer code — the 8182177 rerun
+          # drift, observed 2026-09-07.)
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha || github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
