@@ -243,17 +243,43 @@ describe('every workflow concurrency key is re-run-stable (no cross-run collisio
     }
   });
 
-  it('deploy workflows cancel superseded runs but never across different commits of the same run identity', () => {
-    // Deploys key on github.ref with cancel-in-progress — a newer push to the
-    // same branch cancels the older deploy (only newest lands), but the key
-    // itself is event-frozen, so a re-run of a FAILED deploy stays in the
-    // same group as its original (re-deploying the same commit, never racing
-    // a newer one in a foreign group).
+  it('deploy workflows cancel superseded push runs but dispatch re-deploys get their own redeploy-{sha} group', () => {
+    // Deploys key on github.ref with cancel-in-progress on push — a newer
+    // push to the same branch cancels the older deploy (only newest lands),
+    // and the key is event-frozen so a re-run of a FAILED deploy stays in
+    // the same group (re-deploying the same commit, never racing a newer one
+    // in a foreign group). A dispatch re-deploy of a PAST commit gets its
+    // own redeploy-{sha} group (mirroring ci.yml's reverify-{sha}) so a
+    // fresh push can never cancel it, and cancel is disabled on dispatch so
+    // a newer dispatch can't cancel an older re-deploy either.
     for (const [file, content] of Object.entries(ALL_WORKFLOW_FILES_WITH_CRON)) {
       if (file.startsWith('deploy-')) {
-        expect(content).toMatch(/group: deploy-[a-z-]+-\$\{\{ github\.ref \}\}/);
-        expect(content).toContain('cancel-in-progress: true');
+        expect(content).toMatch(/group: deploy-[a-z-]+-\$\{\{ github\.event_name == 'workflow_dispatch' && format\('redeploy-\{0\}', github\.event\.inputs\.commit_sha\) \|\| github\.ref \}\}/);
+        expect(content).toContain("cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}");
       }
+    }
+  });
+
+  it('deploy workflows accept a commit_sha dispatch input with the 40-hex guard, pinned checkout, and resolved-sha threading', () => {
+    // An operator can re-deploy a specific PAST commit through the same
+    // labeled pipeline: dispatch with commit_sha, the guard fails fast on
+    // short shas BEFORE checkout (actions/checkout would mis-resolve them),
+    // the checkout pins the requested commit, and a resolve step captures
+    // the ACTUAL deployed sha so every label (rollout, GitHub Deployment
+    // record, failure issue) names the commit deployed — not the ref head
+    // github.sha would name on a dispatch. The deployed_sha output must
+    // exist because the notify jobs reference it.
+    for (const content of [DEPLOY_CAR_APP, DEPLOY_PORTFOLIO_APP]) {
+      expect(content).toMatch(/workflow_dispatch:\n\s+inputs:\n\s+commit_sha:/);
+      expect(content).toContain('Validate re-deploy commit sha (must be full 40-hex)');
+      expect(content).toContain("github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha != ''");
+      expect(content).toContain('^[0-9a-f]{40}$');
+      expect(content).toContain("ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha || github.sha }}");
+      expect(content).toContain('Resolve deployed commit sha');
+      expect(content).toContain('deployed_sha: ${{ steps.resolve.outputs.sha }}');
+      expect(content).toContain('GITHUB_SHA: ${{ steps.resolve.outputs.sha }}');
+      expect(content).toContain('GITHUB_SHA: ${{ needs.deploy.outputs.deployed_sha }}');
+      expect(content).toContain('/commit/${{ steps.resolve.outputs.sha }}');
     }
   });
 });
@@ -263,16 +289,17 @@ describe('.github/workflows/deploy-car-app.yml · post-deploy provenance proof',
     // The rollout API can say SUCCEEDED while a stale/misrouted build answers
     // (the rollout-health watch catches that on a 30-minute clock). This job
     // closes the gap at deploy time: poll the live endpoint until commitFull
-    // equals THIS run's github.sha — the exact commit the pinned checkout
-    // deployed. Requires: the job runs only when deploy succeeded, keys the
-    // expected sha on github.sha (event-frozen, so a re-run re-verifies the
-    // same commit), polls (traffic switch lags the rollout op), and fails
-    // loudly on timeout instead of skipping.
+    // equals the sha THIS run deployed — on push github.sha, on a dispatch
+    // re-deploy the requested past commit (the resolved deployed_sha output;
+    // github.sha would name the ref head and compare against the wrong
+    // commit). Requires: the job runs only when deploy succeeded, keys the
+    // expected sha on the deployed_sha output, polls (traffic switch lags the
+    // rollout op), and fails loudly on timeout instead of skipping.
     const block = DEPLOY_CAR_APP.slice(DEPLOY_CAR_APP.indexOf('verify-deployed:'), DEPLOY_CAR_APP.indexOf('notify-success:'));
     expect(block.length).toBeGreaterThan(0);
     expect(block).toContain("needs: deploy");
     expect(block).toContain("if: ${{ needs.deploy.result == 'success' }}");
-    expect(block).toContain('EXPECTED_SHA: ${{ github.sha }}');
+    expect(block).toContain('EXPECTED_SHA: ${{ needs.deploy.outputs.deployed_sha }}');
     expect(block).toContain('commitFull');
     expect(block).toContain('\$COMMIT_FULL" = "\$EXPECTED_SHA');
     expect(block).toContain('sleep 10');
