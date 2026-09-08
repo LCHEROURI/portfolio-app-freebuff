@@ -33,6 +33,16 @@ API="https://firebaseapphosting.googleapis.com/v1beta"
 : "${GITHUB_SHA:?GITHUB_SHA is required}"
 : "${RUN_URL:?RUN_URL is required}"
 
+# The commit this deploy is labeled with: DEPLOY_SHA wins when the
+# workflow passes it (a dispatch re-deploy of a past commit). GITHUB_SHA is
+# the fallback for local/CLI runs. Why not just override GITHUB_SHA in the
+# workflow env? The GitHub runner re-injects the automatic GITHUB_SHA per
+# step and it OVERRIDES a step-level env override — observed on run
+# 34215843271: the deploy step env rendered 93c996c but the script packaged
+# and labeled the rollout with fd9bfbf (the ref head). DEPLOY_SHA is a name
+# the runner never touches.
+RESOLVED_SHA="${DEPLOY_SHA:-$GITHUB_SHA}"
+
 # ── 0. Auth ─────────────────────────────────────────────────────────────────
 # Uses the ambient gcloud credentials (in CI: the service account activated
 # by the workflow's activate step; locally: the developer's user ADC).
@@ -72,7 +82,7 @@ echo "build id: $BUILD_ID"
 # packages uploads with supportGitIgnore: true, so an ignored file would be
 # silently excluded.
 printf 'NEXT_PUBLIC_COMMIT_SHA=%s\nNEXT_PUBLIC_ROLLOUT_ID=%s\nNEXT_PUBLIC_DEPLOYED_AT=%s\n' \
-  "$GITHUB_SHA" "$BUILD_ID" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$CAR_APP_DIR/.env.production"
+  "$RESOLVED_SHA" "$BUILD_ID" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$CAR_APP_DIR/.env.production"
 # Server-side secrets ride in .env.production too (Next.js loads it at server
 # runtime). Absent locally = demo inventory; set in CI from the GitHub secret.
 if [ -n "${MARKETCHECK_API_KEY:-}" ]; then
@@ -80,7 +90,7 @@ if [ -n "${MARKETCHECK_API_KEY:-}" ]; then
 fi
 
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
-ZIP="/tmp/car-app-src-${STAMP}-${GITHUB_SHA::7}.zip"
+ZIP="/tmp/car-app-src-${STAMP}-${RESOLVED_SHA::7}.zip"
 # Zip exactly the TRACKED file list (+ the provenance env) instead of the
 # whole directory: firebase-tools' own packaging honors .gitignore, so a
 # directory scan could drag untracked local state into the upload. zip reads
@@ -91,7 +101,7 @@ SIZE="$(du -h "$ZIP" | cut -f1 | tr -d ' ')"
 echo "packaged source: $ZIP ($SIZE)"
 
 # ── 2. Upload to the App Hosting sources bucket ─────────────────────────────
-OBJECT="freebuff-car-app--${STAMP}-${GITHUB_SHA::7}.zip"
+OBJECT="freebuff-car-app--${STAMP}-${RESOLVED_SHA::7}.zip"
 echo "uploading to gs://$BUCKET/$OBJECT"
 gcloud storage cp "$ZIP" "gs://$BUCKET/$OBJECT" --quiet
 STORAGE_URI="gs://$BUCKET/$OBJECT"
@@ -99,7 +109,7 @@ STORAGE_URI="gs://$BUCKET/$OBJECT"
 cleanup() { rm -f "$ZIP"; }
 trap cleanup EXIT
 
-COMMIT_URL="${COMMIT_URL:-https://github.com/LCHEROURI/portfolio-app-freebuff/commit/$GITHUB_SHA}"
+COMMIT_URL="${COMMIT_URL:-https://github.com/LCHEROURI/portfolio-app-freebuff/commit/$RESOLVED_SHA}"
 
 # POST with the body echoed on failure: -f would hide the API's error JSON.
 post() { # $1=url, $2=body-file
@@ -120,10 +130,10 @@ post() { # $1=url, $2=body-file
 # the unrestricted key/value map for external-tool metadata — the run URL
 # lives there; the label keeps a safe, scannable SHA.
 BUILD_BODY="$(jq -n \
-  --arg sha "$GITHUB_SHA" \
+  --arg sha "$RESOLVED_SHA" \
   --arg runurl "$RUN_URL" \
   --arg uri "$STORAGE_URI" \
-  --arg desc "commit ${GITHUB_SHA::7}" \
+  --arg desc "commit ${RESOLVED_SHA::7}" \
   '{source: {archive: {userStorageUri: $uri, description: $desc}},
     labels: {"commit-sha": $sha},
     annotations: {"run-url": $runurl, "commit-sha": $sha}}')"
@@ -136,7 +146,7 @@ echo "build operation: $(jq -r .name /tmp/build-op.json)"
 # ── 5. Rollout — validate-only first (the CLI retries 400s here; a failure ──
 #      means the build name is not yet visible, so retry up to 5 times) ──────
 ROLLOUT_BODY="$(jq -n --arg b "projects/$PROJECT/locations/$LOCATION/backends/$BACKEND/builds/$BUILD_ID" \
-  --arg sha "$GITHUB_SHA" --arg runurl "$RUN_URL" \
+  --arg sha "$RESOLVED_SHA" --arg runurl "$RUN_URL" \
   '{build: $b,
     labels: {"commit-sha": $sha},
     annotations: {"run-url": $runurl, "commit-sha": $sha}}')"
@@ -183,7 +193,7 @@ poll_op() { # $1 = op file; echoes terminal state or fails after timeout
 echo "polling build operation…"; poll_op /tmp/build-op.json
 echo "polling rollout operation…"; poll_op /tmp/rollout-op.json
 
-echo "✓ rollout $BUILD_ID deployed with labels commit-sha=${GITHUB_SHA::7} run-url=$RUN_URL"
+echo "✓ rollout $BUILD_ID deployed with labels commit-sha=${RESOLVED_SHA::7} run-url=$RUN_URL"
 
 # Expose the rollout to later workflow steps (the run summary prints it).
 if [ -n "${GITHUB_ENV:-}" ]; then

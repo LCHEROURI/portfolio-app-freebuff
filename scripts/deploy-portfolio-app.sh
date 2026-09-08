@@ -47,6 +47,14 @@ API="https://firebaseapphosting.googleapis.com/v1beta"
 : "${GITHUB_SHA:?GITHUB_SHA is required}"
 : "${RUN_URL:?RUN_URL is required}"
 
+# The commit this deploy is labeled with: DEPLOY_SHA wins when the
+# workflow passes it (a dispatch re-deploy of a past commit). GITHUB_SHA is
+# the fallback for local/CLI runs. GITHUB_SHA must NOT be used as the
+# override name in CI: the runner re-injects the automatic GITHUB_SHA per
+# step and it overrides a step-level env override (observed on the car-app
+# deploy run 34215843271). DEPLOY_SHA is a name the runner never touches.
+RESOLVED_SHA="${DEPLOY_SHA:-$GITHUB_SHA}"
+
 # ── 0. Auth ─────────────────────────────────────────────────────────────────
 # Uses the ambient gcloud credentials (in CI: the service account activated
 # by the workflow's activate step; locally: the developer's user ADC).
@@ -87,7 +95,7 @@ echo "build id: $BUILD_ID"
 # container build context.
 ENV_PROD=".env.production"
 printf 'NEXT_PUBLIC_COMMIT_SHA=%s\nNEXT_PUBLIC_ROLLOUT_ID=%s\nNEXT_PUBLIC_DEPLOYED_AT=%s\n' \
-  "$GITHUB_SHA" "$BUILD_ID" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$ENV_PROD"
+  "$RESOLVED_SHA" "$BUILD_ID" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$ENV_PROD"
 # Environment-provided values (CI exports them from secrets): NEXT_PUBLIC_*
 # plus the SERVER_ENV_KEYS set above. VERCEL_* / VERIFY_* are never copied.
 bake_env() { # $1 = the env source (already-exported shell env, or a file path)
@@ -111,7 +119,7 @@ if [ -f .env.local ]; then
 fi
 
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
-ZIP="/tmp/portfolio-app-src-${STAMP}-${GITHUB_SHA::7}.zip"
+ZIP="/tmp/portfolio-app-src-${STAMP}-${RESOLVED_SHA::7}.zip"
 # Zip exactly the TRACKED file list (+ the provenance env) instead of the
 # whole directory, excluding the nested freebuff-car-app repo (it deploys
 # under its own backend). NUL-safe on macOS/BSD grep.
@@ -132,7 +140,7 @@ echo "packaged source: $ZIP ($SIZE)"
 # .env.production (baked above) is copied into the image for the server env.
 # The env file must survive until AFTER the submit (the archive/context is
 # uploaded at that point); it is removed by the cleanup trap below.
-IMAGE="gcr.io/${PROJECT}/portfolio-app-freebuff:${GITHUB_SHA}"
+IMAGE="gcr.io/${PROJECT}/portfolio-app-freebuff:${RESOLVED_SHA}"
 echo "building image ${IMAGE}…"
 # --project is explicit: gcloud on a fresh runner has no default project.
 # --async + REST poll instead of the sync form: gcloud streams build logs to
@@ -168,7 +176,7 @@ fi
 cleanup() { rm -f "$ZIP" "$ENV_PROD"; }
 trap cleanup EXIT
 
-COMMIT_URL="${COMMIT_URL:-https://github.com/LCHEROURI/portfolio-app-freebuff/commit/$GITHUB_SHA}"
+COMMIT_URL="${COMMIT_URL:-https://github.com/LCHEROURI/portfolio-app-freebuff/commit/$RESOLVED_SHA}"
 
 # POST with the body echoed on failure: -f would hide the API's error JSON.
 post() { # $1=url, $2=body-file
@@ -189,7 +197,7 @@ post() { # $1=url, $2=body-file
 # the unrestricted key/value map for external-tool metadata — the run URL
 # lives there; the label keeps a safe, scannable SHA.
 BUILD_BODY="$(jq -n \
-  --arg sha "$GITHUB_SHA" \
+  --arg sha "$RESOLVED_SHA" \
   --arg runurl "$RUN_URL" \
   --arg image "$IMAGE" \
   '{source: {container: {image: $image}},
@@ -204,7 +212,7 @@ echo "build operation: $(jq -r .name /tmp/build-op.json)"
 # ── 5. Rollout — validate-only first (the CLI retries 400s here; a failure ──
 #      means the build name is not yet visible, so retry up to 5 times) ──────
 ROLLOUT_BODY="$(jq -n --arg b "projects/$PROJECT/locations/$LOCATION/backends/$BACKEND/builds/$BUILD_ID" \
-  --arg sha "$GITHUB_SHA" --arg runurl "$RUN_URL" \
+  --arg sha "$RESOLVED_SHA" --arg runurl "$RUN_URL" \
   '{build: $b,
     labels: {"commit-sha": $sha},
     annotations: {"run-url": $runurl, "commit-sha": $sha}}')"
@@ -251,7 +259,7 @@ poll_op() { # $1 = op file; echoes terminal state or fails after timeout
 echo "polling build operation…"; poll_op /tmp/build-op.json
 echo "polling rollout operation…"; poll_op /tmp/rollout-op.json
 
-echo "✓ rollout $BUILD_ID deployed with labels commit-sha=${GITHUB_SHA::7} run-url=$RUN_URL"
+echo "✓ rollout $BUILD_ID deployed with labels commit-sha=${RESOLVED_SHA::7} run-url=$RUN_URL"
 
 # Expose the rollout to later workflow steps (the run summary prints it).
 if [ -n "${GITHUB_ENV:-}" ]; then
