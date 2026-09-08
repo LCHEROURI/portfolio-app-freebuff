@@ -110,6 +110,40 @@ gh run watch $(gh run list --workflow="Deploy car app" --limit 1 --json database
 Or the GitHub UI: **Actions → Deploy car app → Run workflow → paste the full
 40-hex sha into `commit_sha`** (blank = the ref head).
 
+**Same one-command flow for the parent portfolio app** (backend
+`portfolio-app-freebuff`, same project — `deploy-portfolio-app.yml` mirrors
+the car-app workflow piece for piece):
+
+```bash
+gh workflow run "Deploy portfolio app" --ref main -f commit_sha=$(git rev-parse <ref>)
+gh run watch $(gh run list --workflow="Deploy portfolio app" --limit 1 --json databaseId --jq '.[0].databaseId')
+```
+
+<!-- Dry-run verified 2026-09-08: the exact guard block (same in both deploy
+workflows) rejects a short sha with the two `::error::` lines and exit 1,
+accepts a full 40-hex sha with "✓ re-deploy sha … is a full 40-hex commit"
+and exit 0, and is skipped entirely on blank (push / blank dispatch). The
+workflow names "Deploy car app" / "Deploy portfolio app" and the `-f
+commit_sha=` syntax match the live Actions API. -->
+
+UI: **Actions → Deploy portfolio app → Run workflow** → paste the full 40-hex
+sha into `commit_sha` (blank = the ref head).
+
+**One difference — verifying a portfolio re-deploy.** The car-app deploy
+workflow ends with the `verify-deployed` live-probe job; the portfolio
+deploy workflow has no such job, and the portfolio backend exposes no
+`/api/version` (that endpoint exists on the car-app backend and on the cook
+app — not here). Confirm a portfolio re-deploy two ways instead:
+
+1. **Rollout labels** — run the §3 API one-liner with the portfolio backend
+   name (`backends/portfolio-app-freebuff/rollouts`): the newest rollout's
+   `commit-sha` label must equal the re-deployed commit.
+2. **Live smoke via the parent CI** — dispatch a re-verify so the post-deploy
+   jobs probe the live app:
+   `gh workflow run "CI" --ref main -f commit_sha=<deployed sha>` — the
+   `verify-deployed`, `verify-auth-domains`, and `verify-prod-signin` jobs
+   all probe the portfolio hosted.app URL (`VERIFY_BASE_URL`).
+
 What happens under the hood (all merged on main, live-proven):
 
 1. **Validate re-deploy commit sha (must be full 40-hex)** — a short sha
@@ -126,8 +160,8 @@ What happens under the hood (all merged on main, live-proven):
    checkout carries the *old* deploy script, which predates the `DEPLOY_SHA`
    handling (run 34220848093 labeled the rollout with the ref head again).
    The pipeline tooling must be version-independent of the code it deploys:
-   `git show origin/main:scripts/deploy-car-app.sh` is run, not the
-   checkout's copy.
+   `git show origin/main:scripts/deploy-car-app.sh` (or
+   `deploy-portfolio-app.sh` for the parent) is run, not the checkout's copy.
 5. **Labeled rollout** — build *and* rollout carry `commit-sha` = the
    deployed commit (see §3), plus the `verify-deployed` probe (below).
 
@@ -145,16 +179,18 @@ true` — only the newest push deploys; a fresh push cancels the older run
   cancel is off on dispatch, a newer dispatch can't cancel an older one
 either — a re-deploy always runs to completion.
 
-**What `verify-deployed` proves.** The rollout API can report SUCCEEDED
-while the live app serves something else (a stale rollout, a misrouted
-backend, traffic mid-switch). This job runs after a successful deploy and
-closes that gap at deploy time: up to 5 minutes (30 × 10s) it curls live
-`/api/version` and requires `http=200` **and** `commitFull == the deployed
-sha` before the run goes green. Any other answer keeps polling; a timeout
-fails the run loudly — `Deploy reported SUCCEEDED but the live /api/version
-does not serve <sha> after 5 minutes`. It is the deploy-time half of the
-rollout-health watch (§4), which catches the same class of serving drift on
-a 30-minute clock between deploys.
+**What `verify-deployed` proves** (car-app deploy workflow only). The rollout
+API can report SUCCEEDED while the live app serves something else (a stale
+rollout, a misrouted backend, traffic mid-switch). This job runs after a
+successful deploy and closes that gap at deploy time: up to 5 minutes
+(30 × 10s) it curls live `/api/version` and requires `http=200` **and**
+`commitFull == the deployed sha` before the run goes green. Any other answer
+keeps polling; a timeout fails the run loudly — `Deploy reported SUCCEEDED
+but the live /api/version does not serve <sha> after 5 minutes`. It is the
+deploy-time half of the rollout-health watch (§4), which catches the same
+class of serving drift on a 30-minute clock between deploys. The portfolio
+deploy relies on the parent CI's post-deploy smoke jobs instead (see the
+portfolio block above).
 
 **Live-proven** (run 34223411584): a dispatch re-deploy of `93c996c`
 produced rollout `build-2026-09-08-009` labeled `93c996c…`, and the probe
@@ -188,6 +224,8 @@ full pipeline (no local checkout, correct provenance, verify probe runs):
 # Full 40-hex sha of the last known-good commit:
 git rev-parse <ref>    # e.g. git rev-parse HEAD~1, or the merge commit sha
 gh workflow run "Deploy car app" --ref main -f commit_sha=<full 40-hex sha>
+# For the parent portfolio app, the identical flow with its workflow:
+gh workflow run "Deploy portfolio app" --ref main -f commit_sha=<full 40-hex sha>
 ```
 
 A new labeled rollout is created and traffic switches when it succeeds — the
