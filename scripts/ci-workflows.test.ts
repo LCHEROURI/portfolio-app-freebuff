@@ -29,6 +29,7 @@ const CAR_APP_CI = readFileSync('.github/workflows/car-app-ci.yml', 'utf8');
 const DEPLOY_CAR_APP = readFileSync('.github/workflows/deploy-car-app.yml', 'utf8');
 const DEPLOY_PORTFOLIO_APP = readFileSync('.github/workflows/deploy-portfolio-app.yml', 'utf8');
 const ROLLOUT_HEALTH = readFileSync('.github/workflows/rollout-health.yml', 'utf8');
+const RUNBOOK = readFileSync('docs/car-app-runbook.md', 'utf8');
 
 // Every workflow that checks out code must pin actions/checkout to
 // github.sha (ci.yml pins it per-job; the others get `ref: ${{ github.sha }}`).
@@ -780,5 +781,107 @@ describe('.github/workflows/gallery-stability.yml · scheduled double-capture by
     expect(GALLERY_STABILITY).toMatch(/uses: actions\/upload-artifact@v6/);
     expect(GALLERY_STABILITY).toContain('name: gallery-stability-captures');
     expect(GALLERY_STABILITY).toContain('if-no-files-found: ignore');
+  });
+});
+
+describe('docs/car-app-runbook.md · dispatch syntax matches the workflow inputs', () => {
+  // Every `gh workflow run "X" --ref main -f commit_sha=` command the runbook
+  // documents must dispatch a workflow that actually exists with that exact
+  // `name:` AND declares a `commit_sha` input — otherwise the documented
+  // command 422s (unknown workflow / unknown input) or silently deploys the
+  // ref head instead of the pinned commit. The workflow names are parsed
+  // from the workflow files themselves (never a hand-maintained list), so a
+  // `name:` rename the runbook doesn't follow fails here; a `commit_sha`
+  // input dropped from a workflow the runbook dispatches fails here too.
+  // Docs and workflows cannot drift in either direction.
+  const DISPATCH_RE = /gh workflow run "([^"]+)" --ref main -f commit_sha=/g;
+  const LIST_RE = /gh run list --workflow="([^"]+)"/g;
+  const NAME_RE = /^name:\s*(.+)$/m;
+  const INPUT_RE = /workflow_dispatch:\n\s+inputs:\n\s+commit_sha:/;
+
+  // The workflows the runbook dispatches (the two deploy workflows + the two
+  // CI workflows that accept commit_sha). Parse name: -> file -> content once.
+  const DISPATCHABLE: Record<string, string> = {
+    'deploy-car-app.yml': DEPLOY_CAR_APP,
+    'deploy-portfolio-app.yml': DEPLOY_PORTFOLIO_APP,
+    'car-app-ci.yml': CAR_APP_CI,
+    'ci.yml': CI,
+  };
+  const CONTENT_BY_NAME: Record<string, string> = {};
+  for (const [file, content] of Object.entries(DISPATCHABLE)) {
+    const m = content.match(NAME_RE);
+    expect(m, `${file} must declare a name:`).not.toBeNull();
+    CONTENT_BY_NAME[m![1].trim()] = content;
+  }
+
+  const dispatchTargets = [...RUNBOOK.matchAll(DISPATCH_RE)].map((m) => m[1]);
+  const listTargets = [...RUNBOOK.matchAll(LIST_RE)].map((m) => m[1]);
+
+  it('every gh workflow run "X" --ref main -f commit_sha= command names a real workflow with that input', () => {
+    expect(dispatchTargets.length).toBeGreaterThan(0);
+    for (const name of dispatchTargets) {
+      const content = CONTENT_BY_NAME[name];
+      expect(content, `runbook dispatches '${name}' but no workflow file declares that name:`).toBeDefined();
+      expect(
+        content.match(INPUT_RE),
+        `workflow '${name}' must declare a commit_sha input under workflow_dispatch`,
+      ).not.toBeNull();
+    }
+  });
+
+  it('every gh run list --workflow="X" reference names a workflow the runbook dispatches', () => {
+    expect(listTargets.length).toBeGreaterThan(0);
+    for (const name of listTargets) {
+      expect(dispatchTargets, `gh run list references '${name}' which the runbook never dispatches`).toContain(name);
+    }
+  });
+
+  it('documents exactly the four commit_sha-dispatch workflows (no stale or invented names)', () => {
+    // The full unique set is pinned, so renaming a workflow in the docs
+    // without touching the workflows (or leaving an old name behind) fails
+    // even if the old name still exists somewhere.
+    expect([...new Set(dispatchTargets)].sort()).toEqual([
+      'CI',
+      'Car app CI',
+      'Deploy car app',
+      'Deploy portfolio app',
+    ]);
+  });
+
+  it('catches the runbook renaming a workflow the workflows do not declare (mutation)', () => {
+    const drifted = RUNBOOK.replace(
+      '"Deploy portfolio app" --ref main -f commit_sha=',
+      '"Deploy portfolio" --ref main -f commit_sha=',
+    );
+    expect(drifted, 'the rename mutation must actually land').not.toBe(RUNBOOK);
+    const targets = [...drifted.matchAll(DISPATCH_RE)].map((m) => m[1]);
+    expect(() => {
+      for (const name of targets) {
+        expect(CONTENT_BY_NAME[name], `runbook dispatches '${name}' but no workflow declares it`).toBeDefined();
+      }
+    }).toThrow();
+  });
+
+  it('catches a workflow dropping its commit_sha dispatch input (mutation)', () => {
+    const drifted = DEPLOY_PORTFOLIO_APP.replace(
+      "      commit_sha:\n        description: Commit sha to deploy (blank = ref head)\n        required: false\n        default: ''\n",
+      '',
+    );
+    expect(drifted, 'the input-drop mutation must actually land').not.toBe(DEPLOY_PORTFOLIO_APP);
+    expect(() => {
+      expect(drifted.match(INPUT_RE), 'workflow must keep the commit_sha input').not.toBeNull();
+    }).toThrow();
+  });
+
+  it('catches a workflow name: rename the runbook does not follow (mutation)', () => {
+    const drifted = DEPLOY_CAR_APP.replace('name: Deploy car app', 'name: Deploy car application');
+    expect(drifted, 'the name-rename mutation must actually land').not.toBe(DEPLOY_CAR_APP);
+    const driftedByName = { ...CONTENT_BY_NAME, 'Deploy car application': drifted };
+    delete driftedByName['Deploy car app'];
+    expect(() => {
+      for (const name of dispatchTargets) {
+        expect(driftedByName[name], `runbook dispatches '${name}'`).toBeDefined();
+      }
+    }).toThrow();
   });
 });
