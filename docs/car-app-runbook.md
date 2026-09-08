@@ -41,7 +41,7 @@ self-describing without the Console GitHub App link.
 
 - **From GitHub (normal path):** `gh workflow run deploy-car-app.yml` — deploys
   current `main`.
-- **From a local checkout** (e.g. pinned to an older commit for rollback):
+- **From a local checkout** (e.g. pinned to an older commit):
   ```bash
   gcloud auth login   # or: GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json
   git checkout <sha>
@@ -51,6 +51,58 @@ self-describing without the Console GitHub App link.
   ```
   The script polls until the rollout reaches a terminal state and prints the
   rollout id (also exported as `ROLLOUT_NAME` in CI for the run summary).
+  Prefer the dispatch re-deploy below over this path — it runs the full
+  pipeline with correct provenance instead of bypassing CI.
+
+### Re-verify a past commit (CI gate only — no deploy)
+
+Run the car-app gate suite (tsc → jest → build → E2E) against an explicit
+past commit without pushing a new commit:
+
+```bash
+# 1. Find the full 40-hex sha of the commit you want to re-verify.
+#    A short sha (7 hex) is NOT accepted — the workflow fails fast with
+#    "not a full 40-hex commit sha". Any ref works with git rev-parse:
+git rev-parse HEAD~3                 # 3 commits back on the current branch
+git rev-parse 27b6957                # expand a short sha you already have
+git rev-parse origin/main           # the remote head
+
+# 2. Dispatch the CI workflow against that commit:
+gh workflow run "Car app CI" --ref main -f commit_sha=<paste the full 40-hex sha>
+
+# 3. Watch it (or open the link printed by the dispatch):
+gh run list --workflow="Car app CI" --limit 1 --json databaseId,status,conclusion
+```
+
+What happens under the hood: the `Validate re-verify commit sha (must be
+full 40-hex)` step accepts only a full 40-hex sha (blank = the ref head),
+checkout pins that exact commit, and the detect step marks the run `changed`
+unconditionally so the whole gate suite runs against it. Dispatch runs get
+their own `reverify-{sha}` concurrency group — a fresh push or a newer
+dispatch can never cancel the re-verify, and re-runs stay pinned to the same
+commit. GitHub's **Actions → Car app CI → Run workflow** button takes the
+same `commit_sha` input.
+
+### Re-deploy a past commit (dispatch, labeled — preferred rollback)
+
+Same dispatch input on the deploy workflow: rebuilds and redeploys a
+specific past commit through the **full pipeline** — gates, labeled rollout
+(`commit-sha` label = the deployed commit, not the ref head), GitHub
+Deployment record, deploy-failure issue lifecycle, and the `verify-deployed`
+probe (which polls live `/api/version` until `commitFull` equals the
+**deployed** commit):
+
+```bash
+gh workflow run "Deploy car app" --ref main -f commit_sha=<full 40-hex sha>
+gh run watch $(gh run list --workflow="Deploy car app" --limit 1 --json databaseId --jq '.[0].databaseId')
+```
+
+Why the deploy resolves the sha instead of trusting `github.sha`: on a
+dispatch, `github.sha` names the ref head the workflow was dispatched on —
+not the commit being deployed. A `Resolve deployed commit sha` step captures
+the actual checked-out commit and threads it through the rollout labels,
+Deployment record, failure issue, and the verify probe, so a re-deploy of a
+past commit is labeled and verified as that commit.
 
 ## 1b. One-time key flip: MarketCheck live inventory
 
@@ -68,17 +120,30 @@ flip is confirmed.
 
 ## 2. Rollback
 
-Preferred, fully scriptable — redeploy the last known-good commit:
+Preferred — dispatch a re-deploy of the last known-good commit through the
+full pipeline (no local checkout, correct provenance, verify probe runs):
+
+```bash
+# Full 40-hex sha of the last known-good commit:
+git rev-parse <ref>    # e.g. git rev-parse HEAD~1, or the merge commit sha
+gh workflow run "Deploy car app" --ref main -f commit_sha=<full 40-hex sha>
+```
+
+A new labeled rollout is created and traffic switches when it succeeds — the
+previous build keeps serving until then. The `verify-deployed` job proves
+live `/api/version` serves the re-deployed commit before the run reports
+green.
+
+Also fully scriptable from a local checkout (older path):
 
 ```bash
 git checkout <last-good-sha>
 GITHUB_SHA="$(git rev-parse HEAD)" RUN_URL="…repo url…" bash scripts/deploy-car-app.sh
 ```
 
-A new labeled rollout is created and traffic switches when it succeeds — the
-previous build keeps serving until then. If the bad change is in git history,
-`git revert` + push gives you the same result through the automatic pipeline
-(and auto-closes any open deploy-failure issue on success).
+If the bad change is in git history, `git revert` + push gives you the same
+result through the automatic pipeline (and auto-closes any open
+deploy-failure issue on success).
 
 The Firebase Console's Rollouts tab also offers a rollback control on older
 rollouts; use it only for one-off emergencies — it bypasses the labeling and
