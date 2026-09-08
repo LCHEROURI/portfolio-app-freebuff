@@ -63,6 +63,58 @@ const ghGet = async <T>(path: string): Promise<{ ok: boolean; data: T | null; er
 };
 
 /**
+ * Count AI-provider blips in the `ai-blip` labeled issue log over the window.
+ *
+ * The CI verify-deployed job appends a dated comment to the single open
+ * `ai-blip` issue every time the cron-verify's AI retry ENGAGES (a transient
+ * OpenRouter failure that cleared on the retry pass). This turns that log into
+ * blip-frequency telemetry for the weekly report: how many times the retry
+ * engaged this week and the most recent engagement. Best-effort like the rest
+ * of this module — an absent/unreadable log returns undefined (the report
+ * still ships; the deploy-failure fetchError still tells the story when the
+ * whole GitHub surface is down).
+ */
+export const fetchAiBlipsSummary = async (
+  days = 7,
+): Promise<IncidentsSummary['aiBlips']> => {
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  try {
+    const listRes = await ghGet<IssueShape[]>(
+      `/repos/${process.env.GITHUB_OWNER ?? 'LCHEROURI'}/portfolio-app-freebuff/issues?labels=ai-blip&state=all&since=${encodeURIComponent(since)}&per_page=50`,
+    );
+    if (!listRes.ok || !Array.isArray(listRes.data) || listRes.data.length === 0) {
+      return undefined;
+    }
+    let count = 0;
+    let lastEngagedAt: string | undefined;
+    for (const issue of listRes.data) {
+      const commentsRes = await ghGet<CommentShape[]>(
+        `/repos/${process.env.GITHUB_OWNER ?? 'LCHEROURI'}/portfolio-app-freebuff/issues/${issue.number}/comments?per_page=100`,
+      );
+      const comments = Array.isArray(commentsRes.data) ? commentsRes.data : [];
+      // The first comment is the issue body (creation event) — count each
+      // dated engagement comment in the window; the issue body itself is not
+      // an engagement (it records the FIRST one, but its date == created_at
+      // which is already covered by created-at filtering below).
+      const inWindow = comments.filter((c) => c.created_at && c.created_at >= since);
+      count += inWindow.length > 0 ? inWindow.length : 0;
+      const created = issue.created_at ?? '';
+      // A log issue CREATED in the window is itself one engagement even with
+      // no follow-up comments yet.
+      if (created && created >= since && inWindow.length === 0) count += 1;
+      const newest = [...inWindow.map((c) => c.created_at ?? ''), created]
+        .filter(Boolean)
+        .sort()
+        .at(-1);
+      if (newest && (!lastEngagedAt || newest > lastEngagedAt)) lastEngagedAt = newest;
+    }
+    return count > 0 ? { count, lastEngagedAt } : undefined;
+  } catch (_err) {
+    return undefined;
+  }
+};
+
+/**
  * Summarize the deploy-failure incident log over the past `days` days (7 = the
  * weekly window). Everything degrades gracefully: an unreachable API, a missing
  * log, or zero incidents all produce an empty summary — never a thrown error.
@@ -127,6 +179,7 @@ export const fetchIncidentsSummary = async (days = 7): Promise<IncidentsSummary>
     incidents: failures,
     recoveries,
     resolvedCount: recoveries.length,
+    aiBlips: await fetchAiBlipsSummary(days),
     fetchError,
   };
 };

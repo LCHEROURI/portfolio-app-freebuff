@@ -34,6 +34,15 @@ export interface IncidentsSummary {
   recoveries: string[];
   /** Count of incidents resolved within the window. */
   resolvedCount: number;
+  /**
+   * AI provider blips this window: how many times the cron-verify's AI retry
+   * ENGAGED (a transient OpenRouter failure that cleared on the retry pass),
+   * plus the most recent engagement date. Read from the shared `ai-blip`
+   * labeled issue (the deploy-failure-log pattern, but for blips that cleared
+   * — frequency telemetry, not incidents). Undefined when the log is
+   * unreadable/absent (report still ships).
+   */
+  aiBlips?: { count: number; lastEngagedAt?: string };
   /** Set when the incident log could not be read (report still ships). */
   fetchError?: string;
 }

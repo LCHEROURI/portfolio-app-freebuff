@@ -119,6 +119,16 @@ const withIncidentsSummary = (
       ? `- Recovered this week: ${summary.resolvedCount} incident(s) resolved.`
       : '- No recoveries recorded this week.',
   );
+  // AI-blip frequency telemetry: how many times the cron-verify's AI retry
+  // ENGAGED this week (transient provider blips that cleared on retry). Not an
+  // incident — no page — but the weekly report makes blip frequency visible so
+  // a degrading provider shows up as a trend, not only as CI-log noise.
+  if (summary.aiBlips && summary.aiBlips.count > 0) {
+    const last = summary.aiBlips.lastEngagedAt
+      ? ` (last ${summary.aiBlips.lastEngagedAt.slice(0, 10)})`
+      : '';
+    lines.push(`- 🤖 AI provider blips this week: ${summary.aiBlips.count} (each cleared on the verify retry)${last}.`);
+  }
   return `${body}\n${lines.join('\n')}`;
 };
 

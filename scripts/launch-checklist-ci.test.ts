@@ -78,8 +78,8 @@ describe('crossCheckCiGates (live repo)', () => {
     // Simulate the cron-reports step being re-gated on VERCEL_TOKEN (the
     // wrong secret) while the runner still declares CRON_SECRET.
     const drifted = ciSrc.replace(
-      '        if: ${{ env.CRON_SECRET != \'\' }}\n        run: node scripts/verify-cron-reports.mjs',
-      '        if: ${{ env.VERCEL_TOKEN != \'\' }}\n        run: node scripts/verify-cron-reports.mjs',
+      '        if: ${{ env.CRON_SECRET != \'\' }}\n        id: verify-cron\n        run: |',
+      '        if: ${{ env.VERCEL_TOKEN != \'\' }}\n        id: verify-cron\n        run: |',
     );
     const failures = crossCheckCiGates({ ciSrc: drifted, verifyAllSrc, npmScripts });
     expect(failures.join('\n')).toContain('VERCEL_TOKEN');
@@ -91,8 +91,8 @@ describe('crossCheckCiGates (live repo)', () => {
     // Remove the if: line from the cron-reports step — the runner declares
     // CRON_SECRET, so an ungated step must fail the check.
     const drifted = ciSrc.replace(
-      '        if: ${{ env.CRON_SECRET != \'\' }}\n        run: node scripts/verify-cron-reports.mjs',
-      '        run: node scripts/verify-cron-reports.mjs',
+      '        if: ${{ env.CRON_SECRET != \'\' }}\n        id: verify-cron\n        run: |',
+      '        id: verify-cron\n        run: |',
     );
     const failures = crossCheckCiGates({ ciSrc: drifted, verifyAllSrc, npmScripts });
     expect(failures.join('\n')).toContain('NO secret-gating if-condition');

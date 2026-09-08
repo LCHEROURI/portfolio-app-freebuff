@@ -112,9 +112,37 @@ describe('.github/workflows/ci.yml · verify-deployed job (post-deploy smoke gat
   });
 
   it('still runs the deployed cron report bodies step, gated on CRON_SECRET', () => {
-    expect(verifyDeployedBlock).toMatch(/run: node scripts\/verify-cron-reports\.mjs/);
+    expect(verifyDeployedBlock).toContain('node scripts/verify-cron-reports.mjs');
     expect(verifyDeployedBlock).toContain("if: ${{ env.CRON_SECRET != '' }}");
     expect(verifyDeployedBlock).toContain('CRON_SECRET: ${{ secrets.CRON_SECRET }}');
+  });
+
+  it('captures the VERIFY-AI-RETRY marker from the cron step output', () => {
+    // The blip-frequency step parses the script's machine-readable marker from
+    // the captured stdout. Losing the capture would silently stop the ai-blip
+    // log from updating — the marker contract is the fixture this locks.
+    expect(verifyDeployedBlock).toContain('id: verify-cron');
+    expect(verifyDeployedBlock).toContain('VERIFY-AI-RETRY|engaged=');
+    expect(verifyDeployedBlock).toContain('ai_retry_marker=${RETRY:-0 0}');
+    expect(verifyDeployedBlock).toContain('ai_retry_marker');
+  });
+
+  it('records AI-blip frequency to the shared ai-blip issue when the retry engaged', () => {
+    // Mirrors the deploy-failure issue-log pattern: one labeled issue, dated
+    // comments on each engagement. The step must (a) run only when the marker
+    // shows engagement, (b) use the issues-write token, (c) create-or-comment.
+    expect(verifyDeployedBlock).toContain('Record AI-blip frequency (retry engaged this run)');
+    expect(verifyDeployedBlock).toContain("if: ${{ env.CRON_SECRET != '' && steps.verify-cron.outputs.ai_retry_marker != '0 0' }}");
+    expect(verifyDeployedBlock).toContain('GH_TOKEN: ${{ github.token }}');
+    expect(verifyDeployedBlock).toContain('--label ai-blip');
+    expect(verifyDeployedBlock).toContain('gh issue comment');
+  });
+
+  it('grants the verify-deployed job issues:write for the ai-blip log', () => {
+    // The job-level permissions block is what makes the gh issue write legal;
+    // without it the step would fail with a 403 on the write.
+    expect(verifyDeployedBlock).toContain('permissions:');
+    expect(verifyDeployedBlock).toContain('issues: write');
   });
 
   it('still runs the Firestore rules step, gated on the verification-sandbox pair', () => {
