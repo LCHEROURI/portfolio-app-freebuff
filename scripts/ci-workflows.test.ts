@@ -219,6 +219,28 @@ describe('every workflow concurrency key is re-run-stable (no cross-run collisio
   });
 });
 
+describe('.github/workflows/deploy-car-app.yml · post-deploy provenance proof', () => {
+  it('proves the LIVE /api/version serves the pinned github.sha of the deploy run', () => {
+    // The rollout API can say SUCCEEDED while a stale/misrouted build answers
+    // (the rollout-health watch catches that on a 30-minute clock). This job
+    // closes the gap at deploy time: poll the live endpoint until commitFull
+    // equals THIS run's github.sha — the exact commit the pinned checkout
+    // deployed. Requires: the job runs only when deploy succeeded, keys the
+    // expected sha on github.sha (event-frozen, so a re-run re-verifies the
+    // same commit), polls (traffic switch lags the rollout op), and fails
+    // loudly on timeout instead of skipping.
+    const block = DEPLOY_CAR_APP.slice(DEPLOY_CAR_APP.indexOf('verify-deployed:'), DEPLOY_CAR_APP.indexOf('notify-success:'));
+    expect(block.length).toBeGreaterThan(0);
+    expect(block).toContain("needs: deploy");
+    expect(block).toContain("if: ${{ needs.deploy.result == 'success' }}");
+    expect(block).toContain('EXPECTED_SHA: ${{ github.sha }}');
+    expect(block).toContain('commitFull');
+    expect(block).toContain('\$COMMIT_FULL" = "\$EXPECTED_SHA');
+    expect(block).toContain('sleep 10');
+    expect(block).toContain('traffic is serving a different build');
+  });
+});
+
 describe('.github/workflows/ci.yml · verify-auth-domains job (push-time domains gate)', () => {
   it('still verifies the deployed authorized domains and the auto-authorize SA key', () => {
     const authDomainsBlock = CI.slice(CI.indexOf('verify-auth-domains:'), CI.indexOf('verify-prod-signin:'));
