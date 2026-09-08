@@ -83,6 +83,15 @@ dispatch can never cancel the re-verify, and re-runs stay pinned to the same
 commit. GitHub's **Actions → Car app CI → Run workflow** button takes the
 same `commit_sha` input.
 
+**One-command proof of both halves** (dispatches a short sha and the full
+sha, then asserts the guard message, the skipped checkout, the pinned
+checkout, and the gate suite automatically):
+
+```bash
+node scripts/prove-car-app-reverify.mjs                 # target = HEAD~1
+node scripts/prove-car-app-reverify.mjs --sha <full-40-hex>
+```
+
 ### Re-deploy a past commit (dispatch, labeled — preferred rollback)
 
 Same dispatch input on the deploy workflow: rebuilds and redeploys a
