@@ -47,6 +47,14 @@ const ALL_WORKFLOW_FILES: Record<string, string> = {
   'rollout-health.yml': ROLLOUT_HEALTH,
 };
 
+// The concurrency sweep also covers report-cron.yml, which has no checkout
+// (it curls the endpoint) but does declare a concurrency group. Every
+// workflow — checkout or not — must have a re-run-stable concurrency key.
+const ALL_WORKFLOW_FILES_WITH_CRON: Record<string, string> = {
+  ...ALL_WORKFLOW_FILES,
+  'report-cron.yml': readFileSync('.github/workflows/report-cron.yml', 'utf8'),
+};
+
 // The gallery capture runs against a locally built demo-mode server (no
 // Vercel preview since the decoupling), so no VERCEL_* env-trio gating
 // exists anymore — the suite asserts the capture flow directly.
@@ -142,6 +150,72 @@ describe('every workflow pins actions/checkout to github.sha (re-run drift guard
     const carBlock = CAR_APP_CI.slice(CAR_APP_CI.indexOf('uses: actions/checkout@v5'), CAR_APP_CI.indexOf('Detect car-app changes'));
     expect(carBlock).toContain('ref: ${{ github.sha }}');
     expect(carBlock).toContain('fetch-depth: 2');
+  });
+});
+
+describe('every workflow concurrency key is re-run-stable (no cross-run collisions)', () => {
+  // The second half of the drift story: a re-run must land in the SAME
+  // concurrency group as its original run. The checkout pin (tested above)
+  // fixes WHAT a re-run executes; the concurrency key fixes WHICH runs can
+  // cancel it. A key that re-resolves at re-run time (a step output, an env
+  // value, a needs result) would let a re-run escape its group — running in
+  // parallel with the original or racing a logically-different run.
+  it('every workflow declares a concurrency group keyed on event-frozen identity', () => {
+    for (const [file, content] of Object.entries(ALL_WORKFLOW_FILES_WITH_CRON)) {
+      const group = content.match(/^concurrency:\n\s+group: (.+)$/m)?.[1];
+      expect(group, `${file}: must declare a concurrency group key`).toBeTruthy();
+      // Allowed tokens: github.ref, github.sha, github.event.* (event-frozen
+      // at dispatch/trigger time), format() of those, and literal text. Banned:
+      // step outputs (steps.), env values, needs results, matrix — anything
+      // that RECOMPUTES at re-run time and could move the run to a different
+      // group (or collide with a logically different run's group).
+      expect(group, `${file}: group key must not reference recomputed state`).not.toMatch(/steps\.|needs\.|matrix\.|env\./);
+      expect(group, `${file}: group key must key on a run identity`).toMatch(/\.ref\s*\}\}|github\.sha\s*\}\}|\.head\.sha\s*\}\}|commit_sha\s*\}\}|^[a-z-]+$/);
+    }
+  });
+
+  it('ci.yml dispatch re-verifies get their own group keyed by the requested sha', () => {
+    // A manual re-verify of a PAST commit must never be cancelled by a fresh
+    // push: push/PR runs share one per-ref group (cancel-in-progress), but the
+    // dispatch group is keyed by the REQUESTED sha, so a push (different
+    // group) can never cancel it — and cancel-in-progress is disabled on
+    // dispatch so a newer dispatch can't cancel an older re-verify either.
+    expect(CI).toContain("format('reverify-{0}', github.event.inputs.commit_sha)");
+    expect(CI).toContain('cancel-in-progress: ${{ github.event_name != \'workflow_dispatch\' }}');
+  });
+
+  it('car-app-ci PR runs key on the PR head sha, not the merge ref or branch head', () => {
+    // The PR head sha is event-frozen — a re-run of a PR run stays in the
+    // same group even if the branch advanced. Keying on github.ref (the merge
+    // ref) would re-resolve at re-run time and could collide with a newer run
+    // of the same PR or with main.
+    expect(CAR_APP_CI).toContain("group: car-app-ci-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}");
+  });
+
+  it('scheduled workflows use a static group (one scheduled run at a time, never cross-run collision)', () => {
+    // report-cron, gallery-stability, and rollout-health run on a schedule —
+    // there is no per-run identity to key on, so a STATIC group is the correct
+    // re-run-stable choice (all runs of the same workflow share one group).
+    for (const [file, content] of Object.entries(ALL_WORKFLOW_FILES_WITH_CRON)) {
+      if (['report-cron.yml', 'gallery-stability.yml', 'rollout-health.yml'].includes(file)) {
+        const group = content.match(/^concurrency:\n\s+group: (.+)$/m)?.[1];
+        expect(group, `${file}: scheduled workflow needs a static group`).toMatch(/^[a-z-]+$/);
+      }
+    }
+  });
+
+  it('deploy workflows cancel superseded runs but never across different commits of the same run identity', () => {
+    // Deploys key on github.ref with cancel-in-progress — a newer push to the
+    // same branch cancels the older deploy (only newest lands), but the key
+    // itself is event-frozen, so a re-run of a FAILED deploy stays in the
+    // same group as its original (re-deploying the same commit, never racing
+    // a newer one in a foreign group).
+    for (const [file, content] of Object.entries(ALL_WORKFLOW_FILES_WITH_CRON)) {
+      if (file.startsWith('deploy-')) {
+        expect(content).toMatch(/group: deploy-[a-z-]+-\$\{\{ github\.ref \}\}/);
+        expect(content).toContain('cancel-in-progress: true');
+      }
+    }
   });
 });
 
