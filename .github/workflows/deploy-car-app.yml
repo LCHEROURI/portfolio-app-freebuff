@@ -208,6 +208,51 @@ jobs:
           jq -n --arg text "$TEXT" '{text: $text, content: $text}' \
             | curl -sfS -X POST -H 'Content-Type: application/json' -d @- "$ALERT_WEBHOOK_URL"
 
+  # Post-deploy provenance proof: the rollout API can say SUCCEEDED while
+  # serving is broken or a stale build answers (the rollout-health watch
+  # catches that on a 30-minute clock). This job closes the gap at deploy
+  # time: poll the LIVE /api/version endpoint until it reports the pinned
+  # github.sha of THIS run — proving traffic actually serves the commit this
+  # deploy produced, not an older rollout or a misrouted backend. Runs only
+  # when the deploy job itself succeeded (a failed deploy keeps the previous
+  # build serving — that is expected, not an error to verify against).
+  verify-deployed:
+    name: Verify live /api/version serves the pinned commit
+    needs: deploy
+    if: ${{ needs.deploy.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Poll live /api/version until commitFull equals github.sha
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+          BACKEND_URL: https://freebuff-car-app--portfolio-app-freebuff2.us-central1.hosted.app
+        run: |
+          set -euo pipefail
+          # App Hosting takes a moment to switch traffic after the rollout op
+          # reports SUCCEEDED — poll up to ~5 minutes (30 × 10s) so a healthy
+          # in-flight switch never fails the run. A 200 + matching full sha is
+          # the success condition; anything else keeps polling, and a timeout
+          # fails LOUDLY (the rollout claimed success but the live app does
+          # not serve this commit).
+          MATCHED=0
+          for i in $(seq 1 30); do
+            HTTP_CODE="$(curl -sS -o /tmp/car-version.json -w '%{http_code}' -m 30 "$BACKEND_URL/api/version" 2>/dev/null || echo 000)"
+            COMMIT_FULL="$(jq -r '.commitFull // empty' /tmp/car-version.json 2>/dev/null || true)"
+            echo "[$i] http=$HTTP_CODE commitFull=${COMMIT_FULL:-<none>} (expected $EXPECTED_SHA)"
+            if [ "$HTTP_CODE" = "200" ] && [ "$COMMIT_FULL" = "$EXPECTED_SHA" ]; then
+              MATCHED=1
+              break
+            fi
+            sleep 10
+          done
+          if [ "$MATCHED" != "1" ]; then
+            echo "::error::Deploy reported SUCCEEDED but the live /api/version does not serve ${EXPECTED_SHA::7} after 5 minutes (last http=$HTTP_CODE commit=${COMMIT_FULL:-none}) — traffic is serving a different build."
+            exit 1
+          fi
+          echo "✓ live /api/version serves the pinned commit ${EXPECTED_SHA::7}"
+
   notify-success:
     name: Close deploy-failure issue on recovery
     needs: deploy
