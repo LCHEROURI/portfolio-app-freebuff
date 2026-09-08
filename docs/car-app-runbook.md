@@ -242,6 +242,15 @@ Alerts are severity-routed (see `scripts/check-rollout-health.sh`, which emits
   rollouts lists — deriving from builds alone collides (HTTP 400).
 - **Stale verdicts ignore parent-only pushes** — the health watch compares
   against the last commit *touching `freebuff-car-app/`*, not HEAD.
+- **Never override `GITHUB_SHA` via a workflow `env:` block** — the GitHub
+  runner re-injects the automatic `GITHUB_SHA` (the commit the run was
+  triggered on) into every step and it OVERRIDES the step-level override.
+  Observed on run 34215843271: a dispatch re-deploy of commit `93c996c`
+  showed `GITHUB_SHA: 93c996c…` in the rendered env, but the script
+  packaged and labeled the rollout with the ref head `fd9bfbf` — the
+  `verify-deployed` probe caught the drift and failed the run. The resolved
+  commit flows through `DEPLOY_SHA` (a name the runner never touches) and
+  the deploy scripts prefer it: `RESOLVED_SHA="${DEPLOY_SHA:-$GITHUB_SHA}"`.
 
 ## 6. The affordability math trio (one source of truth)
 

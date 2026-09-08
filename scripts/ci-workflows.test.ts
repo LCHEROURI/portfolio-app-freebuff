@@ -277,9 +277,39 @@ describe('every workflow concurrency key is re-run-stable (no cross-run collisio
       expect(content).toContain("ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha || github.sha }}");
       expect(content).toContain('Resolve deployed commit sha');
       expect(content).toContain('deployed_sha: ${{ steps.resolve.outputs.sha }}');
-      expect(content).toContain('GITHUB_SHA: ${{ steps.resolve.outputs.sha }}');
-      expect(content).toContain('GITHUB_SHA: ${{ needs.deploy.outputs.deployed_sha }}');
+      expect(content).toContain('DEPLOY_SHA: ${{ steps.resolve.outputs.sha }}');
+      expect(content).toContain('DEPLOY_SHA: ${{ needs.deploy.outputs.deployed_sha }}');
       expect(content).toContain('/commit/${{ steps.resolve.outputs.sha }}');
+    }
+  });
+
+  it('deploy workflows never override the reserved GITHUB_SHA env (runner re-injection would clobber it)', () => {
+    // The GitHub runner re-injects the automatic GITHUB_SHA into every step's
+    // process env and it OVERRIDES a step-level `env: GITHUB_SHA: ...`
+    // override. Observed on run 34215843271: the deploy step env rendered
+    // `GITHUB_SHA: 93c996c...` (the resolve output) but the script packaged
+    // and labeled the rollout with the REF HEAD fd9bfbf, so a dispatch
+    // re-deploy of a past commit deployed the wrong code with wrong labels.
+    // The resolved/deployed commit must flow through DEPLOY_SHA — a name the
+    // runner never touches — and the deploy scripts must prefer it.
+    for (const content of [DEPLOY_CAR_APP, DEPLOY_PORTFOLIO_APP]) {
+      // Simple string checks, not a regex over multi-line env blocks: the
+      // workflows must never mention GITHUB_SHA: at all now (the resolved
+      // commit flows through DEPLOY_SHA), and a full-file scan is both
+      // precise and immune to regex backtracking.
+      expect(content, 'never override the reserved GITHUB_SHA via env').not.toContain('GITHUB_SHA:');
+      expect(content).toContain('DEPLOY_SHA: ${{ steps.resolve.outputs.sha }}');
+    }
+    const carScript = readFileSync('scripts/deploy-car-app.sh', 'utf8');
+    const portScript = readFileSync('scripts/deploy-portfolio-app.sh', 'utf8');
+    for (const script of [carScript, portScript]) {
+      expect(script).toContain('RESOLVED_SHA="${DEPLOY_SHA:-$GITHUB_SHA}"');
+    }
+    // No label/bake/echo may read GITHUB_SHA directly anymore — only the
+    // required-env guard and the RESOLVED_SHA fallback may mention it.
+    for (const script of [carScript, portScript]) {
+      const mentions = script.split('\n').filter((l) => l.includes('GITHUB_SHA') && !l.includes('RESOLVED_SHA') && !l.trim().startsWith('#') && !l.includes(': "${GITHUB_SHA:?'));
+      expect(mentions, 'deploy script must not read GITHUB_SHA for labeling').toEqual([]);
     }
   });
 });

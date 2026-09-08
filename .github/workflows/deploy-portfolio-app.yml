@@ -135,7 +135,7 @@ jobs:
       - name: Deploy to Firebase App Hosting (labeled rollout)
         env:
           GOOGLE_APPLICATION_CREDENTIALS: /tmp/fb-key.json
-          GITHUB_SHA: ${{ steps.resolve.outputs.sha }}
+          DEPLOY_SHA: ${{ steps.resolve.outputs.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           COMMIT_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ steps.resolve.outputs.sha }}
           NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
@@ -166,14 +166,14 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-          GITHUB_SHA: ${{ steps.resolve.outputs.sha }}
+          DEPLOY_SHA: ${{ steps.resolve.outputs.sha }}
           BACKEND_URL: https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app
         run: |
           set -euo pipefail
           # auto_merge is a boolean and required_contexts an array; build the
           # body with jq because -f sends plain strings (HTTP 422 otherwise).
           BODY="$(jq -n \
-            --arg ref "$GITHUB_SHA" \
+            --arg ref "$DEPLOY_SHA" \
             --arg log_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             '{ref: $ref, environment: "portfolio-app-production", auto_merge: false, required_contexts: [], description: "Firebase App Hosting rollout", log_url: $log_url}')"
           DEPLOYMENT_ID="$(printf '%s' "$BODY" | gh api "repos/$GITHUB_REPOSITORY/deployments" --input - --jq '.id')"
@@ -183,14 +183,14 @@ jobs:
 
       - name: Write deploy summary
         env:
-          GITHUB_SHA: ${{ steps.resolve.outputs.sha }}
+          DEPLOY_SHA: ${{ steps.resolve.outputs.sha }}
         run: |
           {
             echo "## Portfolio-app deploy ✓"
             echo ""
             echo "| Field | Value |"
             echo "|---|---|"
-            echo "| Commit | \`${GITHUB_SHA::7}\` |"
+            echo "| Commit | \`${DEPLOY_SHA::7}\` |"
             echo "| Firebase rollout | \`${ROLLOUT_NAME##*/}\` (created $ROLLOUT_CREATE) |"
             echo "| Live URL | https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app |"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -208,7 +208,7 @@ jobs:
 
     env:
       ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
-      GITHUB_SHA: ${{ needs.deploy.outputs.deployed_sha }}
+      DEPLOY_SHA: ${{ needs.deploy.outputs.deployed_sha }}
 
     steps:
       - name: Create or update the deploy-failure issue
@@ -221,9 +221,9 @@ jobs:
             echo "deploy result: $DEPLOY_RESULT — not alerting"
             exit 0
           fi
-          SHORT_SHA="${GITHUB_SHA::7}"
+          SHORT_SHA="${DEPLOY_SHA::7}"
           RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          COMMIT_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA"
+          COMMIT_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$DEPLOY_SHA"
           BODY="The portfolio-app deploy to Firebase App Hosting FAILED.
 
           - Run: $RUN_URL
@@ -267,7 +267,7 @@ jobs:
             echo "::error::Deploy FAILED but ALERT_WEBHOOK_URL is not set in this repo's Actions secrets. Set it with: gh secret set ALERT_WEBHOOK_URL --repo ${GITHUB_REPOSITORY}"
             exit 1
           fi
-          TEXT="🚨 portfolio-app deploy FAILED on main (${GITHUB_SHA::7}) — $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          TEXT="🚨 portfolio-app deploy FAILED on main (${DEPLOY_SHA::7}) — $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           # Slack reads "text", Discord reads "content"; each ignores the other.
           jq -n --arg text "$TEXT" '{text: $text, content: $text}' \
             | curl -sfS -X POST -H 'Content-Type: application/json' -d @- "$ALERT_WEBHOOK_URL"
@@ -280,7 +280,7 @@ jobs:
     timeout-minutes: 5
 
     env:
-      GITHUB_SHA: ${{ needs.deploy.outputs.deployed_sha }}
+      DEPLOY_SHA: ${{ needs.deploy.outputs.deployed_sha }}
 
     steps:
       - name: Close any open deploy-failure issue
@@ -296,7 +296,7 @@ jobs:
           EXISTING="$(gh issue list --repo "$GITHUB_REPOSITORY" --label deploy-failure --state open --limit 1 --json number --jq '.[0].number' 2>/dev/null || true)"
           if [ -n "$EXISTING" ]; then
             gh issue close "$EXISTING" --repo "$GITHUB_REPOSITORY" \
-              --comment "✅ Resolved: deploy of ${GITHUB_SHA::7} succeeded — $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+              --comment "✅ Resolved: deploy of ${DEPLOY_SHA::7} succeeded — $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           else
             echo "No open deploy-failure issue — nothing to close."
           fi
