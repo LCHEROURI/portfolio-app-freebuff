@@ -207,6 +207,27 @@ describe('.github/workflows/ci.yml · verify-deployed job (post-deploy smoke gat
     expect(verifyDeployedBlock).toContain('gh issue comment');
   });
 
+  it('alerts via the quiet webhook when the ai-blip issue is FIRST created (never per-blip)', () => {
+    // A brand-new blip should not wait for the weekly report to be noticed.
+    // The webhook must fire ONLY in the issue-CREATE branch (the log era's
+    // first blip), be WARNING-tier (ALERT_WEBHOOK_URL_QUIET, mirroring
+    // rollout-health's severity model — a cleared-on-retry blip is not a
+    // page), and stay silent on later comments of the same era.
+    expect(verifyDeployedBlock).toContain('ALERT_WEBHOOK_URL_QUIET: ${{ secrets.ALERT_WEBHOOK_URL_QUIET }}');
+    expect(verifyDeployedBlock).toContain('First AI-provider blip logged this era');
+    expect(verifyDeployedBlock).toContain('warning tier');
+    expect(verifyDeployedBlock).toContain('ALERT_WEBHOOK_URL_QUIET:-');
+    expect(verifyDeployedBlock).toContain('webhook_delivery=quiet-channel');
+    // The quiet-channel POST must be INSIDE the issue-create branch: the
+    // create (`gh issue create`) must appear before the webhook so a missing
+    // webhook can never suppress the log entry, and the comment path must not
+    // send a webhook at all.
+    const createIdx = verifyDeployedBlock.indexOf('gh issue create');
+    const quietIdx = verifyDeployedBlock.indexOf('ALERT_WEBHOOK_URL_QUIET:-');
+    expect(createIdx).toBeGreaterThan(-1);
+    expect(quietIdx).toBeGreaterThan(createIdx);
+  });
+
   it('grants the verify-deployed job issues:write for the ai-blip log', () => {
     // The job-level permissions block is what makes the gh issue write legal;
     // without it the step would fail with a 403 on the write.
