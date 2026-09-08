@@ -94,24 +94,76 @@ node scripts/prove-car-app-reverify.mjs --sha <full-40-hex>
 
 ### Re-deploy a past commit (dispatch, labeled — preferred rollback)
 
-Same dispatch input on the deploy workflow: rebuilds and redeploys a
-specific past commit through the **full pipeline** — gates, labeled rollout
-(`commit-sha` label = the deployed commit, not the ref head), GitHub
-Deployment record, deploy-failure issue lifecycle, and the `verify-deployed`
-probe (which polls live `/api/version` until `commitFull` equals the
-**deployed** commit):
+Rebuild and redeploy a specific past commit through the **same full pipeline**
+a push would run — gates, labeled rollout, GitHub Deployment record,
+deploy-failure issue lifecycle, and the `verify-deployed` probe — without
+pushing a new commit:
 
 ```bash
-gh workflow run "Deploy car app" --ref main -f commit_sha=<full 40-hex sha>
+# One command (full 40-hex sha — any ref works via git rev-parse):
+gh workflow run "Deploy car app" --ref main -f commit_sha=$(git rev-parse <ref>)
+
+# Watch to completion:
 gh run watch $(gh run list --workflow="Deploy car app" --limit 1 --json databaseId --jq '.[0].databaseId')
 ```
 
-Why the deploy resolves the sha instead of trusting `github.sha`: on a
-dispatch, `github.sha` names the ref head the workflow was dispatched on —
-not the commit being deployed. A `Resolve deployed commit sha` step captures
-the actual checked-out commit and threads it through the rollout labels,
-Deployment record, failure issue, and the verify probe, so a re-deploy of a
-past commit is labeled and verified as that commit.
+Or the GitHub UI: **Actions → Deploy car app → Run workflow → paste the full
+40-hex sha into `commit_sha`** (blank = the ref head).
+
+What happens under the hood (all merged on main, live-proven):
+
+1. **Validate re-deploy commit sha (must be full 40-hex)** — a short sha
+   fails fast *before checkout* with `not a full 40-hex commit sha … (git
+   rev-parse <ref>)`; blank skips it.
+2. **Checkout pins that exact commit** — `ref: commit_sha || github.sha`.
+3. **Resolve deployed commit sha** — on a dispatch, `github.sha` names the
+   *ref head* the dispatch ran on, NOT the deployed commit. This step
+   captures the actually-checked-out commit (`git rev-parse HEAD`) and
+   threads it through every label and probe as `DEPLOY_SHA` (a name the
+   runner never clobbers — overriding `GITHUB_SHA` via `env:` does not work,
+   see §5).
+4. **Deploy script runs from origin/main, not the checkout** — a past-commit
+   checkout carries the *old* deploy script, which predates the `DEPLOY_SHA`
+   handling (run 34220848093 labeled the rollout with the ref head again).
+   The pipeline tooling must be version-independent of the code it deploys:
+   `git show origin/main:scripts/deploy-car-app.sh` is run, not the
+   checkout's copy.
+5. **Labeled rollout** — build *and* rollout carry `commit-sha` = the
+   deployed commit (see §3), plus the `verify-deployed` probe (below).
+
+**Reading the `redeploy-{sha}` concurrency group.** Every deploy run belongs
+to a concurrency group — the key renders as `deploy-car-app-<group>` in the
+Actions run list and the workflow's Concurrency view:
+
+- **Push runs:** group = the ref (`…refs/heads/main`), `cancel-in-progress:
+true` — only the newest push deploys; a fresh push cancels the older run
+(the newer run owns the outcome, so no false alert).
+- **Dispatch re-deploys:** group = `…redeploy-<commit_sha>`, cancel **off**.
+  The sha inside the group name tells you *which commit that run is
+  redeploying* at a glance, without opening the run. A fresh push (different
+  group) can never cancel a manual re-deploy of a past commit, and because
+  cancel is off on dispatch, a newer dispatch can't cancel an older one
+either — a re-deploy always runs to completion.
+
+**What `verify-deployed` proves.** The rollout API can report SUCCEEDED
+while the live app serves something else (a stale rollout, a misrouted
+backend, traffic mid-switch). This job runs after a successful deploy and
+closes that gap at deploy time: up to 5 minutes (30 × 10s) it curls live
+`/api/version` and requires `http=200` **and** `commitFull == the deployed
+sha` before the run goes green. Any other answer keeps polling; a timeout
+fails the run loudly — `Deploy reported SUCCEEDED but the live /api/version
+does not serve <sha> after 5 minutes`. It is the deploy-time half of the
+rollout-health watch (§4), which catches the same class of serving drift on
+a 30-minute clock between deploys.
+
+**Live-proven** (run 34223411584): a dispatch re-deploy of `93c996c`
+produced rollout `build-2026-09-08-009` labeled `93c996c…`, and the probe
+passed against live `/api/version` (`commit: 93c996c`). The probe also
+caught both real regressions it exists for: run 34215843271 (rollout labeled
+with the ref head `fd9bfbf` instead of the deployed `93c996c` — the
+`GITHUB_SHA` clobber) and run 34220848093 (the *old script* from the past
+checkout relabeled `e61af10` despite `DEPLOY_SHA=93c996c…` in the env) —
+both failed at the probe, exactly as designed.
 
 ## 1b. One-time key flip: MarketCheck live inventory
 
@@ -251,6 +303,15 @@ Alerts are severity-routed (see `scripts/check-rollout-health.sh`, which emits
   `verify-deployed` probe caught the drift and failed the run. The resolved
   commit flows through `DEPLOY_SHA` (a name the runner never touches) and
   the deploy scripts prefer it: `RESOLVED_SHA="${DEPLOY_SHA:-$GITHUB_SHA}"`.
+- **Run the deploy script from origin/main, not the checkout** — a dispatch
+  re-deploy of a past commit checks out the OLD code, whose deploy script
+  predates the `DEPLOY_SHA` handling. Both deploy workflows fetch
+  `origin/main:scripts/deploy-car-app.sh` / `deploy-portfolio-app.sh` (with
+  `--depth=1`) instead of running the checkout's copy, so the pipeline
+  tooling stays version-independent of the code it deploys. Observed on run
+  34220848093: even with `DEPLOY_SHA: 93c996c…` in the step env, the old
+  script packaged and labeled rollout 007 with the ref head `e61af10`;
+  `verify-deployed` failed the run again.
 
 ## 6. The affordability math trio (one source of truth)
 
