@@ -108,7 +108,7 @@ cron_line() {
   echo "# Add this line to crontab -e (same 06:30 default):"
   echo "30 6 * * * /bin/bash ${WRAPPER} >> ${LOG_FILE} 2>&1"
   echo "# Or run the wrapper with an explicit API target:"
-  echo "# 30 6 * * * SCAN_ALL_API=https://portfolio-app-freebuff.vercel.app/api/scanner /bin/bash ${WRAPPER}"
+  echo "# 30 6 * * * SCAN_ALL_API=https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app/api/scanner /bin/bash ${WRAPPER}"
   echo "# The wrapper also seeds the in-app report after the scan; the report owner"
   echo "# comes from REPORT_OWNER_ID (env -> .env.local -> demo-user)."
 }

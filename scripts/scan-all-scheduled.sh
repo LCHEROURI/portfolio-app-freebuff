@@ -15,7 +15,7 @@
 #   /bin/bash scripts/scan-all-scheduled.sh
 #
 # Point the scanner at a specific API with SCAN_ALL_API (defaults to the local
-# dev server):   SCAN_ALL_API=https://portfolio-app-freebuff.vercel.app/api/scanner
+# dev server):   SCAN_ALL_API=https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app/api/scanner
 # Authenticate Firestore writes with SCAN_ALL_TOKEN (the CRON_SECRET value),
 # which the deployed /api/scanner requires as `Authorization: Bearer`:
 #   SCAN_ALL_TOKEN=<cron-secret>   # same value as CRON_SECRET in Vercel

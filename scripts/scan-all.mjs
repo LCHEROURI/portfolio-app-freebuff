@@ -11,7 +11,7 @@
 // Usage:
 //   npm run scan:all                          # root ~/Documents, local API
 //   node scripts/scan-all.mjs --root ~/dev    # custom root
-//   node scripts/scan-all.mjs --api https://portfolio-app-freebuff.vercel.app/api/scanner
+//   node scripts/scan-all.mjs --api https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app/api/scanner
 //   node scripts/scan-all.mjs --max-depth 4   # limit how deep to descend
 //   node scripts/scan-all.mjs --skip foo,bar  # skip repo names
 //   node scripts/scan-all.mjs --token <pat>   # bearer token for the API
