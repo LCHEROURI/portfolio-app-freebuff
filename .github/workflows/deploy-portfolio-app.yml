@@ -101,6 +101,18 @@ jobs:
         id: resolve
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
+      # Run the deploy script from origin/main, NOT the checkout. On a
+      # dispatch re-deploy of a PAST commit the checkout is that old commit,
+      # whose deploy script predates the DEPLOY_SHA handling and reads the
+      # runner-clobbered $GITHUB_SHA (observed on the car-app deploy run
+      # 34220848093). The pipeline tooling must be version-independent of the
+      # code it deploys.
+      - name: Fetch deploy script from origin/main (version-independent)
+        run: |
+          git fetch --no-tags origin main --depth=1
+          git show origin/main:scripts/deploy-portfolio-app.sh > /tmp/deploy-portfolio-app.sh
+          chmod +x /tmp/deploy-portfolio-app.sh
+
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
@@ -155,7 +167,7 @@ jobs:
           OPENROUTER_MODEL: ${{ secrets.OPENROUTER_MODEL }}
           REPORT_OWNER_ID: ${{ secrets.REPORT_OWNER_ID }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-        run: bash scripts/deploy-portfolio-app.sh
+        run: bash /tmp/deploy-portfolio-app.sh
 
       # GitHub-side provenance: a Deployment on this commit with the live URL,
       # visible on the commit page and via the Deployments API. Bookkeeping

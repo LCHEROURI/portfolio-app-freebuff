@@ -312,6 +312,24 @@ describe('every workflow concurrency key is re-run-stable (no cross-run collisio
       expect(mentions, 'deploy script must not read GITHUB_SHA for labeling').toEqual([]);
     }
   });
+
+  it('deploy workflows run the deploy script from origin/main, not the old checkout', () => {
+    // On a dispatch re-deploy of a PAST commit the checkout is that old
+    // commit, whose deploy script predates the DEPLOY_SHA handling and reads
+    // the runner-clobbered $GITHUB_SHA (observed on run 34220848093: env
+    // DEPLOY_SHA=93c996c… but the old script packaged/labeled e61af10). The
+    // pipeline tooling must be version-independent: a step fetches the
+    // script from origin/main into /tmp and the deploy step runs that copy.
+    for (const [content, scriptPath, tmpScript] of [
+      [DEPLOY_CAR_APP, 'scripts/deploy-car-app.sh', '/tmp/deploy-car-app.sh'],
+      [DEPLOY_PORTFOLIO_APP, 'scripts/deploy-portfolio-app.sh', '/tmp/deploy-portfolio-app.sh'],
+    ]) {
+      expect(content).toContain('Fetch deploy script from origin/main (version-independent)');
+      expect(content).toContain(`git show origin/main:${scriptPath} > ${tmpScript}`);
+      expect(content).toContain(`run: bash ${tmpScript}`);
+      expect(content).not.toContain(`run: bash ${scriptPath}`);
+    }
+  });
 });
 
 describe('.github/workflows/deploy-car-app.yml · post-deploy provenance proof', () => {
