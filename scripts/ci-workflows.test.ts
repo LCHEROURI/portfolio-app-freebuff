@@ -76,6 +76,29 @@ describe('.github/workflows/ci.yml · validate job (docs-render coverage)', () =
   });
 });
 
+describe('.github/workflows/ci.yml · re-verify sha guard', () => {
+  it('guards every checkout job against a non-full re-verify sha', () => {
+    // actions/checkout treats a short sha (0fb4954) as refs/heads/0fb4954*
+    // and fails with a cryptic git error — observed live 2026-09-08. The
+    // guard step must exist BEFORE each checkout in every job that shares
+    // the dispatch-ref pattern, so a short sha fails with the actionable
+    // message instead. Blank (push/PR and blank dispatch) skips it.
+    const guards = CI.match(/Validate re-verify commit sha/g) ?? [];
+    const checkouts = CI.match(/uses: actions\/checkout@v5/g) ?? [];
+    expect(guards.length).toBe(checkouts.length);
+    expect(guards.length).toBeGreaterThanOrEqual(4);
+    expect(CI).toContain('git rev-parse <ref>');
+    expect(CI).toContain("[[ \"$SHA\" =~ ^[0-9a-f]{40}$ ]]");
+    expect(CI).toContain("if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha != '' }}");
+    // The guard must precede the checkout it protects (per-job, not just
+    // somewhere in the file).
+    const firstCheckout = CI.indexOf('uses: actions/checkout@v5');
+    const guardBeforeFirst = CI.lastIndexOf('Validate re-verify commit sha', firstCheckout);
+    expect(guardBeforeFirst).toBeGreaterThan(-1);
+    expect(guardBeforeFirst).toBeLessThan(firstCheckout);
+  });
+});
+
 describe('.github/workflows/ci.yml · verify-auth-domains job (push-time domains gate)', () => {
   it('still verifies the deployed authorized domains and the auto-authorize SA key', () => {
     const authDomainsBlock = CI.slice(CI.indexOf('verify-auth-domains:'), CI.indexOf('verify-prod-signin:'));

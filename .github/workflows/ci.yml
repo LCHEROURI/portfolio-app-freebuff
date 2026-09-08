@@ -30,6 +30,21 @@ jobs:
     timeout-minutes: 15
 
     steps:
+      # Manual re-verify: actions/checkout only accepts a FULL 40-hex commit
+      # sha (a short sha like 0fb4954 is fetched as refs/heads/0fb4954* and
+      # fails with a cryptic git error). Fail fast with the actionable message
+      # instead. Blank (push/PR and blank dispatch) skips this guard.
+      - name: Validate re-verify commit sha (must be full 40-hex)
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha != '' }}
+        run: |
+          SHA="${{ github.event.inputs.commit_sha }}"
+          if ! [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::commit_sha '$SHA' is not a full 40-hex commit sha. Paste the full sha"
+            echo "::error::(git rev-parse <ref>) — a short sha cannot be checked out."
+            exit 1
+          fi
+          echo "✓ re-verify sha $SHA is a full 40-hex commit"
+
       - name: Check out repository
         uses: actions/checkout@v5
         with:
@@ -132,6 +147,21 @@ jobs:
     timeout-minutes: 5
 
     steps:
+      # Manual re-verify: actions/checkout only accepts a FULL 40-hex commit
+      # sha (a short sha like 0fb4954 is fetched as refs/heads/0fb4954* and
+      # fails with a cryptic git error). Fail fast with the actionable message
+      # instead. Blank (push/PR and blank dispatch) skips this guard.
+      - name: Validate re-verify commit sha (must be full 40-hex)
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha != '' }}
+        run: |
+          SHA="${{ github.event.inputs.commit_sha }}"
+          if ! [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::commit_sha '$SHA' is not a full 40-hex commit sha. Paste the full sha"
+            echo "::error::(git rev-parse <ref>) — a short sha cannot be checked out."
+            exit 1
+          fi
+          echo "✓ re-verify sha $SHA is a full 40-hex commit"
+
       - name: Check out repository
         uses: actions/checkout@v5
         with:
@@ -195,6 +225,21 @@ jobs:
       NEXT_PUBLIC_ENABLE_AI_BRIEFINGS: '1'
 
     steps:
+      # Manual re-verify: actions/checkout only accepts a FULL 40-hex commit
+      # sha (a short sha like 0fb4954 is fetched as refs/heads/0fb4954* and
+      # fails with a cryptic git error). Fail fast with the actionable message
+      # instead. Blank (push/PR and blank dispatch) skips this guard.
+      - name: Validate re-verify commit sha (must be full 40-hex)
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha != '' }}
+        run: |
+          SHA="${{ github.event.inputs.commit_sha }}"
+          if ! [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::commit_sha '$SHA' is not a full 40-hex commit sha. Paste the full sha"
+            echo "::error::(git rev-parse <ref>) — a short sha cannot be checked out."
+            exit 1
+          fi
+          echo "✓ re-verify sha $SHA is a full 40-hex commit"
+
       - name: Check out repository
         uses: actions/checkout@v5
         with:
@@ -411,6 +456,21 @@ jobs:
       FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
 
     steps:
+      # Manual re-verify: actions/checkout only accepts a FULL 40-hex commit
+      # sha (a short sha like 0fb4954 is fetched as refs/heads/0fb4954* and
+      # fails with a cryptic git error). Fail fast with the actionable message
+      # instead. Blank (push/PR and blank dispatch) skips this guard.
+      - name: Validate re-verify commit sha (must be full 40-hex)
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha != '' }}
+        run: |
+          SHA="${{ github.event.inputs.commit_sha }}"
+          if ! [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::commit_sha '$SHA' is not a full 40-hex commit sha. Paste the full sha"
+            echo "::error::(git rev-parse <ref>) — a short sha cannot be checked out."
+            exit 1
+          fi
+          echo "✓ re-verify sha $SHA is a full 40-hex commit"
+
       - name: Check out repository
         uses: actions/checkout@v5
         with:
@@ -486,6 +546,21 @@ jobs:
       VERIFY_BASE_URL: https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app
 
     steps:
+      # Manual re-verify: actions/checkout only accepts a FULL 40-hex commit
+      # sha (a short sha like 0fb4954 is fetched as refs/heads/0fb4954* and
+      # fails with a cryptic git error). Fail fast with the actionable message
+      # instead. Blank (push/PR and blank dispatch) skips this guard.
+      - name: Validate re-verify commit sha (must be full 40-hex)
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha != '' }}
+        run: |
+          SHA="${{ github.event.inputs.commit_sha }}"
+          if ! [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::commit_sha '$SHA' is not a full 40-hex commit sha. Paste the full sha"
+            echo "::error::(git rev-parse <ref>) — a short sha cannot be checked out."
+            exit 1
+          fi
+          echo "✓ re-verify sha $SHA is a full 40-hex commit"
+
       - name: Check out repository
         uses: actions/checkout@v5
         with:
