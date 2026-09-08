@@ -303,11 +303,22 @@ jobs:
       # this log (lib/server/incidents.ts) and renders "AI provider blips this
       # week: N" so blip frequency is visible without digging through CI logs.
       # engaged=0 runs emit nothing (no issue churn on healthy runs).
+      #
+      # Immediate alert on FIRST blip: the weekly report is the frequency
+      # reader, but a brand-new blip should not wait up to a week to be
+      # noticed — so when the ai-blip issue is CREATED (the log era's first
+      # blip), POST a warning-tier webhook. Blips that cleared on retry mean
+      # the app kept working, so this is the WARNING tier (rollout-health
+      # severity model): it goes to ALERT_WEBHOOK_URL_QUIET when one exists
+      # and never pages; without a quiet channel the issue itself is the
+      # record and no webhook fires. Later blips of the same era just append
+      # a comment — no webhook spam per blip.
       - name: Record AI-blip frequency (retry engaged this run)
         if: ${{ env.CRON_SECRET != '' && steps.verify-cron.outputs.ai_retry_marker != '0 0' }}
         env:
           GH_TOKEN: ${{ github.token }}
           RETRY_MARKER: ${{ steps.verify-cron.outputs.ai_retry_marker }}
+          ALERT_WEBHOOK_URL_QUIET: ${{ secrets.ALERT_WEBHOOK_URL_QUIET }}
         run: |
           set -euo pipefail
           ENGAGED="$(printf '%s' "$RETRY_MARKER" | cut -d' ' -f1)"
@@ -323,6 +334,18 @@ jobs:
               --title "🤖 AI provider blips — frequency log" \
               --body "$BODY" \
               --label ai-blip
+            # First blip of a log era: alert immediately (warning tier →
+            # quiet channel only, mirroring rollout-health's severity routing;
+            # a cleared-on-retry blip is not a page).
+            if [ -n "${ALERT_WEBHOOK_URL_QUIET:-}" ]; then
+              TEXT="⚠️ First AI-provider blip logged this era (engaged $ENGAGED, cleared $CLEARED on retry) — $TODAY UTC
+              $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+              jq -n --arg text "$TEXT" '{text: $text, content: $text}' \
+                | curl -sfS -X POST -H 'Content-Type: application/json' -d @- "$ALERT_WEBHOOK_URL_QUIET"
+              echo "webhook_delivery=quiet-channel (first ai-blip issue created)"
+            else
+              echo "no ALERT_WEBHOOK_URL_QUIET — first-blip notification delivered as the ai-blip issue only."
+            fi
           fi
           echo "recorded ai-blip entry (engaged=$ENGAGED cleared=$CLEARED)"
 
