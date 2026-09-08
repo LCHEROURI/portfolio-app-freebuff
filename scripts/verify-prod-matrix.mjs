@@ -11,7 +11,7 @@ import { rmSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 const CHROME = process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const BASE = process.env.PROD_URL ?? 'https://portfolio-app-freebuff.vercel.app';
+const BASE = process.env.PROD_URL ?? 'https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app';
 const PORT = 9333;
 
 const CELLS = [
