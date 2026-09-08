@@ -119,6 +119,13 @@ gh workflow run "Deploy portfolio app" --ref main -f commit_sha=$(git rev-parse 
 gh run watch $(gh run list --workflow="Deploy portfolio app" --limit 1 --json databaseId --jq '.[0].databaseId')
 ```
 
+<!-- Dry-run verified 2026-09-08: the exact guard block (same in both deploy
+workflows) rejects a short sha with the two `::error::` lines and exit 1,
+accepts a full 40-hex sha with "✓ re-deploy sha … is a full 40-hex commit"
+and exit 0, and is skipped entirely on blank (push / blank dispatch). The
+workflow names "Deploy car app" / "Deploy portfolio app" and the `-f
+commit_sha=` syntax match the live Actions API. -->
+
 UI: **Actions → Deploy portfolio app → Run workflow** → paste the full 40-hex
 sha into `commit_sha` (blank = the ref head).
 
