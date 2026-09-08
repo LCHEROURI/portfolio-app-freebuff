@@ -90,6 +90,13 @@ checkout, and the gate suite automatically):
 ```bash
 node scripts/prove-car-app-reverify.mjs                 # target = HEAD~1
 node scripts/prove-car-app-reverify.mjs --sha <full-40-hex>
+node scripts/prove-car-app-reverify.mjs --deploy --sha <full-40-hex>
+#   --deploy also dispatches "Deploy car app" with the full sha and asserts
+#   the run succeeded, verify-deployed passed, live /api/version serves the
+#   commit, a NEW rollout serves, and the newest rollout is labeled
+#   commit-sha=<sha>; then re-deploys the current main head to restore
+#   production (--no-restore opts out). Needs gcloud auth for the rollout-
+#   label read.
 ```
 
 ### Re-deploy a past commit (dispatch, labeled — preferred rollback)
