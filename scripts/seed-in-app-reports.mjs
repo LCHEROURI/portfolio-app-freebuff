@@ -11,7 +11,7 @@
 //
 // Usage:
 //   node scripts/seed-in-app-reports.mjs [--owner demo-user] [--kind both]
-//       [--base https://portfolio-app-freebuff.vercel.app] [--secret <CRON_SECRET>]
+//       [--base https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app] [--secret <CRON_SECRET>]
 //       [--dry-run] [--project <id>] [--service-account <json>]
 //
 // Reads CRON_SECRET from --secret, then the CRON_SECRET env var, then
@@ -82,7 +82,7 @@ async function main() {
     return i !== -1 && args[i + 1] ? args[i + 1] : fallback;
   };
 
-  const BASE = (flag('--base', process.env.VERIFY_BASE_URL) ?? 'https://portfolio-app-freebuff.vercel.app').replace(/\/$/, '');
+  const BASE = (flag('--base', process.env.VERIFY_BASE_URL) ?? 'https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app').replace(/\/$/, '');
   const SECRET =
     flag('--secret') ??
     process.env.CRON_SECRET ??

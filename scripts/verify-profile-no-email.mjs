@@ -42,7 +42,7 @@ const flag = (name, fallback) => {
   return i >= 0 && args[i + 1] ? args[i + 1] : fallback;
 };
 
-const APP = (flag('--app', process.env.VERIFY_BASE_URL) ?? 'https://portfolio-app-freebuff.vercel.app').replace(/\/$/, '');
+const APP = (flag('--app', process.env.VERIFY_BASE_URL) ?? 'https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app').replace(/\/$/, '');
 // --screenshot [dir] — bare flag defaults to /tmp, a value uses that dir.
 const rawShot = flag('--screenshot', '');
 const SCREENSHOT_DIR = args.includes('--screenshot') ? (rawShot || '/tmp') : '';

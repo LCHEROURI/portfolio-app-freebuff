@@ -4,7 +4,7 @@
 // authorized domains using a service account (for CI), so a fresh Vercel
 // deployment URL never blocks the preview gate by default.
 //
-//   node scripts/authorize-domain.mjs --domain https://...-vercel.app
+//   node scripts/authorize-domain.mjs --domain https://...-hosted.app
 //
 // Reads the service account JSON from FIREBASE_SERVICE_ACCOUNT (a JSON
 // string) or FIREBASE_SERVICE_ACCOUNT_PATH (a file). Mints a Google OAuth
@@ -21,7 +21,7 @@ const flag = (name, fallback) => {
   const i = args.indexOf(name);
   return i >= 0 && args[i + 1] ? args[i + 1] : fallback;
 };
-const DOMAIN = new URL(flag('--domain', 'https://portfolio-app-freebuff.vercel.app')).hostname;
+const DOMAIN = new URL(flag('--domain', 'https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app')).hostname;
 const PROJECT = process.env.FIREBASE_PROJECT_ID ?? 'portfolio-app-freebuff2';
 const CONFIG_URL = `https://identitytoolkit.googleapis.com/admin/v2/projects/${PROJECT}/config`;
 
