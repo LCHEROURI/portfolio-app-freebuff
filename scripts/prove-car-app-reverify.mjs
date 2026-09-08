@@ -20,7 +20,8 @@
 //
 // Exits 0 only if every assertion holds; exits nonzero (with the failing
 // assertion named) on any drift. Read-only against GitHub Actions — it only
-// dispatches CI runs and reads their status/logs, never touches the repo.
+// dispatches CI/deploy runs and reads their status/logs, never touches the
+// repo.
 //
 // Usage:
 //   node scripts/prove-car-app-reverify.mjs
@@ -29,13 +30,24 @@
 //     → re-verify an explicit commit (must be a full 40-hex sha)
 //   node scripts/prove-car-app-reverify.mjs --ref <branch> [--timeout-min 25]
 //     → dispatch on a different ref; extend the phase-2 poll deadline
+//   node scripts/prove-car-app-reverify.mjs --deploy
+//     → ALSO prove the dispatch re-deploy path: phase 3 dispatches "Deploy
+//       car app" with the full sha, asserts the run succeeded, the
+//       verify-deployed job passed, live /api/version serves the requested
+//       commit, a NEW rollout is serving, and the newest rollout carries the
+//       commit-sha label (requires gcloud auth for the App Hosting API
+//       read). Then re-deploys the current main head to restore production
+//       (skip with --no-restore — leaves the past commit serving).
 //
 // Requires the gh CLI authenticated (gh auth status) with write access to
 // this repo's Actions. Polls the dispatched runs to completion; phase 2 runs
-// the whole gate suite, so it can take ~8 minutes (default deadline 25 min).
+// the whole gate suite and each deploy takes ~8-13 minutes, so give it time
+// (default deadline 25 min per run).
 //
 // Exports (for the unit test): parseArgs, runIdFromDispatchOutput,
-// WORKFLOW_NAME, GUARD_MSG_1, GUARD_MSG_2, GATE_STEPS, checkCompletedRun.
+// WORKFLOW_NAME, GUARD_MSG_1, GUARD_MSG_2, GATE_STEPS, checkCompletedRun,
+// DEPLOY_WORKFLOW_NAME, BACKEND_URL, VERIFY_DEPLOYED_JOB, dispatchDeploy,
+// liveVersion, newestRolloutCommitSha, checkDeployRun.
 // ============================================================================
 
 import { execFileSync } from 'node:child_process';
@@ -43,7 +55,15 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 export const WORKFLOW_NAME = 'Car app CI';
+export const DEPLOY_WORKFLOW_NAME = 'Deploy car app';
 export const REPO = 'LCHEROURI/portfolio-app-freebuff';
+// The canonical car-app backend the deploy proof probes. /api/version
+// reports { service, commit, commitFull, rolloutId, deployedAt } on a
+// deployed build (nulls on a dev build).
+export const BACKEND_URL = 'https://freebuff-car-app--portfolio-app-freebuff2.us-central1.hosted.app';
+// The job in deploy-car-app.yml that polls live /api/version until
+// commitFull equals the deployed commit — the proof asserts it passed.
+export const VERIFY_DEPLOYED_JOB = 'Verify live /api/version serves the pinned commit';
 // The exact actionable guard lines the workflow emits on a short sha — the
 // proof asserts these strings appear in the failed run's log, so if the
 // workflow ever rewrites the message the proof (and its contract test) goes
@@ -65,6 +85,8 @@ export function parseArgs(rawArgs) {
     sha: flag('--sha'),
     ref: flag('--ref') ?? 'main',
     timeoutMin: Number(flag('--timeout-min') ?? 25),
+    deploy: args.includes('--deploy'),
+    noRestore: args.includes('--no-restore'),
   };
 }
 
@@ -84,6 +106,62 @@ export function dispatchCommitSha(commitSha, ref) {
   const runId = runIdFromDispatchOutput(out);
   if (!runId) throw new Error(`could not read the dispatched run id from gh output: ${out}`);
   return runId;
+}
+
+/** Dispatch the car-app DEPLOY workflow with a commit_sha input; returns the run id. */
+export function dispatchDeploy(commitSha, ref) {
+  const out = gh(['workflow', 'run', DEPLOY_WORKFLOW_NAME, '--ref', ref, '-f', `commit_sha=${commitSha}`]);
+  const runId = runIdFromDispatchOutput(out);
+  if (!runId) throw new Error(`could not read the dispatched deploy run id from gh output: ${out}`);
+  return runId;
+}
+
+/**
+ * The live car-app provenance: { commitFull, rolloutId } from /api/version,
+ * or { null, null } when the endpoint is unreachable/unparseable (a failed
+ * probe must FAIL the assertion below, never pass vacuously).
+ */
+export function liveVersion() {
+  try {
+    const body = execFileSync('curl', ['-sS', '-m', '15', `${BACKEND_URL}/api/version`], { encoding: 'utf8' });
+    const j = JSON.parse(body);
+    return { commitFull: j.commitFull ?? null, rolloutId: j.rolloutId ?? null };
+  } catch {
+    return { commitFull: null, rolloutId: null };
+  }
+}
+
+/**
+ * The commit-sha label of the NEWEST car-app rollout, via the App Hosting
+ * API (the rollouts list is not newest-ordered — sort by createTime). Reads
+ * labels first, then annotations (the deploy script writes both). Requires
+ * an authenticated gcloud token; throws loudly when unavailable.
+ */
+export function newestRolloutCommitSha() {
+  const token = execFileSync('gcloud', ['auth', 'print-access-token'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  }).trim();
+  const url =
+    'https://firebaseapphosting.googleapis.com/v1beta/projects/portfolio-app-freebuff2/locations/us-central1/backends/freebuff-car-app/rollouts?pageSize=50';
+  const body = JSON.parse(
+    execFileSync('curl', ['-sS', '-m', '20', '-H', `Authorization: Bearer ${token}`, url], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }),
+  );
+  const newest = (body.rollouts ?? [])
+    .slice()
+    .sort((a, b) => (a.createTime < b.createTime ? 1 : -1))[0];
+  return newest?.labels?.['commit-sha'] ?? newest?.annotations?.['commit-sha'] ?? null;
+}
+
+/** The current origin/main head, resolved from the remote (never a stale local ref). */
+function gitHead() {
+  const out = execFileSync('git', ['ls-remote', 'origin', 'refs/heads/main'], { encoding: 'utf8' }).trim();
+  const sha = out.split(/\s+/)[0];
+  if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error(`could not resolve origin/main head (got: ${out})`);
+  return sha;
 }
 
 /** Poll a run until completed; returns { status, conclusion } (throws on timeout). */
@@ -158,8 +236,44 @@ export function checkCompletedRun(runId, { expectFailure, fullSha }) {
   return failures === 0;
 }
 
+/**
+ * Assert the DEPLOY-phase contract on one already-completed deploy run:
+ *   - the run concluded success (a failed gate or cloud build would red it)
+ *   - the verify-deployed job passed (live /api/version matched the commit
+ *     THIS run deployed — the workflow itself polls up to 5 minutes)
+ *   - live /api/version NOW serves the requested commit
+ *   - a NEW rollout is serving (different from the pre-dispatch baseline)
+ *   - the newest rollout is labeled commit-sha = the requested commit
+ * Returns true when every assertion holds.
+ */
+export function checkDeployRun(runId, target, baselineRolloutId) {
+  const jobs = runJobs(runId);
+  const deployJob = jobs[0];
+  check(`deploy run ${runId} concluded success`, deployJob?.conclusion === 'success');
+  const verifyJob = jobs.find((j) => j.name === VERIFY_DEPLOYED_JOB);
+  check(
+    `verify-deployed job passed (${VERIFY_DEPLOYED_JOB})`,
+    verifyJob?.conclusion === 'success',
+    `conclusion=${verifyJob?.conclusion ?? 'missing'}`,
+  );
+  const live = liveVersion();
+  check(
+    `live /api/version serves the requested commit (${target.slice(0, 7)})`,
+    live.commitFull === target,
+    `commitFull=${live.commitFull ?? 'none'}`,
+  );
+  check(
+    `a NEW rollout is serving (was ${baselineRolloutId ?? 'none'})`,
+    !!live.rolloutId && live.rolloutId !== baselineRolloutId,
+    `rolloutId=${live.rolloutId ?? 'none'}`,
+  );
+  const label = newestRolloutCommitSha();
+  check(`newest rollout is labeled commit-sha=${target.slice(0, 7)}`, label === target, `label=${label ?? 'none'}`);
+  return failures === 0;
+}
+
 async function main() {
-  const { sha, ref, timeoutMin } = parseArgs(process.argv.slice(2));
+  const { sha, ref, timeoutMin, deploy, noRestore } = parseArgs(process.argv.slice(2));
   if (!(timeoutMin > 0)) {
     console.error('✗ --timeout-min must be a positive number of minutes.');
     process.exit(1);
@@ -188,6 +302,20 @@ async function main() {
     process.exit(1);
   }
 
+  // Deploy phase sanity: the deploy workflow must still carry the
+  // verify-deployed job the proof asserts and the same guard messages.
+  if (deploy) {
+    const deployText = readFileSync('.github/workflows/deploy-car-app.yml', 'utf8');
+    if (
+      !deployText.includes(VERIFY_DEPLOYED_JOB) ||
+      !deployText.includes(GUARD_MSG_1) ||
+      !deployText.includes(GUARD_MSG_2)
+    ) {
+      console.error('✗ deploy-car-app.yml no longer contains the verify-deployed job / guard the deploy phase asserts — update both in the same commit.');
+      process.exit(1);
+    }
+  }
+
   console.log(`=== car-app-ci re-verify proof ===`);
   console.log(`target commit: ${target} (short ${short}) · ref ${ref} · timeout ${timeoutMin} min`);
 
@@ -205,11 +333,44 @@ async function main() {
   console.log(`  completed ${fullResult.status}/${fullResult.conclusion}`);
   checkCompletedRun(fullRun, { expectFailure: false, fullSha: target });
 
+  if (deploy) {
+    console.log(`\n[phase 3/3] deploy: full sha ${target} → labeled rollout must serve it`);
+    const baseline = liveVersion();
+    console.log(
+      `  baseline live: commit=${baseline.commitFull ? baseline.commitFull.slice(0, 7) : 'none'} rollout=${baseline.rolloutId ?? 'none'}`,
+    );
+    const deployRun = dispatchDeploy(target, ref);
+    console.log(`  dispatched deploy run ${deployRun}`);
+    const deployResult = await waitForCompletion(deployRun, Math.max(20, timeoutMin));
+    console.log(`  completed ${deployResult.status}/${deployResult.conclusion}`);
+    checkDeployRun(deployRun, target, baseline.rolloutId);
+
+    if (noRestore) {
+      console.log('\n  (--no-restore: leaving the past commit serving — the stale watch will flag it)');
+    } else {
+      console.log('\n[restore] re-deploy the current main head so production is not left on a past commit');
+      const head = gitHead();
+      console.log(`  current main head: ${head}`);
+      const restoreRun = dispatchDeploy(head, ref);
+      console.log(`  dispatched restore run ${restoreRun}`);
+      const restoreResult = await waitForCompletion(restoreRun, Math.max(20, timeoutMin));
+      console.log(`  completed ${restoreResult.status}/${restoreResult.conclusion}`);
+      check(`restore run ${restoreRun} concluded success`, restoreResult.conclusion === 'success');
+      const live = liveVersion();
+      check(
+        `live /api/version back on the main head (${head.slice(0, 7)})`,
+        live.commitFull === head,
+        `commitFull=${live.commitFull ?? 'none'}`,
+      );
+    }
+  }
+
   if (failures > 0) {
     console.error(`\nRESULT: FAIL (${failures} assertion${failures === 1 ? '' : 's'} failed)`);
     process.exit(1);
   }
-  console.log(`\nRESULT: PASS — short sha fails at the guard; full sha runs the gate suite pinned to ${short}`);
+  const phases = deploy ? 'CI guard/pin + labeled re-deploy' : 'CI guard/pin';
+  console.log(`\nRESULT: PASS — ${phases}: short sha fails at the guard; full sha runs the gate suite pinned to ${short}`);
   process.exit(0);
 }
 
