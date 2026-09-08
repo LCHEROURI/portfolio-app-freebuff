@@ -49,6 +49,11 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
+        with:
+          # Pin to the exact commit this run was triggered on so a re-run
+          # deploys the same code (default ref re-resolves the branch head at
+          # re-run time — the 8182177 rerun drift).
+          ref: ${{ github.sha }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v5

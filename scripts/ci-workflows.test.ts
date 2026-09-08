@@ -25,6 +25,27 @@ import { describe, expect, it } from 'vitest';
 const CI = readFileSync('.github/workflows/ci.yml', 'utf8');
 const GALLERY = readFileSync('.github/workflows/gallery.yml', 'utf8');
 const GALLERY_STABILITY = readFileSync('.github/workflows/gallery-stability.yml', 'utf8');
+const CAR_APP_CI = readFileSync('.github/workflows/car-app-ci.yml', 'utf8');
+const DEPLOY_CAR_APP = readFileSync('.github/workflows/deploy-car-app.yml', 'utf8');
+const DEPLOY_PORTFOLIO_APP = readFileSync('.github/workflows/deploy-portfolio-app.yml', 'utf8');
+const ROLLOUT_HEALTH = readFileSync('.github/workflows/rollout-health.yml', 'utf8');
+
+// Every workflow that checks out code must pin actions/checkout to
+// github.sha (ci.yml pins it per-job; the others get `ref: ${{ github.sha }}`).
+// An unpinned checkout resolves the PR MERGE ref or the branch head, and
+// RE-RESOLVES it at re-run time — so a re-run of a failed run silently tests
+// or deploys NEWER code than the run was created for (the 8182177 rerun
+// drift, observed 2026-09-07 and fixed in ci.yml). report-cron.yml has no
+// checkout (it curls the endpoint), so it is intentionally absent here.
+const ALL_WORKFLOW_FILES: Record<string, string> = {
+  'car-app-ci.yml': CAR_APP_CI,
+  'ci.yml': CI,
+  'deploy-car-app.yml': DEPLOY_CAR_APP,
+  'deploy-portfolio-app.yml': DEPLOY_PORTFOLIO_APP,
+  'gallery-stability.yml': GALLERY_STABILITY,
+  'gallery.yml': GALLERY,
+  'rollout-health.yml': ROLLOUT_HEALTH,
+};
 
 // The gallery capture runs against a locally built demo-mode server (no
 // Vercel preview since the decoupling), so no VERCEL_* env-trio gating
@@ -96,6 +117,31 @@ describe('.github/workflows/ci.yml · re-verify sha guard', () => {
     const guardBeforeFirst = CI.lastIndexOf('Validate re-verify commit sha', firstCheckout);
     expect(guardBeforeFirst).toBeGreaterThan(-1);
     expect(guardBeforeFirst).toBeLessThan(firstCheckout);
+  });
+});
+
+describe('every workflow pins actions/checkout to github.sha (re-run drift guard)', () => {
+  it('has a pinned ref on EVERY checkout in EVERY workflow that checks out code', () => {
+    for (const [file, content] of Object.entries(ALL_WORKFLOW_FILES)) {
+      const checkouts = content.match(/uses: actions\/checkout@v5/g) ?? [];
+      expect(checkouts.length, `${file}: expected at least one checkout`).toBeGreaterThan(0);
+      // Every checkout block must carry a ref that resolves to github.sha.
+      // ci.yml additionally pins the dispatch commit_sha first, so its ref
+      // line is the composite expression — require github.sha inside it. The
+      // other workflows use the bare `ref: ${{ github.sha }}` form. An
+      // unpinned checkout re-resolves the merge ref / branch head at re-run
+      // time.
+      const refMatches = content.match(/ref: \$\{\{ github\.sha \}\}/g) ?? [];
+      const compositeRefs = content.match(/ref: \$\{\{ github\.event_name == 'workflow_dispatch' && github\.event\.inputs\.commit_sha \|\| github\.sha \}\}/g) ?? [];
+      const pinned = refMatches.length + compositeRefs.length;
+      expect(pinned, `${file}: every checkout must pin ref to github.sha`).toBe(checkouts.length);
+    }
+  });
+
+  it('car-app-ci keeps its fetch-depth 2 next to the pinned ref (push HEAD~1 diff still works)', () => {
+    const carBlock = CAR_APP_CI.slice(CAR_APP_CI.indexOf('uses: actions/checkout@v5'), CAR_APP_CI.indexOf('Detect car-app changes'));
+    expect(carBlock).toContain('ref: ${{ github.sha }}');
+    expect(carBlock).toContain('fetch-depth: 2');
   });
 });
 
