@@ -318,16 +318,16 @@ installer's note).
 1. **Firebase console** (`portfolio-app-freebuff2`):
    - Email/Password **and** Google providers enabled (Authentication → Sign-in method).
    - **Google sign-in uses a classic web OAuth client** (`{projectNumber}-{hash}.apps.googleusercontent.com` + `GOCSPX-…` secret) wired into the `google.com` IdP record via `GOOGLE_CLIENT_ID=… GOOGLE_CLIENT_SECRET=… node scripts/wire-google-client.mjs`. `gcloud iam oauth-clients` (Workforce) is rejected by Google's consumer OAuth endpoint — never use it.
-   - Authorized domains include `portfolio-app-freebuff.vercel.app` + every preview URL.
-2. **Vercel** — all env vars from §2 set on **Production** (and the GitHub secrets from §3).
+   - Authorized domains include `portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app` (the App Hosting production alias).
+2. **Env vars** — the §2 env vars (and the §3 GitHub secrets) are baked into `.env.production` by `scripts/deploy-portfolio-app.sh`; no console env setup is needed (the Vercel console is retired).
 3. **Rules** — `npx firebase deploy --only firestore:rules --project portfolio-app-freebuff2`.
-4. **Push to `main`** — Vercel auto-deploys; the pre-push hook runs the local gates; CI runs the post-deploy gates.
+4. **Push to `main`** — the `Deploy portfolio app` workflow (Firebase App Hosting) deploys; the pre-push hook runs the local gates; CI runs the post-deploy gates.
 5. **Run the full verify suite** against the production URL (§4). All eighteen gates must pass.
 6. **Manual smoke** — sign in on the production URL with email/password, then Google; open Command Center; click AI Explain and confirm the briefing card renders with the `DeepSeek Chat` badge.
 
 ## 6. What was verified at go-live (2026-08-06)
 
-- All four verify gates **PASS** against `portfolio-app-freebuff.vercel.app`
+- All four verify gates **PASS** against the live production URL
   (cron-reports, auth-domains, prod-signin incl. `[3b]` IdP checks, google-idp).
 - CI for `fcdb059` (push run `31059206686`) **success**.
 - Google popup opens the **real Google sign-in page** (classic client
@@ -347,9 +347,10 @@ installer's note).
 - **Chrome on this Mac** was the flaky component (crashes; hardware
   acceleration disabled; `scripts/chrome-revive.sh` + a launchd watchdog
   `com.freebuff.chrome-watch.plist` installed). Dev-machine only — production
-  is server-rendered on Vercel.
-- **`CRON_SECRET` rotation** must update `.env.local`, Vercel, and the GitHub
-  secret together (README documents the exact sed/vercel commands). Drift
-  shows up as a `401` in the cron-reports gate.
+  is server-rendered on Firebase App Hosting.
+- **`CRON_SECRET` rotation** must update `.env.local` and the GitHub secret
+  together (the deploy script bakes the value into the served build; README
+  documents the exact rotation). Drift shows up as a `401` in the
+  cron-reports gate.
 - Migration history: `docs/migrations/dedicated-firebase-project.md` (old
   project references are historical, marked COMPLETE).
