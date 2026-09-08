@@ -105,6 +105,38 @@ describe('.github/workflows/ci.yml · validate job (docs-render coverage)', () =
   });
 });
 
+describe('.github/workflows/car-app-ci.yml · re-verify sha guard', () => {
+  it('guards the car-app dispatch checkout against a non-full re-verify sha', () => {
+    // Same contract as ci.yml: a manual car-app re-verify of a PAST commit
+    // must accept only a FULL 40-hex sha — actions/checkout treats a short
+    // sha (0fb4954) as refs/heads/0fb4954* and fails with a cryptic git
+    // error, so the guard must exist BEFORE the checkout, blank (push/PR and
+    // blank dispatch) must skip it, and the checkout must prefer the
+    // requested sha on dispatch.
+    const checkoutIdx = CAR_APP_CI.indexOf('uses: actions/checkout@v5');
+    expect(checkoutIdx).toBeGreaterThan(-1);
+    const guardIdx = CAR_APP_CI.lastIndexOf('Validate re-verify commit sha', checkoutIdx);
+    expect(guardIdx).toBeGreaterThan(-1);
+    expect(guardIdx).toBeLessThan(checkoutIdx);
+    expect(CAR_APP_CI).toContain('git rev-parse <ref>');
+    expect(CAR_APP_CI).toContain("[[ \"$SHA\" =~ ^[0-9a-f]{40}$ ]]");
+    expect(CAR_APP_CI).toContain("if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha != '' }}");
+    expect(CAR_APP_CI).toContain("ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha || github.sha }}");
+    // The dispatch input must exist and default to blank (push/PR and blank
+    // dispatch keep using github.sha).
+    expect(CAR_APP_CI).toContain('commit_sha:');
+    expect(CAR_APP_CI).toContain('required: false');
+    expect(CAR_APP_CI).toContain("default: ''");
+  });
+
+  it('still re-verifies the car app unconditionally on dispatch (detect step)', () => {
+    // A manual dispatch must run the full car-app gate suite regardless of
+    // the checked-out commit's diff — dropping the unconditional branch would
+    // let a dispatch of an unchanged car-app dir skip every check silently.
+    expect(CAR_APP_CI).toContain('Manual dispatch re-verifies the car app unconditionally.');
+  });
+});
+
 describe('.github/workflows/ci.yml · re-verify sha guard', () => {
   it('guards every checkout job against a non-full re-verify sha', () => {
     // actions/checkout treats a short sha (0fb4954) as refs/heads/0fb4954*
@@ -147,8 +179,12 @@ describe('every workflow pins actions/checkout to github.sha (re-run drift guard
   });
 
   it('car-app-ci keeps its fetch-depth 2 next to the pinned ref (push HEAD~1 diff still works)', () => {
+    // The car app mirrors ci.yml's dispatch-first composite (manual re-verify
+    // checks out the requested sha, push/PR falls back to github.sha), so the
+    // ref is the composite form, not the bare github.sha the other workflows
+    // use. The pin and the depth-2 must sit in the same checkout block.
     const carBlock = CAR_APP_CI.slice(CAR_APP_CI.indexOf('uses: actions/checkout@v5'), CAR_APP_CI.indexOf('Detect car-app changes'));
-    expect(carBlock).toContain('ref: ${{ github.sha }}');
+    expect(carBlock).toContain("ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha || github.sha }}");
     expect(carBlock).toContain('fetch-depth: 2');
   });
 });
@@ -184,12 +220,15 @@ describe('every workflow concurrency key is re-run-stable (no cross-run collisio
     expect(CI).toContain('cancel-in-progress: ${{ github.event_name != \'workflow_dispatch\' }}');
   });
 
-  it('car-app-ci PR runs key on the PR head sha, not the merge ref or branch head', () => {
+  it('car-app-ci PR runs key on the PR head sha and dispatch re-verifies on the requested sha', () => {
     // The PR head sha is event-frozen — a re-run of a PR run stays in the
     // same group even if the branch advanced. Keying on github.ref (the merge
     // ref) would re-resolve at re-run time and could collide with a newer run
-    // of the same PR or with main.
-    expect(CAR_APP_CI).toContain("group: car-app-ci-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}");
+    // of the same PR or with main. Dispatch re-verifies get their own
+    // reverify-{sha} group (mirroring ci.yml) so a fresh push can never
+    // cancel a manual re-verify of a past commit.
+    expect(CAR_APP_CI).toContain("group: car-app-ci-${{ github.event_name == 'workflow_dispatch' && format('reverify-{0}', github.event.inputs.commit_sha) || github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}");
+    expect(CAR_APP_CI).toContain('cancel-in-progress: ${{ github.event_name != \'workflow_dispatch\' }}');
   });
 
   it('scheduled workflows use a static group (one scheduled run at a time, never cross-run collision)', () => {
