@@ -22,6 +22,12 @@
 # the alert lifecycle is self-managing. A run cancelled by a newer push is
 # NOT an alert: concurrency cancels only superseded deploys, and the newer
 # run owns the outcome.
+#
+# Manual re-deploy of a past commit: dispatch with commit_sha to deploy a
+# specific commit through the SAME labeled pipeline (rollout labels, GitHub
+# Deployment record, and the failure issue all name the commit actually
+# deployed). Blank = the ref head (the commit the workflow was dispatched
+# on).
 name: Deploy portfolio app
 
 on:
@@ -29,16 +35,29 @@ on:
     branches: [main]
     paths-ignore:
       - 'freebuff-car-app/**'
-  workflow_dispatch: {}
+  # Manual re-deploy of a past commit: deploy a specific commit without
+  # pushing a new commit. Blank = the ref head.
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: Commit sha to deploy (blank = ref head)
+        required: false
+        default: ''
 
 permissions:
   contents: read
   issues: write
   deployments: write
 
+# Push runs share one per-ref group so only the newest deploy lands (and a
+# re-run of a FAILED deploy stays in the same group, re-deploying the same
+# commit). A dispatch re-deploy gets its own redeploy-{sha} group — a fresh
+# push (different group) can never cancel a manual re-deploy of a past
+# commit, and cancel stays off on dispatch so a newer dispatch can't cancel
+# an older one either.
 concurrency:
-  group: deploy-portfolio-app-${{ github.ref }}
-  cancel-in-progress: true
+  group: deploy-portfolio-app-${{ github.event_name == 'workflow_dispatch' && format('redeploy-{0}', github.event.inputs.commit_sha) || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
   deploy:
@@ -46,14 +65,41 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
+    outputs:
+      deployed_sha: ${{ steps.resolve.outputs.sha }}
+
     steps:
+      # Manual re-deploy: actions/checkout only accepts a FULL 40-hex commit
+      # sha (a short sha like 0fb4954 is fetched as refs/heads/0fb4954* and
+      # fails with a cryptic git error). Fail fast with the actionable message
+      # instead. Blank (push and blank dispatch) skips this guard.
+      - name: Validate re-deploy commit sha (must be full 40-hex)
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha != '' }}
+        run: |
+          SHA="${{ github.event.inputs.commit_sha }}"
+          if ! [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::commit_sha '$SHA' is not a full 40-hex commit sha. Paste the full sha"
+            echo "::error::(git rev-parse <ref>) — a short sha cannot be checked out."
+            exit 1
+          fi
+          echo "✓ re-deploy sha $SHA is a full 40-hex commit"
+
       - name: Check out repository
         uses: actions/checkout@v5
         with:
-          # Pin to the exact commit this run was triggered on so a re-run
-          # deploys the same code (default ref re-resolves the branch head at
-          # re-run time — the 8182177 rerun drift).
-          ref: ${{ github.sha }}
+          # Pin to the exact commit this run deploys: on push that's
+          # github.sha (a re-run deploys the same code — the 8182177 rerun
+          # drift), on dispatch it's the requested past commit.
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha || github.sha }}
+
+      # The sha this run actually deploys: on push it's github.sha, but on a
+      # dispatch re-deploy github.sha names the REF HEAD the dispatch ran on
+      # — labeling the rollout with the WRONG commit. Every label and probe
+      # below (rollout labels, GitHub Deployment record, failure issue) must
+      # use this resolved sha, not github.sha.
+      - name: Resolve deployed commit sha
+        id: resolve
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
@@ -89,9 +135,9 @@ jobs:
       - name: Deploy to Firebase App Hosting (labeled rollout)
         env:
           GOOGLE_APPLICATION_CREDENTIALS: /tmp/fb-key.json
-          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_SHA: ${{ steps.resolve.outputs.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          COMMIT_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
+          COMMIT_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ steps.resolve.outputs.sha }}
           NEXT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.NEXT_PUBLIC_FIREBASE_API_KEY }}
           NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN }}
           NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.NEXT_PUBLIC_FIREBASE_PROJECT_ID }}
@@ -120,6 +166,7 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+          GITHUB_SHA: ${{ steps.resolve.outputs.sha }}
           BACKEND_URL: https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app
         run: |
           set -euo pipefail
@@ -135,6 +182,8 @@ jobs:
             -f environment_url="$BACKEND_URL"
 
       - name: Write deploy summary
+        env:
+          GITHUB_SHA: ${{ steps.resolve.outputs.sha }}
         run: |
           {
             echo "## Portfolio-app deploy ✓"
@@ -159,6 +208,7 @@ jobs:
 
     env:
       ALERT_WEBHOOK_URL: ${{ secrets.ALERT_WEBHOOK_URL }}
+      GITHUB_SHA: ${{ needs.deploy.outputs.deployed_sha }}
 
     steps:
       - name: Create or update the deploy-failure issue
@@ -228,6 +278,9 @@ jobs:
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
+
+    env:
+      GITHUB_SHA: ${{ needs.deploy.outputs.deployed_sha }}
 
     steps:
       - name: Close any open deploy-failure issue
