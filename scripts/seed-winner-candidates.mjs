@@ -337,7 +337,7 @@ const main = async () => {
   console.log();
   console.log('Next: trigger the weekly cron with the CRON_SECRET bearer, e.g.');
   console.log('  curl -H "Authorization: Bearer $CRON_SECRET" \\\\');
-  console.log("    'https://portfolio-app-freebuff.vercel.app/api/cron/reports?kind=weekly&previewBody=1'");
+  console.log("    'https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app/api/cron/reports?kind=weekly&previewBody=1'");
   console.log('  → reports[0].body should contain "## 🏆 AI winner recommendations (DeepSeek Chat)".');
   console.log();
   console.log('Note: FIREBASE_SERVICE_ACCOUNT must also be set on Vercel (and the app');

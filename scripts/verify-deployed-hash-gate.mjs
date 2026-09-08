@@ -2,18 +2,19 @@
 // ============================================================================
 // scripts/verify-deployed-hash-gate.mjs — the verify:deployed-hash gate.
 //
-// Reports the commit Vercel is CURRENTLY serving and compares it against
-// local HEAD, so you know what you are about to change before any deploy.
-// It composes the existing shared driver (scripts/verify-deployed-hash.mjs)
-// rather than reimplementing its machinery — the same token-resolution chain,
-// team resolution, v13 host lookup, and exit-code contract the CI
-// deployment_status gate uses, so the local gate and the post-deploy gate can
-// never disagree about what "the live commit" means.
+// Reports the commit the Firebase App Hosting backend is CURRENTLY serving
+// and compares it against local HEAD, so you know what you are about to
+// change before any deploy. It composes the existing shared driver
+// (scripts/verify-deployed-hash.mjs) rather than reimplementing its machinery
+// — the same gcloud OAuth token resolution, rollout lookup, and exit-code
+// contract the CI post-deploy gate uses, so the local gate and the post-deploy
+// gate can never disagree about what "the live commit" means.
 //
 //   1. Resolves local HEAD (git rev-parse HEAD).
 //   2. Runs verify-deployed-hash.mjs with
-//        --url https://cook-with-freebuff.vercel.app   (the live production
-//            alias — public, not deployment-protected)
+//        --url https://portfolio-app-freebuff--portfolio-app-freebuff2.us-central1.hosted.app
+//            (CANONICAL_URL from the shared driver — the Firebase App Hosting
+//            production alias, public, not deployment-protected)
 //        --expect <local HEAD>
 //      which prints the live commit / url / created and asserts the deployed
 //      sha matches local HEAD.
@@ -21,9 +22,9 @@
 //        0 = PASS — live is exactly your HEAD
 //        1 = FAIL — live commit ≠ local HEAD (you are about to deploy a
 //            change, or the site has not caught up — deploy first, re-run)
-//        2 = VERCEL_TOKEN invalid/revoked (the child printed the
-//            paste-a-fresh-token guidance) — kept distinct so a caller can
-//            surface it as a credential problem, never a generic failure
+//        2 = the driver's token resolution failed (gcloud OAuth not
+//            available / rejected) — kept distinct so a caller can surface it
+//            as a credential problem, never a generic failure
 //
 //   --stale-guard (the CI push-time mode): on the exit-1 mismatch the
 //   DIRECTION decides. If live is an ancestor of the expected head the push
@@ -48,7 +49,7 @@
 //   node scripts/verify-deployed-hash-gate.mjs --stale-guard --head <pr-sha>
 //                                                      # CI PR gate
 //
-// Read-only against Vercel and git; no source changes.
+// Read-only against the deployed backend and git; no source changes.
 // ============================================================================
 
 import { spawnSync } from 'node:child_process';
@@ -134,7 +135,7 @@ if (!ensureCommit(live) || !ensureCommit(LOCAL_HEAD)) {
 
 const anc = spawnSync('git', ['merge-base', '--is-ancestor', live, LOCAL_HEAD]);
 if (anc.status === 0) {
-  console.log(`\n  ✓ live (${live.slice(0, 12)}…) is behind ${headLabel} — forward deploy; the post-deploy gate verifies after Vercel finishes`);
+  console.log(`\n  ✓ live (${live.slice(0, 12)}…) is behind ${headLabel} — forward deploy; the post-deploy gate verifies after the deploy finishes`);
   console.log('RESULT: PASS (stale-guard)');
   process.exit(0);
 }
