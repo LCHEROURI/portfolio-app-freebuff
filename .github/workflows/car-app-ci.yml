@@ -18,10 +18,24 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  workflow_dispatch: {}
+  # Manual re-verify of a past commit: run the car-app gate suite against an
+  # explicit commit sha without pushing a new commit. Blank = the ref head
+  # (the commit the workflow was dispatched on).
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: Commit sha to re-verify (blank = ref head)
+        required: false
+        default: ''
 
+# Push/PR runs share one per-ref group so only the newest lands. PR runs key
+# on the PR head sha (event-frozen, so a re-run stays grouped even if the
+# branch advanced). Manual re-verify runs get their own group keyed by the
+# requested sha — a fresh push (different group) can never cancel a re-verify
+# that is explicitly checking a past commit, and cancel stays off on dispatch
+# so a newer dispatch can't cancel an older re-verify either.
 concurrency:
-  group: car-app-ci-${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}
+  group: car-app-ci-${{ github.event_name == 'workflow_dispatch' && format('reverify-{0}', github.event.inputs.commit_sha) || github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}
   cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 jobs:
@@ -33,14 +47,31 @@ jobs:
       changed: ${{ steps.detect.outputs.changed }}
 
     steps:
+      # Manual re-verify: actions/checkout only accepts a FULL 40-hex commit
+      # sha (a short sha like 0fb4954 is fetched as refs/heads/0fb4954* and
+      # fails with a cryptic git error). Fail fast with the actionable message
+      # instead. Blank (push/PR and blank dispatch) skips this guard.
+      - name: Validate re-verify commit sha (must be full 40-hex)
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha != '' }}
+        run: |
+          SHA="${{ github.event.inputs.commit_sha }}"
+          if ! [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::commit_sha '$SHA' is not a full 40-hex commit sha. Paste the full sha"
+            echo "::error::(git rev-parse <ref>) — a short sha cannot be checked out."
+            exit 1
+          fi
+          echo "✓ re-verify sha $SHA is a full 40-hex commit"
+
       - name: Check out repository
         uses: actions/checkout@v5
         with:
-          # Pin to the exact commit this run was triggered on, so a RE-RUN of
-          # a failed run re-verifies the same code (the 8182177 rerun drift:
-          # the default ref re-resolves the PR merge ref / branch head at
-          # re-run time and silently tests newer code).
-          ref: ${{ github.sha }}
+          # Manual re-verify: check out the requested commit sha. On push/PR
+          # this falls back to github.sha — the exact commit this run was
+          # triggered on — so a RE-RUN of a failed run re-verifies the same
+          # code. (github.ref would re-fetch the branch's CURRENT head at
+          # re-run time and silently test newer code — the 8182177 rerun
+          # drift, observed 2026-09-07.)
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.commit_sha || github.sha }}
           # Depth 2 is enough for the push-event HEAD~1 diff; the PR event
           # fetches its base explicitly below.
           fetch-depth: 2
