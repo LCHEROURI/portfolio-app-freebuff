@@ -34,7 +34,7 @@ describe('isClassicWebClientId', () => {
 
 describe('isClassicClientSecret', () => {
   it('accepts a real GOCSPX secret', () => {
-    expect(isClassicClientSecret('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8e43e791c601eee05e6253465c7b2e476973')).toBe(true);
+    expect(isClassicClientSecret('GOCSPX-testfixture-abc_DEF-1234567890')).toBe(true);
   });
 
   it('rejects the template placeholder and short values', () => {
@@ -43,7 +43,7 @@ describe('isClassicClientSecret', () => {
   });
 
   it('rejects non-GOCSPX values', () => {
-    expect(isClassicClientSecret('AIzaSyA9iUv7FVUDEuwO5pdEd8RXJc9qshNMRlE')).toBe(false);
+    expect(isClassicClientSecret('AIzaSyExampleBrowserKeyNotASecret')).toBe(false);
     expect(isClassicClientSecret('')).toBe(false);
     expect(isClassicClientSecret(undefined as unknown as string)).toBe(false);
   });
