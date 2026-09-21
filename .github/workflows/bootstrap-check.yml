@@ -1,0 +1,20 @@
+name: Universal bootstrap check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify-bootstrap:
+    name: Verify universal agent bootstrap
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Verify AGENTS.md, WORKFLOW.md, and bootstrap skill
+        run: bash scripts/verify-bootstrap.sh
