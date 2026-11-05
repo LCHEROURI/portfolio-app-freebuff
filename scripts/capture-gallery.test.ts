@@ -359,4 +359,26 @@ describe('scripts/capture-gallery.mjs · deterministic capture mode (CAPTURE_DET
     const shell = readFileSync('scripts/capture-screenshots.sh', 'utf8');
     expect(shell).toContain('export CAPTURE_DETERMINISTIC=1');
   });
+
+  it('appends &gallery=1 to deterministic route capture URLs (and omits it for live captures)', () => {
+    // command-center.png drifted across double-captures when NEXT_PUBLIC_ENABLE_AI_BRIEFINGS=1
+    // triggered an asynchronous /api/ai/top-three request + skeleton shimmer on
+    // mount. Tagging deterministic route URLs with &gallery=1 lets the page
+    // suppress the mount-time AI briefing while live captures keep the bare
+    // ?theme=<theme> URL.
+    expect(DRIVER).toContain("const url = `${BASE}/${route}?theme=${theme}${DETERMINISTIC ? '&gallery=1' : ''}`;");
+    expect(DRIVER).toContain("await send('Page.navigate', { url });");
+  });
+
+  it('suppresses automatic AI briefing requests on /command-center when gallery=1 is present', () => {
+    // The Command Center page must read ?gallery=1 from window.location.search
+    // and short-circuit the mount-time auto-briefing effect, while preserving
+    // normal production auto-briefing (when gallery=1 is absent) and manual
+    // AI Explain clicks.
+    const page = readFileSync('app/command-center/page.tsx', 'utf8');
+    expect(page).toContain("new URLSearchParams(window.location.search).get('gallery') === '1'");
+    expect(page).toMatch(
+      /if\s*\(\s*autoBriefedRef\.current\s*\|\|\s*!isAiBriefingsEnabled\(\)\s*\|\|\s*isGalleryCapture\(\)\s*\|\|\s*topThree\.length === 0\s*\)\s*return;/,
+    );
+  });
 });

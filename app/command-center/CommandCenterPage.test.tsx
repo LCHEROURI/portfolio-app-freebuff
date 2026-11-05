@@ -508,6 +508,30 @@ describe('CommandCenterPage — auto-briefing on load', () => {
     // Exactly one AI call for the whole lifecycle (ignoring the /api/scans feed).
     expect(aiCalls(lastFetchMock as ReturnType<typeof vi.fn>)).toHaveLength(1);
   });
+
+  it('suppresses automatic AI briefing on load when gallery=1 is in the URL while preserving manual AI Explain', async () => {
+    process.env.NEXT_PUBLIC_ENABLE_AI_BRIEFINGS = '1';
+    queue = [{
+      ok: true, configured: true,
+      narration: { paragraph: 'Manual click still works.', model: 'deepseek/deepseek-chat', projectIds: [] },
+    }];
+    window.history.replaceState({}, '', '/command-center?theme=light&gallery=1');
+    try {
+      render(<CommandCenterPage />);
+
+      // Deterministic gallery capture: no auto-briefing call or loading skeleton on mount.
+      expect(aiCalls(lastFetchMock as ReturnType<typeof vi.fn>)).toHaveLength(0);
+      expect(screen.queryByLabelText('Loading AI briefing')).toBeNull();
+      expect(screen.queryByText('Why these three matter today')).toBeNull();
+
+      // Manual AI Explain remains functional.
+      fireEvent.click(screen.getByRole('button', { name: "Explain today's top three with AI" }));
+      expect(await screen.findByText('Manual click still works.')).toBeInTheDocument();
+      expect(aiCalls(lastFetchMock as ReturnType<typeof vi.fn>)).toHaveLength(1);
+    } finally {
+      window.history.replaceState({}, '', '/');
+    }
+  });
 });
 
 // ─── Print today's top three ─────────────────────────────────────────────────

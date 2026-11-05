@@ -99,6 +99,17 @@ const persistBriefing = (
   }
 };
 
+/**
+ * True when the Command Center is being rendered for a deterministic gallery
+ * capture (`?gallery=1`). Suppresses the mount-time auto-briefing request so
+ * the loading skeleton and non-deterministic AI response never cause byte
+ * drift between captures, while leaving normal production visits and manual
+ * "AI Explain" clicks untouched.
+ */
+const isGalleryCapture = (): boolean =>
+  typeof window !== 'undefined'
+  && new URLSearchParams(window.location.search).get('gallery') === '1';
+
 export default function CommandCenterPage() {
   const store = useStore();
   const metrics = computeMetrics(store);
@@ -285,7 +296,7 @@ export default function CommandCenterPage() {
   // signature changes and this re-runs — the ref still guarantees a single fire
   // per mount, and later signature changes (data updates) are ignored.
   useEffect(() => {
-    if (autoBriefedRef.current || !isAiBriefingsEnabled() || topThree.length === 0) return;
+    if (autoBriefedRef.current || !isAiBriefingsEnabled() || isGalleryCapture() || topThree.length === 0) return;
     autoBriefedRef.current = true;
     void explainTopThree('all');
     // The ref guards the re-renders caused by the state updates, so the closure
