@@ -259,7 +259,7 @@ const captured = []; // { route, theme, name }
 for (const route of ROUTES) {
   for (const theme of ['light', 'dark']) {
     const name = `${route}${theme === 'dark' ? '-dark' : ''}`;
-    const url = `${BASE}/${route}?theme=${theme}`;
+    const url = `${BASE}/${route}?theme=${theme}${DETERMINISTIC ? '&gallery=1' : ''}`;
     await send('Page.navigate', { url });
     await sleep(WAIT_MS); // real wait: hydration + AI fallback settle
 
